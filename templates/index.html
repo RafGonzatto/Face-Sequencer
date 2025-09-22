@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Face Sequencer Pro - Lip Sync Animation Tool</title>
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/styles.css') }}"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
+    />
+  </head>
+  <body>
+    <div class="app-container">
+      <!-- Header -->
+      <header class="app-header">
+        <div class="header-left">
+          <h1 class="app-title">
+            <i class="fas fa-video"></i>
+            Face Sequencer Pro
+          </h1>
+        </div>
+        <div class="header-right">
+          <button class="btn btn-secondary" id="loadProject">
+            <i class="fas fa-folder-open"></i> Load Project
+          </button>
+          <button class="btn btn-secondary" id="saveProject">
+            <i class="fas fa-save"></i> Save Project
+          </button>
+          <button class="btn btn-primary" id="exportVideo">
+            <i class="fas fa-download"></i> Export MP4
+          </button>
+        </div>
+      </header>
+
+      <!-- Main Content Area -->
+      <div class="main-content">
+        <!-- Left Panel - Input & Configuration -->
+        <div class="panel left-panel">
+          <div class="panel-header">
+            <h2><i class="fas fa-cogs"></i> Configuration</h2>
+          </div>
+
+          <!-- Text Input Section -->
+          <div class="section">
+            <h3>Text Input</h3>
+            <div class="input-group">
+              <textarea
+                id="textInput"
+                placeholder="Enter your text here..."
+                class="text-area"
+                rows="4"
+              ></textarea>
+              <div class="text-stats">
+                <span id="charCount">0 characters</span>
+                <span id="mappingStatus" class="mapping-status">Ready</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Image Folder Section -->
+          <div class="section">
+            <h3>Image Source</h3>
+            <div class="input-group">
+              <div class="folder-input">
+                <input
+                  type="text"
+                  id="folderPath"
+                  placeholder="Enter folder path or browse..."
+                />
+                <button class="btn btn-outline" id="browseFolderBtn">
+                  <i class="fas fa-folder"></i> Browse
+                </button>
+              </div>
+              <button class="btn btn-primary btn-sm" id="scanFolderBtn">
+                <i class="fas fa-sync"></i> Scan Folder
+              </button>
+            </div>
+          </div>
+
+          <!-- Animation Settings -->
+          <div class="section">
+            <h3>Animation Settings</h3>
+            <div class="settings-grid">
+              <div class="setting-item">
+                <label for="frameDuration">Frame Duration (ms)</label>
+                <input
+                  type="number"
+                  id="frameDuration"
+                  value="80"
+                  min="1"
+                  max="1000"
+                />
+              </div>
+              <div class="setting-item">
+                <label for="pauseDuration">Pause Duration (ms)</label>
+                <input
+                  type="number"
+                  id="pauseDuration"
+                  value="120"
+                  min="0"
+                  max="2000"
+                />
+              </div>
+              <div class="setting-item">
+                <label for="fps">FPS</label>
+                <input type="number" id="fps" value="30" min="1" max="60" />
+              </div>
+              <div class="setting-item">
+                <label for="quality">Quality (CRF)</label>
+                <input type="number" id="quality" value="14" min="0" max="30" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Fallback Image -->
+          <div class="section">
+            <h3>Fallback Image</h3>
+            <p class="help-text">Imagem usada para caracteres não mapeados</p>
+            <div class="fallback-container">
+              <div class="fallback-preview" id="fallbackPreview">
+                <i class="fas fa-image"></i>
+                <span>No fallback image</span>
+              </div>
+              <button class="btn btn-outline btn-sm" id="chooseFallbackBtn">
+                Choose Fallback
+              </button>
+            </div>
+          </div>
+
+          <!-- Space Image -->
+          <div class="section">
+            <h3>Space Image</h3>
+            <p class="help-text">Imagem específica para espaços (opcional)</p>
+            <div class="space-container">
+              <div class="space-preview" id="spacePreview">
+                <i class="fas fa-square"></i>
+                <span>Use pause/transparent</span>
+              </div>
+              <button class="btn btn-outline btn-sm" id="chooseSpaceBtn">
+                Choose Space Image
+              </button>
+              <button class="btn btn-outline btn-sm" id="clearSpaceBtn">
+                Clear
+              </button>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="section">
+            <div class="action-buttons">
+              <button class="btn btn-primary btn-lg" id="buildSequenceBtn">
+                <i class="fas fa-play"></i> Build Sequence
+              </button>
+              <button class="btn btn-secondary" id="previewBtn">
+                <i class="fas fa-eye"></i> Preview
+              </button>
+              <button class="btn btn-outline" id="testModeBtn">
+                <i class="fas fa-flask"></i> Test Mode
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Center Panel - Character Mapping -->
+        <div class="panel center-panel">
+          <div class="panel-header">
+            <h2><i class="fas fa-grip"></i> Character Mapping</h2>
+            <div class="mapping-controls">
+              <button class="btn btn-outline btn-sm" id="autoMapBtn">
+                <i class="fas fa-magic"></i> Auto Map
+              </button>
+              <button class="btn btn-outline btn-sm" id="clearMappingBtn">
+                <i class="fas fa-trash"></i> Clear All
+              </button>
+            </div>
+          </div>
+
+          <div class="mapping-grid" id="mappingGrid">
+            <!-- Character mapping grid will be populated by JavaScript -->
+          </div>
+        </div>
+
+        <!-- Right Panel - Sequence Timeline -->
+        <div class="panel right-panel">
+          <div class="panel-header">
+            <h2><i class="fas fa-film"></i> Sequence Timeline</h2>
+            <div class="timeline-controls">
+              <button class="btn btn-outline btn-sm" id="playBtn">
+                <i class="fas fa-play"></i>
+              </button>
+              <button class="btn btn-outline btn-sm" id="stopBtn">
+                <i class="fas fa-stop"></i>
+              </button>
+              <span class="timeline-info" id="timelineInfo">0 frames</span>
+            </div>
+          </div>
+
+          <!-- Preview Area -->
+          <div class="preview-container">
+            <div class="preview-frame" id="previewFrame">
+              <div class="preview-placeholder">
+                <i class="fas fa-image"></i>
+                <span>No preview</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Timeline -->
+          <div class="timeline-container">
+            <div class="timeline-header">
+              <div class="timeline-scrubber" id="timelineScrubber">
+                <div class="scrubber-handle" id="scrubberHandle"></div>
+              </div>
+            </div>
+            <div class="timeline-frames" id="timelineFrames">
+              <!-- Timeline frames will be populated by JavaScript -->
+            </div>
+          </div>
+
+          <!-- Frame Editor -->
+          <div class="frame-editor" id="frameEditor" style="display: none">
+            <h3>Frame Editor</h3>
+            <div class="editor-controls">
+              <div class="setting-item">
+                <label for="selectedFrameDuration">Duration (ms)</label>
+                <input
+                  type="number"
+                  id="selectedFrameDuration"
+                  min="1"
+                  max="5000"
+                />
+              </div>
+              <div class="editor-actions">
+                <button class="btn btn-outline btn-sm" id="duplicateFrameBtn">
+                  <i class="fas fa-copy"></i> Duplicate
+                </button>
+                <button class="btn btn-danger btn-sm" id="deleteFrameBtn">
+                  <i class="fas fa-trash"></i> Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Status Bar -->
+      <div class="status-bar">
+        <div class="status-left">
+          <span id="statusMessage">Ready</span>
+        </div>
+        <div class="status-right">
+          <div
+            class="progress-container"
+            id="progressContainer"
+            style="display: none"
+          >
+            <div class="progress-bar">
+              <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <span id="progressText">0%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- File Input (Hidden) -->
+    <input type="file" id="folderInput" webkitdirectory style="display: none" />
+    <input type="file" id="imageInput" accept="image/*" style="display: none" />
+    <input type="file" id="projectInput" accept=".json" style="display: none" />
+
+    <!-- Modals -->
+    <div class="modal" id="exportModal" style="display: none">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>Export Video</h3>
+          <button class="btn-close" id="closeExportModal">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="export-settings">
+            <div class="setting-item">
+              <label for="exportName">File Name</label>
+              <input type="text" id="exportName" value="sequence.mp4" />
+            </div>
+            <div class="setting-item">
+              <label for="exportQuality">Quality Preset</label>
+              <select id="exportQuality">
+                <option value="high">High Quality (Slow)</option>
+                <option value="medium" selected>
+                  Medium Quality (Balanced)
+                </option>
+                <option value="fast">Fast Export (Lower Quality)</option>
+              </select>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button class="btn btn-secondary" id="cancelExportBtn">
+              Cancel
+            </button>
+            <button class="btn btn-primary" id="confirmExportBtn">
+              <i class="fas fa-download"></i> Export
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+  </body>
+</html>

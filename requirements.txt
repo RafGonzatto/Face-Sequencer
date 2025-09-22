@@ -1,0 +1,6 @@
+flask==2.3.3
+werkzeug==2.3.7
+pillow==10.0.1
+moviepy==1.0.3
+imageio==2.31.5
+imageio-ffmpeg==0.4.9
