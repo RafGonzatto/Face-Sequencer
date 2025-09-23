@@ -175,6 +175,64 @@
                 <input type="number" id="quality" value="14" min="0" max="30" />
               </div>
             </div>
+
+            <!-- Enhanced Audio Alignment Settings -->
+            <div
+              class="enhanced-alignment-settings"
+              id="enhancedAlignmentSettings"
+              style="margin-top: 15px"
+            >
+              <h4><i class="fas fa-magic"></i> Enhanced Audio Alignment</h4>
+              <p class="help-text">
+                Advanced alignment features for improved synchronization
+              </p>
+
+              <div class="settings-grid">
+                <div class="setting-item">
+                  <label class="checkbox-label">
+                    <input type="checkbox" id="useEnhancedAlignment" />
+                    <span>Enable Enhanced Alignment</span>
+                  </label>
+                  <small class="help-text"
+                    >Use advanced algorithms for better lip-sync accuracy</small
+                  >
+                </div>
+
+                <div class="setting-item" id="alignmentMethodContainer">
+                  <label for="alignmentMethod">Alignment Method</label>
+                  <select id="alignmentMethod">
+                    <option value="auto">Auto (Recommended)</option>
+                    <option value="wav2vec2">Wav2Vec2 (Transformer)</option>
+                    <option value="whisper">Whisper (Fallback)</option>
+                  </select>
+                </div>
+
+                <div class="setting-item" id="targetFpsContainer">
+                  <label for="targetFps">Target FPS for Sync</label>
+                  <input
+                    type="number"
+                    id="targetFps"
+                    value="30"
+                    min="24"
+                    max="60"
+                  />
+                  <small class="help-text"
+                    >Frame rate for sub-frame synchronization</small
+                  >
+                </div>
+              </div>
+
+              <div
+                class="enhancement-status"
+                id="enhancementStatus"
+                style="margin-top: 10px"
+              >
+                <small
+                  ><i class="fas fa-info-circle"></i> Checking enhanced features
+                  availability...</small
+                >
+              </div>
+            </div>
           </div>
 
           <!-- Fallback Image -->

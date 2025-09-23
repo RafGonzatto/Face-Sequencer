@@ -6,7 +6,7 @@ from scipy import signal
 
 def preprocess_elevenlabs_audio():
     print('Loading ElevenLabs audio...')
-    input_file = 'ElevenLabs_2025-09-22T18_53_43_Ethan_pre_sp100_s50_sb75_se0_b_m2.mp3'
+    input_file = 'test_audio.mp3'
     output_file = 'uploads/audio/optimized_elevenlabs.wav'
 
     # Load the audio file

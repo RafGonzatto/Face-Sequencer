@@ -46,6 +46,9 @@ class FaceSequencerApp {
 
     // Initialize synchronized playback
     this.initSyncPlayback();
+
+    // Initialize enhanced alignment features
+    this.initEnhancedAlignment();
   }
 
   initializeElements() {
@@ -65,6 +68,16 @@ class FaceSequencerApp {
     this.pauseDuration = document.getElementById("pauseDuration");
     this.fps = document.getElementById("fps");
     this.quality = document.getElementById("quality");
+
+    // Enhanced alignment elements
+    this.useEnhancedAlignment = document.getElementById("useEnhancedAlignment");
+    this.alignmentMethod = document.getElementById("alignmentMethod");
+    this.targetFps = document.getElementById("targetFps");
+    this.enhancementStatus = document.getElementById("enhancementStatus");
+    this.alignmentMethodContainer = document.getElementById(
+      "alignmentMethodContainer"
+    );
+    this.targetFpsContainer = document.getElementById("targetFpsContainer");
 
     // Fallback elements
     this.fallbackPreview = document.getElementById("fallbackPreview");
@@ -184,6 +197,24 @@ class FaceSequencerApp {
 
     this.quality.addEventListener("change", () => {
       this.state.project.settings.quality = parseInt(this.quality.value);
+    });
+
+    // Enhanced alignment events
+    this.useEnhancedAlignment?.addEventListener("change", () => {
+      this.toggleEnhancedAlignmentSettings();
+    });
+
+    this.alignmentMethod?.addEventListener("change", () => {
+      this.state.project.settings.alignmentMethod = this.alignmentMethod.value;
+    });
+
+    this.targetFps?.addEventListener("change", () => {
+      this.state.project.settings.targetFps = parseInt(this.targetFps.value);
+      // Sync with main FPS if enhanced is enabled
+      if (this.useEnhancedAlignment?.checked) {
+        this.fps.value = this.targetFps.value;
+        this.state.project.settings.fps = parseInt(this.targetFps.value);
+      }
     });
 
     // Fallback events
@@ -2010,16 +2041,7 @@ Isso vai servir pra rodar nosso projeto.`;
     }
 
     // Primeiro alinhamos o áudio com o texto para obter os tokens de alinhamento
-    console.log("Aligning audio with text...");
-
-    // Mostrar status de alinhamento
-    this.showStatus("Aligning audio with text...");
-
-    // Chamar API de alinhamento de áudio
-    return this.apiCall("/api/audio/align", "POST", {
-      filename: audioFileId,
-      text: this.state.project.text,
-    })
+    return this.alignAudioWithText(audioFileId)
       .then((alignmentResult) => {
         console.log("Audio alignment successful:", alignmentResult);
 
@@ -2258,6 +2280,206 @@ Isso vai servir pra rodar nosso projeto.`;
     setTimeout(() => {
       this.previewFrame.classList.remove("loading");
     }, 100);
+  }
+
+  // Enhanced Audio Alignment Methods
+  async initEnhancedAlignment() {
+    console.log("Initializing enhanced audio alignment...");
+
+    try {
+      // Check if enhanced features are available
+      const statusResponse = await this.apiCall("/api/audio/status", "GET");
+
+      if (statusResponse && statusResponse.features) {
+        const features = statusResponse.features;
+        this.enhancedAlignmentAvailable =
+          features.enhanced_silence_detection &&
+          features.forced_alignment &&
+          features.sub_frame_timing;
+
+        // Update UI based on availability
+        this.updateEnhancedAlignmentUI(features);
+
+        // Initialize enhanced settings in project state
+        if (!this.state.project.settings.alignmentMethod) {
+          this.state.project.settings.alignmentMethod = "auto";
+        }
+        if (!this.state.project.settings.targetFps) {
+          this.state.project.settings.targetFps = 30;
+        }
+
+        console.log("Enhanced alignment features:", features);
+      } else {
+        this.enhancedAlignmentAvailable = false;
+        this.updateEnhancedAlignmentUI({});
+        console.warn("Could not determine enhanced alignment availability");
+      }
+    } catch (error) {
+      console.error("Failed to check enhanced alignment status:", error);
+      this.enhancedAlignmentAvailable = false;
+      this.updateEnhancedAlignmentUI({});
+    }
+  }
+
+  updateEnhancedAlignmentUI(features) {
+    if (!this.enhancementStatus) return;
+
+    const available = this.enhancedAlignmentAvailable;
+
+    if (available) {
+      this.enhancementStatus.innerHTML = `
+        <i class="fas fa-check-circle" style="color: #10B981;"></i> 
+        Enhanced features available: 
+        ${
+          features.enhanced_silence_detection
+            ? "✓ Advanced Silence Detection"
+            : ""
+        } 
+        ${features.forced_alignment ? "✓ Forced Alignment" : ""} 
+        ${features.sub_frame_timing ? "✓ Sub-frame Timing" : ""}
+      `;
+
+      // Enable enhanced controls
+      if (this.useEnhancedAlignment) {
+        this.useEnhancedAlignment.disabled = false;
+      }
+    } else {
+      this.enhancementStatus.innerHTML = `
+        <i class="fas fa-exclamation-triangle" style="color: #F59E0B;"></i> 
+        Enhanced features not available - install additional dependencies for advanced alignment
+      `;
+
+      // Disable enhanced controls
+      if (this.useEnhancedAlignment) {
+        this.useEnhancedAlignment.disabled = true;
+        this.useEnhancedAlignment.checked = false;
+      }
+    }
+
+    // Update visibility of enhanced settings
+    this.toggleEnhancedAlignmentSettings();
+  }
+
+  toggleEnhancedAlignmentSettings() {
+    const isEnabled =
+      this.useEnhancedAlignment?.checked && this.enhancedAlignmentAvailable;
+
+    if (this.alignmentMethodContainer) {
+      this.alignmentMethodContainer.style.display = isEnabled
+        ? "block"
+        : "none";
+    }
+    if (this.targetFpsContainer) {
+      this.targetFpsContainer.style.display = isEnabled ? "block" : "none";
+    }
+
+    // Update project settings
+    this.state.project.settings.useEnhancedAlignment = isEnabled;
+
+    console.log("Enhanced alignment", isEnabled ? "enabled" : "disabled");
+  }
+
+  // Modified alignment method to use enhanced when enabled
+  async alignAudioWithText(audioFileId) {
+    const useEnhanced =
+      this.useEnhancedAlignment?.checked && this.enhancedAlignmentAvailable;
+    const endpoint = useEnhanced
+      ? "/api/audio/align-enhanced"
+      : "/api/audio/align";
+
+    console.log(
+      `Aligning audio with text using ${
+        useEnhanced ? "enhanced" : "standard"
+      } method...`
+    );
+
+    this.showStatus(
+      `Aligning audio with text (${useEnhanced ? "Enhanced" : "Standard"})...`
+    );
+
+    const requestData = {
+      filename: audioFileId,
+      text: this.state.project.text,
+    };
+
+    // Add enhanced-specific parameters
+    if (useEnhanced) {
+      requestData.fps = parseInt(this.targetFps?.value || this.fps.value || 30);
+      requestData.method = this.alignmentMethod?.value || "auto";
+      requestData.language = "pt-BR"; // Could be made configurable
+    }
+
+    return this.apiCall(endpoint, "POST", requestData)
+      .then((alignmentResult) => {
+        console.log(
+          `${
+            useEnhanced ? "Enhanced" : "Standard"
+          } audio alignment successful:`,
+          alignmentResult
+        );
+
+        if (!alignmentResult.alignment || !alignmentResult.alignment.tokens) {
+          throw new Error("No alignment tokens received from server");
+        }
+
+        // Store alignment tokens
+        if (this.audioManager) {
+          this.audioManager.alignmentTokens = alignmentResult.alignment.tokens;
+          console.log(
+            "Alignment tokens stored:",
+            this.audioManager.alignmentTokens
+          );
+
+          // Create timing markers
+          this.audioManager.createTimingMarkers(
+            alignmentResult.alignment.tokens
+          );
+        }
+
+        // Store enhanced data if available
+        if (useEnhanced && alignmentResult.alignment.timeline) {
+          this.audioManager.enhancedTimeline =
+            alignmentResult.alignment.timeline;
+          console.log(
+            "Enhanced timeline stored:",
+            alignmentResult.alignment.timeline.length,
+            "entries"
+          );
+        }
+
+        if (useEnhanced && alignmentResult.alignment.frame_states) {
+          this.audioManager.frameStates =
+            alignmentResult.alignment.frame_states;
+          console.log(
+            "Frame states stored:",
+            alignmentResult.alignment.frame_states.length,
+            "frames"
+          );
+        }
+
+        return alignmentResult;
+      })
+      .catch((error) => {
+        console.error(
+          `${useEnhanced ? "Enhanced" : "Standard"} alignment failed:`,
+          error
+        );
+
+        // If enhanced alignment fails, try falling back to standard
+        if (useEnhanced) {
+          console.log("Attempting fallback to standard alignment...");
+          this.showStatus(
+            "Enhanced alignment failed, trying standard method..."
+          );
+
+          return this.apiCall("/api/audio/align", "POST", {
+            filename: audioFileId,
+            text: this.state.project.text,
+          });
+        } else {
+          throw error;
+        }
+      });
   }
 }
 

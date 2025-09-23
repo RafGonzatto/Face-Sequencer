@@ -392,7 +392,7 @@ class AudioFallbackHandler:
                 text = args[0].get('text', '')
         
         # Build sequence with manual timing
-        from app import build_sequence
+        from lipanim_core_demo import build_sequence
         try:
             # Try to get settings from the current project
             from flask import current_app
@@ -400,12 +400,12 @@ class AudioFallbackHandler:
             frame_duration = settings.get('frame_duration', 80)
             pause_duration = settings.get('pause_duration', 120)
             
-            # Build sequence with manual timing
+            # Build sequence with manual timing using corrected parameters
             sequence = build_sequence(
                 text=text,
                 letter_map={},  # Will use defaults
-                frame_duration=frame_duration,
-                pause_duration=pause_duration
+                dur_ms=frame_duration,
+                gap_ms=pause_duration
             )
             
             return jsonify({

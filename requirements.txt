@@ -4,3 +4,17 @@ pillow==10.0.1
 moviepy==1.0.3
 imageio==2.31.5
 imageio-ffmpeg==0.4.9
+
+# Enhanced audio alignment dependencies
+torch>=2.0.0
+transformers>=4.30.0
+librosa>=0.10.0
+scipy>=1.10.0
+numpy>=1.24.0
+whisper-openai>=20231117
+webrtcvad>=2.0.10
+
+# Optional for advanced features
+matplotlib>=3.7.0
+soundfile>=0.12.0
+torchaudio>=2.0.0

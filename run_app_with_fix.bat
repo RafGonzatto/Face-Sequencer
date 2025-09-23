@@ -13,7 +13,7 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 REM Check if the ElevenLabs audio file exists
-if not exist "ElevenLabs_2025-09-22T18_53_43_Ethan_pre_sp100_s50_sb75_se0_b_m2.mp3" (
+if not exist "test_audio.mp3" (
     echo ElevenLabs audio file not found!
     echo Please place the ElevenLabs audio file in the project root directory.
     pause

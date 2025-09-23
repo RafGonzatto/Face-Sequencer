@@ -8,7 +8,7 @@ import shutil
 
 def main():
     # Source audio file
-    source_file = "ElevenLabs_2025-09-22T18_53_43_Ethan_pre_sp100_s50_sb75_se0_b_m2.mp3"
+    source_file = "test_audio.mp3"
     
     if not os.path.exists(source_file):
         print(f"❌ Error: File {source_file} not found")

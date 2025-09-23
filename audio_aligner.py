@@ -22,6 +22,18 @@ except ImportError:
         pass
         pass
 
+# Import enhanced components
+try:
+    from enhanced_silence_detector import EnhancedSilenceDetector
+    from forced_alignment import ForcedAligner, AlignmentResult as ForcedAlignmentResult
+    from frame_synchronizer import PreciseFrameSynchronizer, WordTiming, FrameState
+    ENHANCED_COMPONENTS_AVAILABLE = True
+    print("✅ Enhanced audio alignment components loaded")
+except ImportError as e:
+    print(f"⚠️ Enhanced components not available: {e}")
+    print("📝 Using legacy audio alignment methods")
+    ENHANCED_COMPONENTS_AVAILABLE = False
+
 class TokenType(Enum):
     WORD = "word"
     PHONEME = "phoneme" 
@@ -108,6 +120,17 @@ class AudioAligner:
             }
         }
         
+        # Initialize enhanced components if available
+        if ENHANCED_COMPONENTS_AVAILABLE:
+            self.silence_detector = EnhancedSilenceDetector(sample_rate=16000)
+            self.forced_aligner = ForcedAligner(device=device, language=language[:2])
+            self.frame_synchronizer = PreciseFrameSynchronizer(fps=30.0)
+            self.use_enhanced = True
+            print("✅ Enhanced alignment components initialized")
+        else:
+            self.use_enhanced = False
+            print("📝 Using legacy alignment methods")
+        
     def _setup_device(self, device: str) -> str:
         """Determine optimal device for processing"""
         if device == "auto":
@@ -142,20 +165,20 @@ class AudioAligner:
         # Enhanced denoising - reduce background noise
         audio = librosa.effects.preemphasis(audio, coef=0.97)
         
-        # More aggressive silence trimming for ElevenLabs audio
+        # Light processing for ElevenLabs audio - preserve silences for gap detection
         if "ElevenLabs" in audio_path:
-            print("📝 Detected ElevenLabs audio - applying specialized processing")
-            audio, _ = librosa.effects.trim(audio, top_db=15)
+            print("📝 Detected ElevenLabs audio - applying specialized processing (preserving pauses)")
+            # NO trimming - preserve all audio including silences for gap detection
             
-            # Apply a gentle high-pass filter to remove rumble
+            # Apply only gentle high-pass filter to remove rumble
             from scipy.signal import butter, filtfilt
             nyq = 0.5 * sr
             cutoff = 80 / nyq  # 80Hz high-pass
             b, a = butter(3, cutoff, btype='high')
             audio = filtfilt(b, a, audio)
         else:
-            # Standard trimming
-            audio, _ = librosa.effects.trim(audio, top_db=20)
+            # Standard light trimming for other audio sources
+            audio, _ = librosa.effects.trim(audio, top_db=30)  # More conservative trimming
         
         # Final check of audio levels after processing
         rms_after = np.sqrt(np.mean(audio**2))
@@ -559,6 +582,136 @@ class AudioAligner:
             pause_count=pause_count
         )
     
+    def align_audio_to_text_enhanced(self, audio_path: str, transcript: str, 
+                                   granularity: str = "word", language: str = None,
+                                   fps: float = 30.0, method: str = "auto") -> Tuple[AlignmentResult, List[WordTiming], List[FrameState]]:
+        """
+        Enhanced alignment function using advanced components
+        
+        Args:
+            audio_path: Path to audio file
+            transcript: Text transcript matching audio
+            granularity: "word" or "phoneme" level alignment
+            language: Optional language code override
+            fps: Frame rate for animation synchronization
+            method: Alignment method ("wav2vec2", "whisper", "auto")
+            
+        Returns:
+            Tuple of (AlignmentResult, WordTiming list, FrameState list)
+        """
+        if not self.use_enhanced:
+            # Fall back to legacy method
+            result = self.align_audio_to_text(audio_path, transcript, granularity, language)
+            return result, [], []
+        
+        print(f"🚀 Enhanced alignment starting for {os.path.basename(audio_path)}")
+        
+        # Use provided language or fall back to instance language
+        use_language = language or self.language
+        
+        # 1. Preprocess inputs
+        audio, sample_rate = self.preprocess_audio(audio_path)
+        normalized_text = self.preprocess_text(transcript)
+        
+        try:
+            # 2. Enhanced silence detection
+            print("🔍 Performing enhanced silence detection...")
+            silence_segments = self.silence_detector.detect_silence_segments(
+                audio, adaptive_thresholds=True
+            )
+            
+            # 3. Forced alignment with transformer models
+            print("🎯 Performing forced alignment...")
+            forced_result = self.forced_aligner.align_text_to_audio(
+                audio, normalized_text, sample_rate, method=method
+            )
+            
+            # 4. Create precise frame timeline
+            print("🎬 Creating frame synchronization timeline...")
+            
+            # Update frame synchronizer FPS
+            self.frame_synchronizer.fps = fps
+            self.frame_synchronizer.frame_duration = 1.0 / fps
+            
+            # Convert forced alignment to word timings
+            word_timings_list = [
+                (token.text, token.start_time, token.end_time) 
+                for token in forced_result.tokens
+            ]
+            confidence_scores = [token.confidence for token in forced_result.tokens]
+            
+            # Create timeline with sub-frame precision including silence segments
+            timeline = self.frame_synchronizer.create_animation_timeline(
+                word_timings_list, 
+                forced_result.total_duration,
+                confidence_scores,
+                silence_segments
+            )
+            
+            # Optimize timeline
+            timeline = self.frame_synchronizer.optimize_timeline(timeline)
+            
+            # 5. Generate frame sequence
+            print("🎭 Generating frame sequence...")
+            frame_states = self.frame_synchronizer.generate_frame_sequence(
+                timeline, forced_result.total_duration
+            )
+            
+            # 6. Convert to legacy AlignmentResult format for compatibility
+            legacy_tokens = []
+            
+            # Add silence gaps as GAP tokens
+            for seg in silence_segments:
+                legacy_tokens.append(AlignmentToken(
+                    type=TokenType.GAP,
+                    text="",
+                    viseme="REST",
+                    start_ms=seg.start_time * 1000,
+                    end_ms=seg.end_time * 1000,
+                    confidence=seg.confidence,
+                    lang=use_language
+                ))
+            
+            # Add word tokens
+            for token in forced_result.tokens:
+                legacy_tokens.append(AlignmentToken(
+                    type=TokenType.WORD,
+                    text=token.text,
+                    viseme=self._map_to_viseme(token.text),
+                    start_ms=token.start_time * 1000,
+                    end_ms=token.end_time * 1000,
+                    confidence=token.confidence,
+                    lang=use_language
+                ))
+            
+            # Sort by start time
+            legacy_tokens.sort(key=lambda x: x.start_ms)
+            
+            # Calculate stats
+            audio_duration_ms = forced_result.total_duration * 1000
+            stats = self._calculate_enhanced_stats(legacy_tokens, silence_segments, forced_result)
+            
+            result = AlignmentResult(
+                language=use_language,
+                sample_rate=sample_rate,
+                tokens=legacy_tokens,
+                stats=stats
+            )
+            
+            print(f"✅ Enhanced alignment completed successfully")
+            print(f"📊 Results: {len(forced_result.tokens)} words, {len(silence_segments)} silence segments")
+            print(f"🎬 Generated {len(frame_states)} frame states at {fps} FPS")
+            
+            return result, timeline, frame_states
+            
+        except Exception as e:
+            print(f"❌ Enhanced alignment failed: {e}")
+            print("🔄 Falling back to legacy alignment")
+            
+            # Fall back to legacy method
+            result = self.align_audio_to_text(audio_path, transcript, granularity, language)
+            return result, [], []
+    
     def align_audio_to_text(self, audio_path: str, transcript: str, 
                           granularity: str = "word", language: str = None) -> AlignmentResult:
         """
@@ -669,6 +822,65 @@ class AudioAligner:
                 "stats": asdict(result.stats)
             }
         }
+    
+    def _map_to_viseme(self, text: str) -> str:
+        """Map text to viseme using Portuguese phoneme rules"""
+        if not text or not text.strip():
+            return "REST"
+        
+        # Simple mapping based on first character - would be enhanced with phoneme analysis
+        first_char = text.strip()[0].lower()
+        
+        if self.language.startswith("pt"):
+            viseme_map = self.pt_br_config["phoneme_to_viseme"]
+            return viseme_map.get(first_char, "A")  # Default to 'A' for unknown
+        else:
+            # Basic English mapping
+            if first_char in 'aeiouáéíóúãõ':
+                return first_char.upper()
+            elif first_char in 'pb':
+                return "P"
+            elif first_char in 'fv':
+                return "F"
+            elif first_char in 'td':
+                return "T"
+            else:
+                return "REST"
+    
+    def _calculate_enhanced_stats(self, tokens: List[AlignmentToken], 
+                                silence_segments: List, forced_result) -> AlignmentStats:
+        """Calculate statistics for enhanced alignment"""
+        if not tokens:
+            return AlignmentStats(
+                audio_ms=0, drift_ms=0, unaligned_count=0, 
+                avg_confidence=0, pause_count=0
+            )
+        
+        # Calculate timing stats
+        audio_ms = forced_result.total_duration * 1000
+        confidences = [token.confidence for token in tokens if token.type == TokenType.WORD]
+        avg_confidence = np.mean(confidences) if confidences else 0.0
+        
+        # Count unaligned tokens (low confidence)
+        unaligned_count = sum(1 for c in confidences if c < 0.5)
+        
+        # Pause count from silence segments
+        pause_count = len(silence_segments)
+        
+        # Calculate drift (simplified)
+        drift_ms = 0.0
+        if len(tokens) > 1:
+            expected_duration = (tokens[-1].end_ms - tokens[0].start_ms)
+            actual_duration = audio_ms
+            drift_ms = abs(expected_duration - actual_duration)
+        
+        return AlignmentStats(
+            audio_ms=audio_ms,
+            drift_ms=drift_ms,
+            unaligned_count=unaligned_count,
+            avg_confidence=avg_confidence,
+            pause_count=pause_count
+        )
 
 
 # Example usage and testing functions

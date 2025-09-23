@@ -39,9 +39,23 @@ from project_templates import ProjectTemplates, ProjectManager
 try:
     from audio_aligner import AudioAligner, AlignmentToken, TokenType
     AUDIO_ALIGNMENT_AVAILABLE = True
+    
+    # Try to import enhanced components
+    try:
+        from enhanced_silence_detector import EnhancedSilenceDetector
+        from forced_alignment import ForcedAligner, AlignmentResult as ForcedAlignmentResult
+        from frame_synchronizer import PreciseFrameSynchronizer, WordTiming, FrameState
+        ENHANCED_ALIGNMENT_AVAILABLE = True
+        print("✅ Enhanced audio alignment components available")
+    except ImportError as e:
+        ENHANCED_ALIGNMENT_AVAILABLE = False
+        print(f"⚠️ Enhanced components not available: {e}")
+        print("📝 Using standard audio alignment")
+        
 except ImportError as e:
     print(f"Audio alignment not available: {e}")
     AUDIO_ALIGNMENT_AVAILABLE = False
+    ENHANCED_ALIGNMENT_AVAILABLE = False
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-here'
@@ -1025,8 +1039,17 @@ def audio_status():
     return jsonify({
         'success': True,
         'available': AUDIO_ALIGNMENT_AVAILABLE,
+        'enhanced_available': ENHANCED_ALIGNMENT_AVAILABLE,
         'language': 'pt-BR' if AUDIO_ALIGNMENT_AVAILABLE else None,
-        'supported_formats': list(app.config['ALLOWED_AUDIO_EXTENSIONS'])
+        'supported_formats': list(app.config['ALLOWED_AUDIO_EXTENSIONS']),
+        'features': {
+            'basic_alignment': AUDIO_ALIGNMENT_AVAILABLE,
+            'enhanced_silence_detection': ENHANCED_ALIGNMENT_AVAILABLE,
+            'forced_alignment': ENHANCED_ALIGNMENT_AVAILABLE,
+            'sub_frame_timing': ENHANCED_ALIGNMENT_AVAILABLE,
+            'confidence_scoring': ENHANCED_ALIGNMENT_AVAILABLE,
+            'frame_synchronization': ENHANCED_ALIGNMENT_AVAILABLE
+        }
     })
 
 @app.route('/api/audio/upload', methods=['POST'])
@@ -1319,6 +1342,219 @@ def align_audio():
     
     # Call the wrapped function
     return process_audio_alignment()
+
+@app.route('/api/audio/align-enhanced', methods=['POST'])
+def align_audio_enhanced():
+    """Enhanced audio alignment with sub-frame timing and advanced features"""
+    from audio_error_handling import (
+        AudioProcessingError, 
+        AudioErrorType, 
+        handle_audio_errors,
+        with_timeout,
+        AudioFallbackHandler
+    )
+    
+    @handle_audio_errors(fallback_handler=AudioFallbackHandler.fallback_to_manual_timing)
+    def process_enhanced_alignment():
+        if not AUDIO_ALIGNMENT_AVAILABLE:
+            raise AudioProcessingError(
+                AudioErrorType.SYSTEM_UNAVAILABLE,
+                'Audio alignment system not available'
+            )
+        
+        if not ENHANCED_ALIGNMENT_AVAILABLE:
+            # Fall back to standard alignment
+            print("⚠️ Enhanced components not available, falling back to standard alignment")
+            return align_audio()
+            
+        data = request.get_json()
+        if not data:
+            raise AudioProcessingError(
+                AudioErrorType.UPLOAD_ERROR,
+                'No JSON data provided'
+            )
+            
+        audio_filename = data.get('filename')
+        text = data.get('text', '')
+        language = data.get('language', 'pt-BR')
+        fps = float(data.get('fps', 30.0))  # Frame rate for animation
+        method = data.get('method', 'auto')  # wav2vec2, whisper, or auto
+        
+        if not audio_filename:
+            raise AudioProcessingError(
+                AudioErrorType.UPLOAD_ERROR,
+                'No audio filename provided'
+            )
+            
+        if not text.strip():
+            raise AudioProcessingError(
+                AudioErrorType.ALIGNMENT_FAILED,
+                'No text provided for alignment'
+            )
+        
+        # Check if audio file exists
+        audio_path = os.path.join(app.config['AUDIO_FOLDER'], audio_filename)
+        if not os.path.exists(audio_path):
+            raise AudioProcessingError(
+                AudioErrorType.UPLOAD_ERROR,
+                'Audio file not found',
+                {'filename': audio_filename}
+            )
+        
+        # Get aligner and process
+        aligner = get_audio_aligner()
+        if not aligner:
+            raise AudioProcessingError(
+                AudioErrorType.SYSTEM_UNAVAILABLE,
+                'Audio aligner not available'
+            )
+        
+        # Check if enhanced alignment is available
+        if not hasattr(aligner, 'align_audio_to_text_enhanced'):
+            print("⚠️ Enhanced alignment method not available, falling back to standard")
+            return align_audio()
+        
+        # Perform enhanced alignment with timeout
+        @with_timeout(timeout_seconds=360)  # 6 minutes for enhanced processing
+        def run_enhanced_alignment():
+            print(f"🚀 Starting enhanced audio alignment for: {audio_filename}")
+            print(f"📝 Text: {text[:100]}...")
+            print(f"🎬 Target FPS: {fps}")
+            print(f"🎯 Alignment method: {method}")
+            
+            try:
+                # Call the enhanced alignment function
+                alignment_result, timeline, frame_states = aligner.align_audio_to_text_enhanced(
+                    audio_path, text, 
+                    language=language,
+                    fps=fps,
+                    method=method
+                )
+                
+                if not alignment_result:
+                    raise AudioProcessingError(
+                        AudioErrorType.ALIGNMENT_FAILED,
+                        'Enhanced alignment failed - no result returned',
+                        {'text': text[:100]}
+                    )
+                
+                # Convert results to JSON-serializable format
+                result_dict = {
+                    'success': True,
+                    'method': 'enhanced',
+                    'language': alignment_result.language,
+                    'sample_rate': alignment_result.sample_rate,
+                    'fps': fps,
+                    'tokens': [
+                        {
+                            'type': token.type.value,
+                            'text': token.text,
+                            'viseme': token.viseme,
+                            'start_ms': token.start_ms,
+                            'end_ms': token.end_ms,
+                            'confidence': token.confidence,
+                            'lang': token.lang,
+                            'duration_ms': token.end_ms - token.start_ms
+                        }
+                        for token in alignment_result.tokens
+                    ],
+                    'timeline': [
+                        {
+                            'word': wt.word,
+                            'start_time': wt.start_time,
+                            'end_time': wt.end_time,
+                            'start_frame': wt.start_frame,
+                            'end_frame': wt.end_frame,
+                            'start_frame_float': wt.start_frame_float,
+                            'end_frame_float': wt.end_frame_float,
+                            'start_offset': wt.start_offset,
+                            'end_offset': wt.end_offset,
+                            'confidence': wt.confidence,
+                            'duration': wt.duration
+                        }
+                        for wt in timeline
+                    ] if timeline else [],
+                    'frame_states': [
+                        {
+                            'frame_number': fs.frame_number,
+                            'timestamp': fs.timestamp,
+                            'active_word': fs.active_word,
+                            'word_progress': fs.word_progress,
+                            'opacity': fs.opacity,
+                            'viseme': fs.viseme,
+                            'confidence': fs.confidence
+                        }
+                        for fs in frame_states
+                    ] if frame_states else [],
+                    'stats': {
+                        'audio_ms': alignment_result.stats.audio_ms,
+                        'drift_ms': alignment_result.stats.drift_ms,
+                        'unaligned_count': alignment_result.stats.unaligned_count,
+                        'avg_confidence': alignment_result.stats.avg_confidence,
+                        'pause_count': alignment_result.stats.pause_count
+                    },
+                    'total_duration_ms': alignment_result.stats.audio_ms,
+                    'enhancement_features': {
+                        'sub_frame_timing': True,
+                        'forced_alignment': True,
+                        'enhanced_silence_detection': True,
+                        'confidence_scoring': True,
+                        'frame_synchronization': True
+                    }
+                }
+                
+                return result_dict
+                
+            except Exception as e:
+                print(f"❌ Enhanced alignment error: {e}")
+                # Fall back to standard alignment on error
+                print("🔄 Falling back to standard alignment")
+                raise AudioProcessingError(
+                    AudioErrorType.ALIGNMENT_FAILED,
+                    f'Enhanced alignment failed: {str(e)}',
+                    {'text': text[:100], 'fallback_available': True}
+                )
+        
+        # Run enhanced alignment
+        alignment_result = run_enhanced_alignment()
+        
+        # Update current project with enhanced audio-driven sequence
+        tokens = alignment_result.get('tokens', [])
+        sequence = tokens  # Enhanced tokens are already in the right format
+        
+        app_state['current_project']['text'] = text
+        app_state['current_project']['audio_alignment'] = {
+            'filename': audio_filename,
+            'alignment_method': 'enhanced',
+            'fps': fps,
+            'total_duration_ms': alignment_result.get('total_duration_ms', 0),
+            'confidence_score': alignment_result.get('stats', {}).get('avg_confidence', 0.0),
+            'created_at': datetime.now().isoformat(),
+            'enhancement_features': alignment_result.get('enhancement_features', {})
+        }
+        
+        print(f"✅ Enhanced audio alignment completed: {len(sequence)} tokens, {len(alignment_result.get('frame_states', []))} frame states")
+        
+        return jsonify({
+            'success': True,
+            'alignment': alignment_result,
+            'sequence': sequence,
+            'stats': {
+                'total_tokens': len(sequence),
+                'word_tokens': len([t for t in sequence if t.get('type') == 'word']),
+                'gap_tokens': len([t for t in sequence if t.get('type') == 'gap']),
+                'total_duration_ms': alignment_result.get('total_duration_ms', 0),
+                'total_frames': len(alignment_result.get('frame_states', [])),
+                'fps': fps,
+                'method': 'enhanced',
+                'avg_confidence': alignment_result.get('stats', {}).get('avg_confidence', 0.0),
+                'timing_precision': 'sub-frame'
+            },
+            'message': f'Enhanced audio alignment completed successfully with {fps} FPS precision'
+        })
+    
+    # Call the wrapped function
+    return process_enhanced_alignment()
 
 @app.route('/api/sequence/build-from-audio', methods=['POST'])
 def build_sequence_from_audio():

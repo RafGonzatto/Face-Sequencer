@@ -30,7 +30,7 @@ import whisperx
 
 def main():
     # File to test
-    audio_file = "ElevenLabs_2025-09-22T18_53_43_Ethan_pre_sp100_s50_sb75_se0_b_m2.mp3"
+    audio_file = "test_audio.mp3"
     
     if not os.path.exists(audio_file):
         print(f"❌ Error: File {audio_file} not found in current directory")
