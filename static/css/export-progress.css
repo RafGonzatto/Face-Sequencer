@@ -1,0 +1,87 @@
+.progress-modal .modal-content {
+  max-width: 500px;
+  padding: 20px;
+  text-align: center;
+}
+
+.progress-container {
+  margin: 20px 0;
+}
+
+.progress-bar {
+  background-color: #f0f0f0;
+  border-radius: 4px;
+  height: 20px;
+  margin: 10px 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.progress-fill {
+  background-color: #4caf50;
+  height: 100%;
+  transition: width 0.3s ease;
+  width: 0%;
+}
+
+/* Error state for progress bar */
+.progress-fill.error {
+  background-color: #f44336;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.progress-text {
+  font-weight: bold;
+  margin: 5px 0;
+}
+
+.progress-message {
+  color: #666;
+  font-size: 14px;
+  margin: 10px 0;
+  min-height: 40px;
+}
+
+.progress-message.error {
+  color: #f44336;
+  font-weight: bold;
+}
+
+.progress-actions {
+  margin-top: 20px;
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+.retry-export-btn {
+  background-color: #2196f3;
+  color: white;
+  margin-left: 10px;
+}
+
+.retry-export-btn:hover {
+  background-color: #0b7dda;
+}
+
+.frame-size-warning {
+  background-color: #fff3cd;
+  border-left: 4px solid #ffc107;
+  color: #856404;
+  margin: 10px 0;
+  padding: 10px;
+  text-align: left;
+  border-radius: 4px;
+}

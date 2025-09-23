@@ -1,0 +1,112 @@
+/* Additional playback visual indicators */
+body.playback-active .preview-container {
+  border-color: var(--success-color);
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+}
+
+body.playback-active .timeline-controls {
+  background-color: rgba(16, 185, 129, 0.1);
+}
+
+/* Timeline frame hover effects */
+.timeline-frame {
+  transition: transform 0.1s ease, border-color 0.1s ease;
+  position: relative;
+}
+
+.timeline-frame:hover {
+  transform: translateY(-2px);
+  border-color: var(--primary-color);
+  z-index: 2;
+}
+
+/* Timeline frame selected state */
+.timeline-frame.selected {
+  border-width: 2px;
+  transform: translateY(-3px);
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.1);
+}
+
+.timeline-frame.selected::after {
+  content: "";
+  position: absolute;
+  bottom: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-bottom: 6px solid var(--primary-color);
+  transform: translateX(-50%) rotate(180deg);
+}
+
+/* Frame tooltip */
+#frame-tooltip {
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+  transition: opacity 0.15s ease;
+}
+
+/* Active timeline region highlight */
+.active-region {
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.6;
+  }
+  100% {
+    opacity: 0.3;
+  }
+}
+
+/* Notifications */
+#timeline-notification,
+#audio-notification {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  z-index: 100;
+}
+
+/* Playback buttons active state */
+.playback-active #playBtn {
+  background-color: var(--success-color);
+  color: white;
+}
+
+/* Timeline scrubber improvements */
+#timelineScrubber {
+  cursor: pointer;
+  position: relative;
+  height: 16px;
+  margin: 15px 0;
+  background-color: var(--bg-tertiary);
+  border-radius: 8px;
+  overflow: visible;
+}
+
+#timelineScrubber::before {
+  content: "";
+  position: absolute;
+  top: 7px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background-color: var(--border-color);
+}
+
+#timelineScrubber.active::before {
+  background-color: var(--primary-color);
+}
+
+/* Loading animation for preview frame */
+.preview-loading-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.preview-frame.loading img {
+  filter: brightness(0.8);
+}

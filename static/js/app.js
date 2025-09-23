@@ -18,10 +18,13 @@ class FaceSequencerApp {
           preset: "medium",
         },
       },
+      sequence: [], // Ensure sequence is initialized at both levels
       mappings: {},
       currentFrame: 0,
       playing: false,
       exportTask: null,
+      syncPlaybackActive: false,
+      syncAnimationFrameTimer: null,
     };
 
     this.previewInterval = null;
@@ -34,6 +37,15 @@ class FaceSequencerApp {
     this.loadProject();
     this.generateMappingGrid();
     this.updateUI();
+
+    // Make sure sequences are in sync
+    this.syncSequenceState();
+
+    // Audio manager will be initialized by audio.js
+    this.audioManager = null;
+
+    // Initialize synchronized playback
+    this.initSyncPlayback();
   }
 
   initializeElements() {
@@ -301,7 +313,9 @@ class FaceSequencerApp {
     }
 
     try {
-      const response = await fetch(`/api${endpoint}`, config);
+      // Remove duplicate /api if endpoint already starts with /api
+      const url = endpoint.startsWith("/api") ? endpoint : `/api${endpoint}`;
+      const response = await fetch(url, config);
       const result = await response.json();
 
       if (!result.success) {
@@ -435,21 +449,33 @@ class FaceSequencerApp {
 
       // First update the project on the server
       console.log("Updating project on server...");
-      await this.apiCall("/project", "POST", {
+      await this.apiCall("/api/project", "POST", {
         text: this.state.project.text,
         settings: this.state.project.settings,
         name: this.state.project.name,
       });
 
-      // Then build the sequence
-      console.log("Building sequence...");
-      const result = await this.apiCall("/sequence/build", "POST");
+      // Check if we're in audio-driven mode
+      if (
+        this.state.isAudioDriven &&
+        this.audioManager &&
+        this.audioManager.isAudioMode
+      ) {
+        // Use audio-driven sequence building
+        console.log("Building sequence with audio timing...");
+        return this.buildSequenceWithAudio();
+      } else {
+        // Use traditional sequence building
+        console.log("Building sequence with manual timing...");
+        const result = await this.apiCall("/api/sequence/build", "POST");
 
-      this.state.sequence = result.sequence;
-      this.updateTimeline();
-      this.updateTimelineInfo();
+        this.state.project.sequence = result.sequence;
+        this.state.sequence = result.sequence; // Sync both sequence locations
+        this.updateTimeline();
+        this.updateTimelineInfo();
 
-      this.showSuccess(`Built sequence with ${result.total_frames} frames`);
+        this.showSuccess(`Built sequence with ${result.total_frames} frames`);
+      }
     } catch (error) {
       console.error("Build sequence error:", error);
       this.showError(`Failed to build sequence: ${error.message}`);
@@ -505,7 +531,8 @@ class FaceSequencerApp {
 
   // Preview and Playback
   async playSequence() {
-    if (this.state.sequence.length === 0) {
+    this.syncSequenceState();
+    if (!this.state.sequence || this.state.sequence.length === 0) {
       this.showError("No sequence to play");
       return;
     }
@@ -533,11 +560,14 @@ class FaceSequencerApp {
         this.selectFrame(frameIndex);
         frameIndex++;
 
+        // Get the frame duration - prefer ms property but fall back to duration if needed
+        const frameDuration = result.ms || result.duration || 80; // Default to 80ms if no duration is found
+
         setTimeout(() => {
           if (this.state.playing) {
             playFrame();
           }
-        }, result.duration);
+        }, frameDuration);
       } catch (error) {
         this.stopSequence();
         this.showError("Playback error");
@@ -569,10 +599,11 @@ class FaceSequencerApp {
   }
 
   showPauseFrame(frameData) {
+    const duration = frameData.ms || frameData.duration || 0;
     this.previewFrame.innerHTML = `
             <div class="preview-placeholder pause-indicator">
                 <i class="fas fa-pause"></i>
-                <span>Pause (${frameData.duration}ms)</span>
+                <span>Pause (${duration}ms)</span>
             </div>
         `;
   }
@@ -616,6 +647,42 @@ class FaceSequencerApp {
   }
 
   async monitorExportProgress() {
+    // Create or update progress modal
+    if (!this.exportProgressModal) {
+      this.exportProgressModal = document.createElement("div");
+      this.exportProgressModal.className = "modal progress-modal";
+      this.exportProgressModal.innerHTML = `
+        <div class="modal-content">
+          <h2>Exporting Video</h2>
+          <div class="progress-container">
+            <div class="progress-bar">
+              <div class="progress-fill"></div>
+            </div>
+            <div class="progress-text">0%</div>
+          </div>
+          <div class="progress-message">Starting export...</div>
+          <div class="progress-actions">
+            <button class="btn btn-secondary cancel-export-btn">Cancel</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(this.exportProgressModal);
+
+      // Add event listener for cancel button
+      const cancelBtn =
+        this.exportProgressModal.querySelector(".cancel-export-btn");
+      if (cancelBtn) {
+        cancelBtn.addEventListener("click", () => {
+          // We can't actually cancel the export, but we can stop monitoring
+          this.hideExportProgressModal();
+          this.showStatus("Export continues in background");
+        });
+      }
+    }
+
+    // Show the modal
+    this.exportProgressModal.style.display = "flex";
+
     const checkProgress = async () => {
       try {
         const result = await this.apiCall(
@@ -624,17 +691,116 @@ class FaceSequencerApp {
         const task = result.task;
 
         if (task.status === "processing") {
-          this.showProgress(task.progress || 0);
+          // Update progress bar and message
+          const progressFill =
+            this.exportProgressModal.querySelector(".progress-fill");
+          const progressText =
+            this.exportProgressModal.querySelector(".progress-text");
+          const progressMessage =
+            this.exportProgressModal.querySelector(".progress-message");
+
+          if (progressFill && progressText) {
+            const progress = task.progress || 0;
+            progressFill.style.width = `${progress}%`;
+            progressText.textContent = `${progress}%`;
+
+            if (progressMessage && task.message) {
+              progressMessage.textContent = task.message;
+            }
+          }
+
           setTimeout(checkProgress, 1000);
         } else if (task.status === "completed") {
-          this.hideProgress();
-          this.downloadExport();
+          // Update modal to show validation
+          const progressMessage =
+            this.exportProgressModal.querySelector(".progress-message");
+          if (progressMessage) {
+            progressMessage.textContent =
+              "Export completed. Validating file...";
+          }
+
+          // Validate the file before downloading
+          try {
+            // First verify the export is valid
+            const validateResponse = await this.apiCall(
+              `/export/validate/${this.state.exportTask}`
+            );
+
+            if (validateResponse.success && validateResponse.valid) {
+              // Update message to show validation success
+              if (progressMessage) {
+                progressMessage.textContent =
+                  "Export validated successfully! Starting download...";
+              }
+
+              // Auto-download after short delay
+              setTimeout(() => {
+                this.hideExportProgressModal();
+                this.downloadExport();
+              }, 1000);
+            } else {
+              // Show validation error
+              if (progressMessage) {
+                progressMessage.textContent = `Export validation failed: ${
+                  validateResponse.error || "Unknown error"
+                }`;
+                progressMessage.style.color = "red";
+              }
+
+              // Change the cancel button to retry
+              const cancelBtn =
+                this.exportProgressModal.querySelector(".cancel-export-btn");
+              if (cancelBtn) {
+                cancelBtn.textContent = "Close";
+              }
+
+              // Add a retry button
+              const actionsDiv =
+                this.exportProgressModal.querySelector(".progress-actions");
+              if (
+                actionsDiv &&
+                !actionsDiv.querySelector(".retry-export-btn")
+              ) {
+                const retryBtn = document.createElement("button");
+                retryBtn.className = "btn btn-primary retry-export-btn";
+                retryBtn.textContent = "Retry Export";
+                retryBtn.addEventListener("click", () => {
+                  this.hideExportProgressModal();
+                  this.exportVideo();
+                });
+                actionsDiv.appendChild(retryBtn);
+              }
+            }
+          } catch (validateError) {
+            console.error("Export validation error:", validateError);
+            // Continue with download anyway
+            setTimeout(() => {
+              this.hideExportProgressModal();
+              this.downloadExport();
+            }, 1000);
+          }
         } else if (task.status === "error") {
-          this.hideProgress();
+          // Update modal to show error
+          const progressMessage =
+            this.exportProgressModal.querySelector(".progress-message");
+          if (progressMessage) {
+            progressMessage.textContent = `Error: ${
+              task.error || "Unknown error"
+            }`;
+            progressMessage.style.color = "red";
+          }
+
+          // Change the cancel button to close
+          const cancelBtn =
+            this.exportProgressModal.querySelector(".cancel-export-btn");
+          if (cancelBtn) {
+            cancelBtn.textContent = "Close";
+          }
+
           this.showError(`Export failed: ${task.error}`);
         }
       } catch (error) {
-        this.hideProgress();
+        this.hideExportProgressModal();
         this.showError("Failed to check export progress");
       }
     };
@@ -642,30 +808,141 @@ class FaceSequencerApp {
     checkProgress();
   }
 
+  hideExportProgressModal() {
+    if (this.exportProgressModal) {
+      this.exportProgressModal.style.display = "none";
+    }
+  }
+
   async downloadExport() {
     try {
-      const response = await fetch(
-        `/api/export/download/${this.state.exportTask}`
+      // Show status while fetching
+      this.showStatus("Downloading exported file...");
+
+      // Create a unique timestamp to prevent caching issues
+      const timestamp = new Date().getTime();
+      const downloadUrl = `/api/export/download/${this.state.exportTask}?t=${timestamp}`;
+
+      console.log(
+        `Starting download for task: ${this.state.exportTask} via URL: ${downloadUrl}`
+      );
+
+      // Try direct browser download first (this often works better for binary files)
+      try {
+        // Create a hidden link and click it (direct download approach)
+        const link = document.createElement("a");
+        link.href = downloadUrl;
+        link.download = "export.mp4"; // This will be overridden by Content-Disposition
+        link.target = "_blank"; // Open in new tab/window
+        link.style.display = "none";
+        document.body.appendChild(link);
+
+        console.log("Triggering direct download...");
+        link.click();
+
+        // Give browser time to start the download
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+
+        document.body.removeChild(link);
+
+        // Assume download started successfully
+        this.showSuccess("Download started! Check your downloads folder.");
+        return;
+      } catch (directError) {
+        console.warn(
+          "Direct download approach failed, falling back to fetch API",
+          directError
+        );
+      }
+
+      // Fallback to fetch API if direct download fails
+      const response = await fetch(downloadUrl, {
+        method: "GET",
+        cache: "no-cache",
+        headers: {
+          Accept: "video/mp4,application/octet-stream",
+        },
+      });
+
+      console.log(
+        "Fetch response status:",
+        response.status,
+        response.statusText
       );
 
       if (response.ok) {
+        console.log("Response is OK, getting blob...");
         const blob = await response.blob();
-        const filename =
-          response.headers
-            .get("Content-Disposition")
-            ?.split("filename=")[1]
-            ?.replace(/"/g, "") || "export.mp4";
+        console.log(`Got blob: type=${blob.type}, size=${blob.size} bytes`);
 
+        // Check if the blob is valid
+        if (!blob || blob.size === 0) {
+          this.showError("The exported file is empty or corrupted");
+          return;
+        }
+
+        // Check if the blob type is correct, but be more lenient with MIME types
+        if (
+          !blob.type.includes("video/") &&
+          !blob.type.includes("mp4") &&
+          !blob.type.includes("octet-stream")
+        ) {
+          console.warn(
+            `Unexpected blob type: ${blob.type} (size: ${blob.size} bytes), continuing anyway`
+          );
+        }
+
+        // Get filename from headers or use default
+        let filename = response.headers
+          .get("Content-Disposition")
+          ?.split("filename=")[1];
+        if (filename) {
+          filename = filename.replace(/["']/g, "");
+        } else {
+          filename = "export.mp4";
+        }
+
+        console.log(`Using filename: ${filename}`);
         this.downloadFile(blob, filename);
         this.showSuccess("Video exported successfully");
+      } else {
+        // Parse error response
+        try {
+          // Try to get the text response first
+          const responseText = await response.text();
+          console.error(`Error response text: ${responseText}`);
+
+          try {
+            // Try to parse as JSON
+            const errorData = JSON.parse(responseText);
+            this.showError(
+              `Export error: ${errorData.error || "Unknown error"}`
+            );
+          } catch (jsonError) {
+            // Not JSON, use the text directly
+            this.showError(
+              `Export error: ${responseText || response.statusText}`
+            );
+          }
+        } catch (textError) {
+          this.showError(
+            `Export failed with status ${response.status}: ${response.statusText}`
+          );
+        }
       }
     } catch (error) {
-      this.showError("Failed to download export");
+      console.error("Download export error:", error);
+      this.showError(
+        `Failed to download export: ${error.message || "Unknown error"}`
+      );
     }
   }
 
   // UI Update Methods
   updateUI() {
+    // Ensure state is in sync
+    this.syncSequenceState();
+
     // Update form fields
     this.textInput.value = this.state.project.text;
     this.folderPath.value = this.state.project.folder_path;
@@ -882,8 +1159,8 @@ class FaceSequencerApp {
         statusIcon.classList.remove("missing");
         statusIcon.innerHTML = '<i class="fas fa-check"></i>';
         // Update preview with space image
-        if (this.state.project.letter_map[' ']) {
-          preview.innerHTML = `<img src="${this.state.project.letter_map[' ']}" alt="Space Image">`;
+        if (this.state.project.letter_map[" "]) {
+          preview.innerHTML = `<img src="${this.state.project.letter_map[" "]}" alt="Space Image">`;
         }
       } else {
         spaceItem.classList.remove("mapped", "missing");
@@ -915,7 +1192,9 @@ class FaceSequencerApp {
                     <div class="frame-char">${
                       frame.char === " " ? "Space" : frame.char
                     }</div>
-                    <div class="frame-duration">${frame.duration}ms</div>
+                    <div class="frame-duration">${
+                      frame.ms || frame.duration
+                    }ms</div>
                 </div>
                 <div class="frame-index">${index + 1}</div>
             `;
@@ -974,7 +1253,7 @@ class FaceSequencerApp {
   updateTimelineInfo() {
     const frameCount = this.state.sequence.length;
     const totalDuration = this.state.sequence.reduce(
-      (sum, frame) => sum + frame.duration,
+      (sum, frame) => sum + (frame.ms || frame.duration || 0),
       0
     );
 
@@ -985,14 +1264,92 @@ class FaceSequencerApp {
 
   // Utility Methods
   downloadFile(blob, filename) {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    try {
+      console.log(
+        `Downloading file: ${filename} (${blob.size} bytes, type: ${blob.type})`
+      );
+
+      // Enhanced blob validation
+      if (!blob) {
+        this.showError("Invalid file data");
+        return;
+      }
+
+      if (blob.size === 0) {
+        this.showError("The exported file is empty");
+        return;
+      }
+
+      // For MP4 files, do additional validation
+      if (filename.toLowerCase().endsWith(".mp4")) {
+        if (blob.size < 1024) {
+          // Less than 1KB
+          this.showError("The MP4 file is too small and may be corrupted");
+          return;
+        }
+
+        // Be more lenient with MIME type checking
+        const validMimeTypes = [
+          "video/mp4",
+          "video/",
+          "mp4",
+          "application/octet-stream",
+          "application/mp4",
+        ];
+
+        const hasValidType = validMimeTypes.some((type) =>
+          blob.type.toLowerCase().includes(type.toLowerCase())
+        );
+
+        if (!hasValidType) {
+          console.warn(
+            `Warning: MP4 file has unexpected MIME type: ${blob.type}. Will try to download anyway.`
+          );
+          // Continue anyway since the server already validated the file
+        }
+      }
+
+      // Create object URL
+      const url = URL.createObjectURL(blob);
+
+      // Create and trigger download
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.target = "_self"; // Force same window
+      document.body.appendChild(a);
+
+      // Log and notify before click
+      console.log("Initiating download...");
+      this.showStatus(
+        `Downloading ${filename}... (${(blob.size / 1024 / 1024).toFixed(
+          2
+        )} MB)`
+      );
+
+      // Trigger download
+      a.click();
+
+      // Clean up with a slightly longer timeout
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        // Show success message
+        this.showSuccess(
+          `File "${filename}" downloaded successfully (${(
+            blob.size /
+            1024 /
+            1024
+          ).toFixed(2)} MB)`
+        );
+      }, 500);
+    } catch (error) {
+      console.error("Download failed:", error);
+      this.showError(
+        `Failed to download file: ${error.message || "Unknown error"}`
+      );
+    }
   }
 
   showStatus(message) {
@@ -1011,10 +1368,36 @@ class FaceSequencerApp {
     console.error(message);
   }
 
+  showInfo(message) {
+    this.showStatus(message);
+    setTimeout(() => {
+      this.showStatus("Ready");
+    }, 3000);
+  }
+
   showProgress(percent) {
     this.progressContainer.style.display = "flex";
     this.progressFill.style.width = `${percent}%`;
-    this.progressText.textContent = `${Math.round(percent)}%`;
+    if (this.progressText) {
+      this.progressText.textContent = `${Math.round(percent)}%`;
+    }
+  }
+
+  // Helper method to keep sequence state in sync
+  syncSequenceState() {
+    if (
+      this.state &&
+      this.state.project &&
+      Array.isArray(this.state.project.sequence)
+    ) {
+      this.state.sequence = this.state.project.sequence;
+    } else if (this.state) {
+      // Ensure sequence exists at both levels
+      this.state.sequence = this.state.sequence || [];
+      if (!this.state.project) this.state.project = {};
+      this.state.project.sequence = this.state.project.sequence || [];
+    }
+    // Do not update progress here - this method is just for state sync
   }
 
   hideProgress() {
@@ -1025,45 +1408,352 @@ class FaceSequencerApp {
     const scrubber = document.getElementById("timelineScrubber");
     let isDragging = false;
 
+    // Create keyboard navigation hint below the timeline
+    this.createKeyboardHint();
+
     const updateScrubberPosition = (clientX) => {
       const rect = scrubber.getBoundingClientRect();
       const percentage = Math.max(
         0,
         Math.min(1, (clientX - rect.left) / rect.width)
       );
-      const frameIndex = Math.floor(percentage * this.state.sequence.length);
 
+      // Calculate frame index based on percentage
+      let frameIndex = 0;
+      if (this.state.sequence && this.state.sequence.length > 0) {
+        frameIndex = Math.min(
+          Math.floor(percentage * this.state.sequence.length),
+          this.state.sequence.length - 1
+        );
+      }
+
+      // Update visual scrubber position with smooth animation
       this.scrubberHandle.style.left = `${percentage * 100}%`;
 
+      // Only update frame if different from current
       if (
         frameIndex !== this.state.currentFrame &&
+        frameIndex >= 0 &&
         frameIndex < this.state.sequence.length
       ) {
         this.selectFrame(frameIndex);
+
+        // Add loading indicator to preview
+        this.previewFrame.classList.add("loading");
+
+        // Load the preview image
+        this.loadFramePreview(frameIndex);
+
+        // Update timeline info
+        this.updateTimelineInfo(frameIndex);
+
+        // Highlight the current frame in timeline
+        this.highlightTimelineFrame(frameIndex);
+
+        // Remove loading state after a short delay
+        setTimeout(() => {
+          this.previewFrame.classList.remove("loading");
+        }, 100);
       }
+
+      return frameIndex;
     };
 
     scrubber.addEventListener("mousedown", (e) => {
+      // Stop any ongoing playback when manual seeking
+      if (this.state.playing) {
+        this.stopSequence();
+      }
+
+      // Start dragging and update position
       isDragging = true;
       updateScrubberPosition(e.clientX);
+
+      // Add 'active' class for visual feedback
+      this.scrubberHandle.classList.add("active");
+
+      // Add active state to timeline scrubber
+      scrubber.classList.add("active");
+
+      // Prevent text selection while dragging
+      e.preventDefault();
     });
 
     document.addEventListener("mousemove", (e) => {
       if (isDragging) {
         updateScrubberPosition(e.clientX);
+
+        // Show frame position tooltip
+        this.showFrameTooltip(this.state.currentFrame);
       }
     });
 
     document.addEventListener("mouseup", () => {
+      if (isDragging) {
+        // When mouse is released, make sure to load the final frame preview
+        const frameIndex = parseInt(this.state.currentFrame);
+        if (frameIndex >= 0 && frameIndex < this.state.sequence.length) {
+          this.loadFramePreview(frameIndex);
+        }
+
+        // Hide tooltip
+        this.hideFrameTooltip();
+
+        // Remove active classes
+        this.scrubberHandle.classList.remove("active");
+        scrubber.classList.remove("active");
+      }
       isDragging = false;
     });
 
     // Click to seek
     scrubber.addEventListener("click", (e) => {
       if (!isDragging) {
-        updateScrubberPosition(e.clientX);
+        // Stop any ongoing playback
+        if (this.state.playing) {
+          this.stopSequence();
+        }
+
+        const frameIndex = updateScrubberPosition(e.clientX);
+        // Make sure to load the preview
+        this.loadFramePreview(frameIndex);
       }
     });
+
+    // Add keyboard navigation
+    document.addEventListener("keydown", (e) => {
+      // Only if we have a sequence and not in a text input
+      if (
+        this.state.sequence &&
+        this.state.sequence.length > 0 &&
+        !["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)
+      ) {
+        let newFrameIndex = this.state.currentFrame;
+        let jumpSize = 1; // Default jump size
+
+        // Modify jump size with Shift key
+        if (e.shiftKey) {
+          jumpSize = 5; // Jump 5 frames when Shift is pressed
+        } else if (e.ctrlKey || e.metaKey) {
+          jumpSize = 10; // Jump 10 frames when Ctrl/Cmd is pressed
+        }
+
+        // Arrow keys for frame navigation
+        if (e.key === "ArrowLeft") {
+          // Previous frame(s)
+          newFrameIndex = Math.max(0, this.state.currentFrame - jumpSize);
+          this.showTemporaryNotification(
+            `Frame: ${newFrameIndex + 1}/${this.state.sequence.length}`
+          );
+          e.preventDefault();
+        } else if (e.key === "ArrowRight") {
+          // Next frame(s)
+          newFrameIndex = Math.min(
+            this.state.sequence.length - 1,
+            this.state.currentFrame + jumpSize
+          );
+          this.showTemporaryNotification(
+            `Frame: ${newFrameIndex + 1}/${this.state.sequence.length}`
+          );
+          e.preventDefault();
+        } else if (e.key === "Home") {
+          // Go to first frame
+          newFrameIndex = 0;
+          this.showTemporaryNotification("First Frame");
+          e.preventDefault();
+        } else if (e.key === "End") {
+          // Go to last frame
+          newFrameIndex = this.state.sequence.length - 1;
+          this.showTemporaryNotification("Last Frame");
+          e.preventDefault();
+        } else if (e.key === " ") {
+          // Space bar toggles play/pause
+          this.togglePreview();
+          e.preventDefault();
+        } else if (e.key === "p" || e.key === "P") {
+          // Alternative play/pause key
+          this.togglePreview();
+          e.preventDefault();
+        }
+
+        // Update if the frame has changed
+        if (newFrameIndex !== this.state.currentFrame) {
+          // Add loading indicator
+          this.previewFrame.classList.add("loading");
+
+          // Update frame
+          this.selectFrame(newFrameIndex);
+          this.loadFramePreview(newFrameIndex);
+
+          // Update scrubber position with animation
+          const percentage = newFrameIndex / (this.state.sequence.length - 1);
+          this.scrubberHandle.style.left = `${percentage * 100}%`;
+
+          // Highlight the timeline frame
+          this.highlightTimelineFrame(newFrameIndex);
+
+          // Scroll timeline to ensure current frame is visible
+          this.scrollTimelineToCurrentFrame();
+
+          // Remove loading indicator after a short delay
+          setTimeout(() => {
+            this.previewFrame.classList.remove("loading");
+          }, 100);
+        }
+      }
+    });
+  }
+
+  createKeyboardHint() {
+    // Create keyboard hint element if it doesn't exist
+    if (!document.getElementById("keyboard-hint")) {
+      const hintContainer = document.createElement("div");
+      hintContainer.className = "keyboard-hint";
+      hintContainer.innerHTML = `
+        Navigation: <kbd>←</kbd><kbd>→</kbd> Frames | 
+        <kbd>Home</kbd> First | <kbd>End</kbd> Last | 
+        <kbd>Space</kbd> Play/Pause | 
+        <kbd>Shift</kbd>+<kbd>←/→</kbd> Jump 5 frames
+      `;
+
+      // Use the element with class "timeline-container" instead of ID
+      const timelineContainer = document.querySelector(".timeline-container");
+
+      // Only append if the container exists
+      if (timelineContainer) {
+        timelineContainer.appendChild(hintContainer);
+      } else {
+        console.warn(
+          "Timeline container not found. Keyboard hints will not be displayed."
+        );
+      }
+    }
+  }
+
+  showTemporaryNotification(message) {
+    // Create notification element if it doesn't exist
+    let notification = document.getElementById("timeline-notification");
+    if (!notification) {
+      notification = document.createElement("div");
+      notification.id = "timeline-notification";
+      notification.style.cssText = `
+        position: absolute;
+        top: -40px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0, 0, 0, 0.7);
+        color: white;
+        padding: 5px 10px;
+        border-radius: 4px;
+        font-size: 12px;
+        opacity: 0;
+        transition: opacity 0.3s, top 0.3s;
+        z-index: 1000;
+      `;
+
+      const timelineContainer = document.querySelector(".timeline-container");
+
+      // Only proceed if we found the container
+      if (timelineContainer) {
+        timelineContainer.style.position = "relative";
+        timelineContainer.appendChild(notification);
+      } else {
+        // Fallback: append to body if timeline container not found
+        document.body.appendChild(notification);
+        console.warn(
+          "Timeline container not found. Notification added to body instead."
+        );
+      }
+    }
+
+    // Show notification with message
+    notification.textContent = message;
+    notification.style.opacity = "1";
+    notification.style.top = "10px";
+
+    // Hide after 1.5 seconds
+    clearTimeout(this.notificationTimeout);
+    this.notificationTimeout = setTimeout(() => {
+      notification.style.opacity = "0";
+      notification.style.top = "-40px";
+    }, 1500);
+  }
+
+  showFrameTooltip(frameIndex) {
+    // Create or update tooltip
+    let tooltip = document.getElementById("frame-tooltip");
+    if (!tooltip) {
+      tooltip = document.createElement("div");
+      tooltip.id = "frame-tooltip";
+      tooltip.style.cssText = `
+        position: absolute;
+        bottom: 30px;
+        transform: translateX(-50%);
+        background: rgba(0, 0, 0, 0.8);
+        color: white;
+        padding: 3px 8px;
+        border-radius: 3px;
+        font-size: 11px;
+        pointer-events: none;
+        z-index: 1000;
+      `;
+      document.body.appendChild(tooltip);
+    }
+
+    // Get frame information
+    const frame = this.state.sequence[frameIndex] || {};
+    const duration =
+      frame.ms || frame.duration || this.state.project.settings.frame_duration;
+
+    // Set content
+    tooltip.textContent = `Frame ${frameIndex + 1} | ${duration}ms`;
+
+    // Position tooltip at scrubber
+    const scrubberRect = this.scrubberHandle.getBoundingClientRect();
+    tooltip.style.left = `${scrubberRect.left + scrubberRect.width / 2}px`;
+    tooltip.style.bottom = `${window.innerHeight - scrubberRect.top + 10}px`;
+    tooltip.style.display = "block";
+  }
+
+  hideFrameTooltip() {
+    const tooltip = document.getElementById("frame-tooltip");
+    if (tooltip) {
+      tooltip.style.display = "none";
+    }
+  }
+
+  highlightTimelineFrame(frameIndex) {
+    // Remove highlight from all frames
+    const timelineFrames = document.querySelectorAll(".timeline-frame");
+    timelineFrames.forEach((frame) => frame.classList.remove("selected"));
+
+    // Add highlight to current frame
+    if (timelineFrames[frameIndex]) {
+      timelineFrames[frameIndex].classList.add("selected");
+    }
+  }
+
+  scrollTimelineToCurrentFrame() {
+    const timelineContainer = document.getElementById("timelineFrames");
+    const timelineFrames = document.querySelectorAll(".timeline-frame");
+
+    if (timelineContainer && timelineFrames[this.state.currentFrame]) {
+      const frameElement = timelineFrames[this.state.currentFrame];
+      const containerRect = timelineContainer.getBoundingClientRect();
+      const frameRect = frameElement.getBoundingClientRect();
+
+      // Check if frame is out of view
+      if (
+        frameRect.left < containerRect.left ||
+        frameRect.right > containerRect.right
+      ) {
+        frameElement.scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+          inline: "nearest",
+        });
+      }
+    }
   }
 
   // Enhanced sequence editing features
@@ -1194,7 +1884,7 @@ class FaceSequencerApp {
       this.spacePreview.innerHTML = `<img src="${e.target.result}" alt="Space Image">`;
       this.spacePreview.classList.add("has-image");
       this.state.project.space_image = file.name;
-      this.state.project.letter_map[' '] = e.target.result; // Use base64 for spaces
+      this.state.project.letter_map[" "] = e.target.result; // Use base64 for spaces
       this.showSuccess(`Imagem configurada para espaços: ${file.name}`);
       this.updateMappingGrid();
     };
@@ -1208,7 +1898,7 @@ class FaceSequencerApp {
     `;
     this.spacePreview.classList.remove("has-image");
     this.state.project.space_image = null;
-    delete this.state.project.letter_map[' '];
+    delete this.state.project.letter_map[" "];
     this.showSuccess("Imagem de espaço removida - usando pausa");
     this.updateMappingGrid();
   }
@@ -1247,9 +1937,332 @@ Isso vai servir pra rodar nosso projeto.`;
       "Test mode enabled with Portuguese text! Loading images from 'images' folder..."
     );
   }
+
+  // Audio-related Methods
+  onTimingModeChange(isAudioMode) {
+    // Handle timing mode change
+    console.log(
+      `Timing mode changed to: ${isAudioMode ? "audio-driven" : "manual"}`
+    );
+
+    // Update UI or state as needed
+    this.state.isAudioDriven = isAudioMode;
+
+    // Disable/enable relevant controls based on mode
+    if (isAudioMode) {
+      // When in audio-driven mode, certain settings might be controlled by audio
+      this.frameDuration.disabled = true;
+      this.showInfo(
+        "Audio-driven timing mode enabled. Frame durations will sync to audio."
+      );
+    } else {
+      // In manual mode, enable all settings
+      this.frameDuration.disabled = false;
+      this.showInfo("Manual timing mode enabled.");
+    }
+  }
+
+  syncFrameToMarker(marker) {
+    // Find the frame that corresponds to this marker in the sequence
+    const timeMs = marker.time;
+
+    if (
+      !this.state.project.sequence ||
+      this.state.project.sequence.length === 0
+    ) {
+      return;
+    }
+
+    // Find the frame that should be showing at this time point
+    let cumulativeTime = 0;
+    let targetFrameIndex = 0;
+
+    for (let i = 0; i < this.state.project.sequence.length; i++) {
+      const frame = this.state.project.sequence[i];
+      cumulativeTime += frame.duration;
+
+      if (cumulativeTime > timeMs) {
+        targetFrameIndex = i;
+        break;
+      }
+    }
+
+    // Set the current frame and update the preview
+    if (targetFrameIndex !== this.state.currentFrame) {
+      this.state.currentFrame = targetFrameIndex;
+      this.updatePreview();
+      this.updateTimeline();
+    }
+  }
+
+  buildSequenceWithAudio() {
+    // This method would be called when building a sequence with audio timing
+    this.showInfo("Building sequence with audio timing...");
+
+    // Get the uploaded audio file ID from state
+    const audioFileId = this.state.audioFileId;
+
+    if (!audioFileId) {
+      this.showError(
+        "No audio file uploaded. Please upload an audio file first."
+      );
+      return;
+    }
+
+    // Primeiro alinhamos o áudio com o texto para obter os tokens de alinhamento
+    console.log("Aligning audio with text...");
+
+    // Mostrar status de alinhamento
+    this.showStatus("Aligning audio with text...");
+
+    // Chamar API de alinhamento de áudio
+    return this.apiCall("/api/audio/align", "POST", {
+      filename: audioFileId,
+      text: this.state.project.text,
+    })
+      .then((alignmentResult) => {
+        console.log("Audio alignment successful:", alignmentResult);
+
+        if (!alignmentResult.alignment || !alignmentResult.alignment.tokens) {
+          throw new Error("No alignment tokens received from server");
+        }
+
+        // Armazenar tokens de alinhamento
+        if (this.audioManager) {
+          this.audioManager.alignmentTokens = alignmentResult.alignment.tokens;
+          console.log(
+            "Alignment tokens stored:",
+            this.audioManager.alignmentTokens
+          );
+
+          // Opcionalmente, exibir marcadores no visualizador de áudio
+          this.audioManager.createTimingMarkers(
+            alignmentResult.alignment.tokens
+          );
+        }
+
+        // Agora construir a sequência com os tokens de alinhamento
+        console.log("Building sequence with audio file ID:", audioFileId);
+        console.log("Project text:", this.state.project.text);
+
+        const requestData = {
+          audio_filename: audioFileId,
+          text: this.state.project.text,
+          alignment_tokens: alignmentResult.alignment.tokens,
+        };
+
+        console.log("Sending request data:", requestData);
+        return this.apiCall(
+          "/api/sequence/build-from-audio",
+          "POST",
+          requestData
+        );
+      })
+      .then((data) => {
+        if (data.success) {
+          // Update sequence with audio-timed frames
+          this.state.project.sequence = data.sequence;
+          this.state.sequence = data.sequence; // Sync both sequence locations
+          this.updateTimeline();
+          this.showSuccess("Sequence built successfully with audio timing!");
+        } else {
+          this.showError(`Failed to build sequence: ${data.error}`);
+        }
+      })
+      .catch((error) => {
+        console.error("Error building sequence:", error);
+        this.showError("An error occurred while building the sequence.");
+      });
+  }
+
+  // Synchronized audio and animation playback
+  initSyncPlayback() {
+    // Initialize sync playback UI elements
+    this.syncPlaybackBtn = document.getElementById("syncPlaybackBtn");
+
+    // Bind event listeners
+    if (this.syncPlaybackBtn) {
+      this.syncPlaybackBtn.addEventListener("click", () => {
+        this.toggleSyncPlayback();
+      });
+    }
+  }
+
+  toggleSyncPlayback() {
+    if (this.state.syncPlaybackActive) {
+      this.stopSyncPlayback();
+    } else {
+      this.startSyncPlayback();
+    }
+  }
+
+  startSyncPlayback() {
+    // Check if audio and sequence are available
+    if (
+      !this.audioManager ||
+      !this.audioManager.wavesurfer ||
+      !this.state.sequence ||
+      this.state.sequence.length === 0
+    ) {
+      this.showError(
+        "No audio or sequence available for synchronized playback"
+      );
+      return;
+    }
+
+    // Stop any existing playback
+    this.stopSequence();
+
+    // Set the state
+    this.state.syncPlaybackActive = true;
+
+    // Update UI
+    this.syncPlaybackBtn.classList.add("sync-active");
+    this.syncPlaybackBtn.innerHTML =
+      '<i class="fas fa-pause"></i> Stop Sync Playback';
+
+    // Start audio playback
+    this.audioManager.wavesurfer.play();
+
+    // Set up a handler for audio timeupdate to sync with animation frames
+    this.audioManager.wavesurfer.on("audioprocess", (currentTime) => {
+      this.updateAnimationForAudioTime(currentTime * 1000); // Convert to ms
+    });
+
+    // Handle audio playback end
+    this.audioManager.wavesurfer.on("finish", () => {
+      this.stopSyncPlayback();
+    });
+  }
+
+  stopSyncPlayback() {
+    if (!this.state.syncPlaybackActive) return;
+
+    // Update state
+    this.state.syncPlaybackActive = false;
+
+    // Stop audio
+    if (this.audioManager && this.audioManager.wavesurfer) {
+      this.audioManager.wavesurfer.pause();
+      // Remove the event listeners
+      this.audioManager.wavesurfer.un("audioprocess");
+      this.audioManager.wavesurfer.un("finish");
+    }
+
+    // Reset UI
+    this.syncPlaybackBtn.classList.remove("sync-active");
+    this.syncPlaybackBtn.innerHTML =
+      '<i class="fas fa-film"></i> <i class="fas fa-music"></i> Play Audio + Animation';
+
+    // Clear any active frame timer
+    if (this.state.syncAnimationFrameTimer) {
+      clearTimeout(this.state.syncAnimationFrameTimer);
+      this.state.syncAnimationFrameTimer = null;
+    }
+  }
+
+  updateAnimationForAudioTime(timeMs) {
+    // Show loading indicator for preview frame
+    this.previewFrame.classList.add("loading");
+
+    // Create loading indicator if it doesn't exist
+    if (!this.previewFrame.querySelector(".preview-loading-indicator")) {
+      const loadingIndicator = document.createElement("div");
+      loadingIndicator.className = "preview-loading-indicator";
+      loadingIndicator.innerHTML =
+        '<i class="fas fa-circle-notch fa-spin"></i>';
+      this.previewFrame.appendChild(loadingIndicator);
+    }
+
+    // Find the frame that corresponds to the current audio time
+    let cumulativeTime = 0;
+    let targetFrameIndex = -1;
+
+    // Iterate through frames to find the one that corresponds to the current audio time
+    for (let i = 0; i < this.state.sequence.length; i++) {
+      const frame = this.state.sequence[i];
+      const frameDuration = frame.ms || frame.duration || 80; // Default to 80ms if no duration
+
+      // If we have audio_start and audio_end, use those for precise timing (preferred)
+      if (frame.audio_start !== undefined && frame.audio_end !== undefined) {
+        // Convert to numbers to ensure proper comparison
+        const startMs = parseFloat(frame.audio_start);
+        const endMs = parseFloat(frame.audio_end);
+
+        if (timeMs >= startMs && timeMs < endMs) {
+          targetFrameIndex = i;
+          break;
+        }
+      } else {
+        // Otherwise use the cumulative frame durations as fallback
+        cumulativeTime += frameDuration;
+        if (cumulativeTime > timeMs) {
+          targetFrameIndex = i;
+          break;
+        }
+      }
+    }
+
+    // If we found a valid frame, show it
+    if (
+      targetFrameIndex >= 0 &&
+      targetFrameIndex < this.state.sequence.length
+    ) {
+      // Only update the frame if it's different from the current one
+      if (targetFrameIndex !== this.state.currentFrame) {
+        // Add visual indicator for active frame in timeline
+        const timelineFrames = document.querySelectorAll(".timeline-frame");
+        timelineFrames.forEach((frame) => frame.classList.remove("selected"));
+
+        if (timelineFrames[targetFrameIndex]) {
+          timelineFrames[targetFrameIndex].classList.add("selected");
+
+          // Scroll into view if not visible
+          const timelineContainer = document.getElementById("timelineFrames");
+          if (timelineContainer) {
+            const frameElement = timelineFrames[targetFrameIndex];
+            const containerRect = timelineContainer.getBoundingClientRect();
+            const frameRect = frameElement.getBoundingClientRect();
+
+            // Check if frame is out of view
+            if (
+              frameRect.left < containerRect.left ||
+              frameRect.right > containerRect.right
+            ) {
+              frameElement.scrollIntoView({
+                behavior: "smooth",
+                block: "nearest",
+                inline: "nearest",
+              });
+            }
+          }
+        }
+
+        // Update the frame display
+        this.selectFrame(targetFrameIndex);
+        this.loadFramePreview(targetFrameIndex);
+
+        // Update timeline scrubber position
+        if (this.scrubberHandle && this.state.sequence.length > 0) {
+          const percent =
+            (targetFrameIndex / (this.state.sequence.length - 1)) * 100;
+          this.scrubberHandle.style.left = `${percent}%`;
+        }
+
+        // Display frame info in status bar
+        this.updateTimelineInfo(targetFrameIndex);
+      }
+    }
+
+    // Remove loading state after a short delay
+    setTimeout(() => {
+      this.previewFrame.classList.remove("loading");
+    }, 100);
+  }
 }
 
 // Initialize the application when DOM is loaded
-document.addEventListener("DOMContentLoaded", () => {
-  new FaceSequencerApp();
-});
+// Note: Main initialization moved to index.html
+// document.addEventListener("DOMContentLoaded", () => {
+//   new FaceSequencerApp();
+// });

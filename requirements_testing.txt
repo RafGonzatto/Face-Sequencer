@@ -1,0 +1,17 @@
+# Testing dependencies
+pytest==7.4.2
+pytest-cov==4.1.0
+pytest-selenium==4.0.1
+pytest-html==4.0.0
+webdriver-manager==4.0.0
+selenium==4.11.2
+flake8==6.1.0
+coverage==7.3.2
+locust==2.16.1
+pytest-xdist==3.3.1
+pytest-benchmark==4.0.0
+
+# Visual regression testing
+pytest-playwright==0.4.2
+pixelmatch==0.3.0
+pillow==10.0.1  # Already in main requirements

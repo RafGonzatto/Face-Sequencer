@@ -9,6 +9,22 @@
       href="{{ url_for('static', filename='css/styles.css') }}"
     />
     <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/sync-controls.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/playback-controls.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/ui-enhancements.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/export-progress.css') }}"
+    />
+    <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
@@ -16,6 +32,8 @@
       rel="stylesheet"
       href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
     />
+    <!-- WaveSurfer.js for audio visualization -->
+    <script src="https://unpkg.com/wavesurfer.js@6/dist/wavesurfer.js"></script>
   </head>
   <body>
     <div class="app-container">
@@ -82,6 +100,45 @@
               <button class="btn btn-primary btn-sm" id="scanFolderBtn">
                 <i class="fas fa-sync"></i> Scan Folder
               </button>
+            </div>
+          </div>
+
+          <!-- Audio Upload Section -->
+          <div class="section">
+            <h3>Audio Input</h3>
+            <div class="input-group">
+              <div class="audio-upload-container">
+                <input
+                  type="file"
+                  id="audioFileInput"
+                  accept=".mp3,.wav,.ogg,.flac,.m4a"
+                  class="file-input"
+                />
+                <label for="audioFileInput" class="file-input-label">
+                  <i class="fas fa-music"></i>
+                  <span>Choose Audio File</span>
+                </label>
+                <span id="selectedAudioFile" class="selected-file"
+                  >No file selected</span
+                >
+              </div>
+              <button class="btn btn-primary btn-sm" id="uploadAudioBtn">
+                <i class="fas fa-upload"></i> Upload Audio
+              </button>
+            </div>
+            <div class="timing-toggle">
+              <span>Timing Mode:</span>
+              <div class="toggle-switch">
+                <input
+                  type="checkbox"
+                  id="timingModeToggle"
+                  class="toggle-input"
+                />
+                <label for="timingModeToggle" class="toggle-label">
+                  <span class="toggle-option">Manual</span>
+                  <span class="toggle-option">Audio-driven</span>
+                </label>
+              </div>
             </div>
           </div>
 
@@ -203,6 +260,38 @@
             </div>
           </div>
 
+          <!-- Audio Timeline Visualization (Hidden by default) -->
+          <div
+            class="audio-visualization"
+            id="audioVisualizationContainer"
+            style="display: none"
+          >
+            <div class="waveform-container" id="waveformContainer">
+              <!-- Waveform will be rendered here -->
+            </div>
+            <div class="audio-controls">
+              <button class="audio-control-btn" id="audioPlayBtn">
+                <i class="fas fa-play"></i>
+              </button>
+              <span class="audio-time" id="currentTime">0:00</span>
+              <div class="audio-progress" id="audioProgress">
+                <div
+                  class="audio-progress-bar"
+                  id="audioProgressBar"
+                  style="width: 0%"
+                ></div>
+                <!-- Timing markers will be dynamically added here -->
+              </div>
+              <span class="audio-time" id="duration">0:00</span>
+            </div>
+            <div class="sync-controls">
+              <button class="btn btn-primary" id="syncPlaybackBtn">
+                <i class="fas fa-film"></i> <i class="fas fa-music"></i> Play
+                Audio + Animation
+              </button>
+            </div>
+          </div>
+
           <!-- Preview Area -->
           <div class="preview-container">
             <div class="preview-frame" id="previewFrame">
@@ -314,6 +403,32 @@
       </div>
     </div>
 
+    <!-- Load the main application class first -->
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+
+    <!-- Load extensions to the FaceSequencerApp prototype -->
+    <script src="{{ url_for('static', filename='js/sync_playback.js') }}"></script>
+
+    <!-- Load additional modules -->
+    <script src="{{ url_for('static', filename='js/audio.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/keyboard_navigation.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/debug_audio.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/export_validation.js') }}"></script>
+
+    <script>
+      // Initialize the application after DOM is fully loaded
+      document.addEventListener("DOMContentLoaded", function () {
+        // Make sure all DOM elements are available before initializing the app
+        setTimeout(function () {
+          try {
+            console.log("Initializing Face Sequencer App...");
+            window.faceSequencerApp = new FaceSequencerApp();
+            console.log("Face Sequencer App initialized successfully");
+          } catch (error) {
+            console.error("Error initializing Face Sequencer App:", error);
+          }
+        }, 100); // Small delay to ensure DOM is fully ready
+      });
+    </script>
   </body>
 </html>

@@ -1,0 +1,324 @@
+// audio.js - Audio functionality for Face Sequencer Pro (Fixed)
+
+class AudioManager {
+  constructor(app) {
+    console.log("AudioManager being initialized...");
+    this.app = app;
+    this.audioFile = null;
+    this.audioBlob = null;
+    this.audioElement = null;
+    this.wavesurfer = null;
+    this.isAudioMode = false;
+    this.markers = [];
+    this.alignmentTokens = null; // Para armazenar tokens de alinhamento
+
+    this.initElements();
+    this.initWaveSurfer();
+    this.bindEvents();
+    console.log("AudioManager initialized successfully");
+  }
+
+  initElements() {
+    // Audio file upload elements
+    this.audioFileInput = document.getElementById("audioFileInput");
+    this.selectedAudioFile = document.getElementById("selectedAudioFile");
+    this.uploadAudioBtn = document.getElementById("uploadAudioBtn");
+    
+    console.log("Audio elements found:", {
+      audioFileInput: !!this.audioFileInput,
+      selectedAudioFile: !!this.selectedAudioFile,
+      uploadAudioBtn: !!this.uploadAudioBtn
+    });
+
+    // Audio toggle elements
+    this.timingModeToggle = document.getElementById("timingModeToggle");
+
+    // Audio visualization and control elements
+    this.audioVisualizationContainer = document.getElementById(
+      "audioVisualizationContainer"
+    );
+    this.waveformContainer = document.getElementById("waveformContainer");
+    this.audioPlayBtn = document.getElementById("audioPlayBtn");
+    this.audioProgress = document.getElementById("audioProgress");
+    this.audioProgressBar = document.getElementById("audioProgressBar");
+    this.currentTimeDisplay = document.getElementById("currentTime");
+    this.durationDisplay = document.getElementById("duration");
+  }
+
+  initWaveSurfer() {
+    if (!this.waveformContainer) {
+      console.error("WaveformContainer not found!");
+      return;
+    }
+    
+    try {
+      this.wavesurfer = WaveSurfer.create({
+        container: this.waveformContainer,
+        waveColor: "#64748b",
+        progressColor: "#2563eb",
+        cursorColor: "#ef4444",
+        barWidth: 2,
+        barRadius: 3,
+        cursorWidth: 1,
+        height: 80,
+        barGap: 2,
+        responsive: true,
+      });
+
+      // Add wavesurfer events
+      this.wavesurfer.on("ready", () => {
+        this.updateAudioDuration();
+        console.log("Audio ready");
+      });
+
+      this.wavesurfer.on("audioprocess", () => {
+        this.updateCurrentTime();
+      });
+
+      this.wavesurfer.on("seek", () => {
+        this.updateCurrentTime();
+      });
+
+      this.wavesurfer.on("finish", () => {
+        this.audioPlayBtn.innerHTML = '<i class="fas fa-play"></i>';
+      });
+    } catch (error) {
+      console.error("Error initializing WaveSurfer:", error);
+    }
+  }
+
+  bindEvents() {
+    // File selection event
+    if (this.audioFileInput) {
+      this.audioFileInput.addEventListener("change", (e) => {
+        console.log("Audio file selected");
+        this.handleFileSelection(e);
+      });
+    } else {
+      console.error("AudioFileInput element not found");
+    }
+
+    // Upload button event
+    if (this.uploadAudioBtn) {
+      this.uploadAudioBtn.addEventListener("click", () => {
+        console.log("Upload button clicked");
+        this.uploadAudio();
+      });
+    } else {
+      console.error("UploadAudioBtn element not found");
+    }
+
+    // Toggle switch between manual and audio-driven timing
+    if (this.timingModeToggle) {
+      this.timingModeToggle.addEventListener("change", (e) => {
+        this.toggleTimingMode(e.target.checked);
+      });
+    }
+
+    // Audio playback controls
+    if (this.audioPlayBtn) {
+      this.audioPlayBtn.addEventListener("click", () => {
+        this.toggleAudioPlayback();
+      });
+    }
+
+    if (this.audioProgress) {
+      this.audioProgress.addEventListener("click", (e) => {
+        this.seekAudio(e);
+      });
+    }
+  }
+
+  handleFileSelection(e) {
+    if (e.target.files && e.target.files.length > 0) {
+      this.audioFile = e.target.files[0];
+      if (this.selectedAudioFile) {
+        this.selectedAudioFile.textContent = this.audioFile.name;
+      }
+
+      // Create audio URL for wavesurfer
+      this.audioBlob = URL.createObjectURL(this.audioFile);
+      if (this.wavesurfer) {
+        this.wavesurfer.load(this.audioBlob);
+      }
+
+      // Show audio visualization container
+      if (this.audioVisualizationContainer) {
+        this.audioVisualizationContainer.style.display = "block";
+      }
+    }
+  }
+
+  toggleTimingMode(isAudioMode) {
+    this.isAudioMode = isAudioMode;
+
+    // Toggle visibility of audio visualization container
+    if (this.audioVisualizationContainer) {
+      this.audioVisualizationContainer.style.display = isAudioMode
+        ? "block"
+        : "none";
+    }
+
+    // Update app state or other UI elements as needed
+    console.log("Timing mode set to:", isAudioMode ? "audio-driven" : "manual");
+
+    // Notify the main app about the mode change
+    if (this.app && typeof this.app.onTimingModeChange === "function") {
+      this.app.onTimingModeChange(isAudioMode);
+    }
+  }
+
+  uploadAudio() {
+    console.log("uploadAudio method called");
+    if (!this.audioFile) {
+      alert("Por favor, selecione um arquivo de áudio primeiro.");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("audio", this.audioFile);
+
+    // Show loading state
+    if (this.uploadAudioBtn) {
+      this.uploadAudioBtn.disabled = true;
+      this.uploadAudioBtn.innerHTML =
+        '<i class="fas fa-spinner fa-spin"></i> Uploading...';
+    }
+
+    console.log("Sending fetch request to /api/audio/upload");
+    // Upload audio file to server
+    fetch("/api/audio/upload", {
+      method: "POST",
+      body: formData,
+    })
+      .then((response) => {
+        console.log("Response received:", response);
+        return response.json();
+      })
+      .then((data) => {
+        console.log("Data received:", data);
+        if (data.success) {
+          console.log("Audio uploaded successfully:", data);
+
+          // If we have alignment data, display markers
+          if (data.alignment && data.alignment.tokens) {
+            this.createTimingMarkers(data.alignment.tokens);
+          }
+
+          // Store the audio file ID in the main app state if available
+          if (data.audio && data.audio.filename) {
+            if (this.app && this.app.state) {
+              this.app.state.audioFileId = data.audio.filename;
+              console.log("Audio file ID saved:", data.audio.filename);
+            }
+          }
+
+          // Enable audio-driven timing mode
+          if (this.timingModeToggle) {
+            this.timingModeToggle.checked = true;
+            this.toggleTimingMode(true);
+          }
+
+          // Show success message
+          alert("Audio uploaded and processed successfully!");
+        } else {
+          console.error("Error uploading audio:", data.error);
+          alert("Error uploading audio: " + data.error);
+        }
+      })
+      .catch((error) => {
+        console.error("Error uploading audio:", error);
+        alert("Error uploading audio. Please try again.");
+      })
+      .finally(() => {
+        // Reset button state
+        if (this.uploadAudioBtn) {
+          this.uploadAudioBtn.disabled = false;
+          this.uploadAudioBtn.innerHTML =
+            '<i class="fas fa-upload"></i> Upload Audio';
+        }
+      });
+  }
+
+  // Rest of the AudioManager implementation...
+  // Preserve all other methods...
+
+  updateCurrentTime() {
+    if (!this.wavesurfer || !this.currentTimeDisplay) return;
+    
+    const currentTime = this.wavesurfer.getCurrentTime();
+    const minutes = Math.floor(currentTime / 60);
+    const seconds = Math.floor(currentTime % 60);
+    const milliseconds = Math.floor((currentTime % 1) * 1000);
+    
+    this.currentTimeDisplay.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}.${milliseconds.toString().padStart(3, '0')}`;
+    
+    if (this.audioProgressBar) {
+      const progress = this.wavesurfer.getCurrentTime() / this.wavesurfer.getDuration();
+      this.audioProgressBar.style.width = (progress * 100) + '%';
+    }
+  }
+  
+  updateAudioDuration() {
+    if (!this.wavesurfer || !this.durationDisplay) return;
+    
+    const duration = this.wavesurfer.getDuration();
+    const minutes = Math.floor(duration / 60);
+    const seconds = Math.floor(duration % 60);
+    const milliseconds = Math.floor((duration % 1) * 1000);
+    
+    this.durationDisplay.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}.${milliseconds.toString().padStart(3, '0')}`;
+  }
+  
+  toggleAudioPlayback() {
+    if (!this.wavesurfer) return;
+
+    if (this.wavesurfer.isPlaying()) {
+      this.wavesurfer.pause();
+      if (this.audioPlayBtn) {
+        this.audioPlayBtn.innerHTML = '<i class="fas fa-play"></i>';
+        this.audioPlayBtn.classList.remove("playing");
+      }
+      document.body.classList.remove("playback-active");
+    } else {
+      this.wavesurfer.play();
+      if (this.audioPlayBtn) {
+        this.audioPlayBtn.innerHTML = '<i class="fas fa-pause"></i>';
+        this.audioPlayBtn.classList.add("playing");
+      }
+      document.body.classList.add("playback-active");
+    }
+  }
+  
+  seekAudio(e) {
+    if (!this.wavesurfer || !this.audioProgress) return;
+    
+    const percent = e.offsetX / this.audioProgress.offsetWidth;
+    this.wavesurfer.seekTo(percent);
+  }
+  
+  createTimingMarkers(tokens) {
+    // Placeholder for marker creation logic
+    console.log("Creating timing markers with tokens:", tokens);
+  }
+}
+
+// Initialize after DOM is fully loaded
+document.addEventListener("DOMContentLoaded", function () {
+  console.log("DOM loaded, checking for app instance");
+  // Wait for app to be initialized
+  const initAudioManager = function() {
+    if (window.faceSequencerApp) {
+      console.log("App found, initializing AudioManager");
+      window.faceSequencerApp.audioManager = new AudioManager(
+        window.faceSequencerApp
+      );
+    } else {
+      console.log("App not found yet, waiting...");
+      setTimeout(initAudioManager, 500);
+    }
+  };
+  
+  // Start initialization with a slight delay to ensure app is ready
+  setTimeout(initAudioManager, 500);
+});

@@ -11,8 +11,15 @@ A modern, web-based lip-sync animation tool that transforms text into animated s
    ```
 
 2. **Open your browser and go to:**
+
    ```
    http://localhost:5000
+   ```
+
+3. **For ElevenLabs audio users:**
+   ```bash
+   # Process ElevenLabs audio for optimal lip sync
+   .\enhance_elevenlabs_audio.bat
    ```
 
 ## ✨ Features
@@ -28,6 +35,8 @@ A modern, web-based lip-sync animation tool that transforms text into animated s
 
 - **Visual Character Mapping**: Grid-based interface showing all alphabet mappings
 - **Smart Pause Visualization**: Animated pause indicators instead of text
+- **ElevenLabs Audio Enhancement**: Optimize ElevenLabs audio for better lip sync quality
+- **Audio Visualization**: Compare original and enhanced audio with waveform and spectrogram plots
 - **Project Templates**: Quick-start templates for different animation styles
 - **Batch Operations**: Export multiple formats simultaneously
 
@@ -190,6 +199,44 @@ Extend features by modifying:
 
 This project enhances the original Face Sequencer tool with a modern web interface and professional features while maintaining compatibility with existing workflows.
 
+## 🔊 Audio Enhancement for Lip Sync
+
+The project includes specialized tools for optimizing ElevenLabs audio files for lip-sync animation:
+
+### Enhanced ElevenLabs Audio Processor
+
+Process your ElevenLabs audio files for optimal lip-sync quality with a single command:
+
+```bash
+.\enhance_elevenlabs_audio.bat
+```
+
+This tool performs several optimizations:
+
+- **High-pass filtering**: Removes low-frequency rumble that can cause false lip movements
+- **Dynamic compression**: Evens out volume levels for consistent animation
+- **Pre-emphasis**: Enhances consonant sounds critical for accurate viseme detection
+- **Silence trimming**: Removes unnecessary silence for better timing
+- **Audio normalization**: Sets optimal volume levels for processing
+
+### Audio Comparison Visualization
+
+The processor automatically generates visualization plots showing the before/after comparison:
+
+- Waveform comparison
+- Spectrogram analysis
+- Audio statistics
+
+### Advanced Usage
+
+For more control over the audio processing, use the Python script directly:
+
+```bash
+python enhanced_elevenlabs_processor.py --input your_file.mp3 --output custom_output.wav --plot
+```
+
+For full documentation, see [ElevenLabs Audio Guide](elevenlabs_audio_guide.md)
+
 ## 🤝 Contributing
 
 Contributions are welcome! Areas for improvement:
@@ -200,6 +247,13 @@ Contributions are welcome! Areas for improvement:
 - Mobile app companion
 
 ## 🎬 Version History
+
+### v2.1 - Audio Enhancement Update
+
+- Enhanced ElevenLabs audio processor
+- Audio visualization with waveform and spectrogram comparison
+- Improved lip-sync quality with specialized audio processing
+- Comprehensive documentation for audio optimization
 
 ### v2.0 - Modern Web Interface
 

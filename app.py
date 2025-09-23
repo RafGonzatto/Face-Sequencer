@@ -9,7 +9,16 @@ from pathlib import Path
 import base64
 import io
 
-from flask import Flask, render_template, request, jsonify, send_file
+# Apply PyTorch 2.6 compatibility fix for WhisperX (top of file to ensure patch is applied early)
+try:
+    import torch
+    original_torch_load = torch.load
+    torch.load = lambda f, *args, **kwargs: original_torch_load(f, *args, weights_only=False, **{k: v for k, v in kwargs.items() if k != 'weights_only'})
+    print("✅ PyTorch load function patched for WhisperX compatibility")
+except Exception as e:
+    print(f"⚠️ Warning: Could not patch torch.load: {e}")
+
+from flask import Flask, render_template, request, jsonify, send_file, send_from_directory, Response
 from werkzeug.utils import secure_filename
 from PIL import Image
 import uuid
@@ -26,13 +35,24 @@ from lipanim_core_demo import (
 # Import project management
 from project_templates import ProjectTemplates, ProjectManager
 
+# Import audio alignment system
+try:
+    from audio_aligner import AudioAligner, AlignmentToken, TokenType
+    AUDIO_ALIGNMENT_AVAILABLE = True
+except ImportError as e:
+    print(f"Audio alignment not available: {e}")
+    AUDIO_ALIGNMENT_AVAILABLE = False
+
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-here'
 app.config['UPLOAD_FOLDER'] = 'uploads'
+app.config['AUDIO_FOLDER'] = 'uploads/audio'
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
+app.config['ALLOWED_AUDIO_EXTENSIONS'] = {'wav', 'mp3', 'ogg', 'flac', 'm4a'}
 
-# Ensure upload directory exists
+# Ensure upload directories exist
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+os.makedirs(app.config['AUDIO_FOLDER'], exist_ok=True)
 
 # Initialize project manager
 project_manager = ProjectManager()
@@ -386,12 +406,16 @@ def export_sequence_video():
         # Create export task
         export_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(filename))
         
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(os.path.abspath(export_path)), exist_ok=True)
+        
         app_state['export_tasks'][task_id] = {
             'status': 'pending',
             'progress': 0,
             'filename': filename,
             'path': export_path,
             'error': None,
+            'message': 'Preparing to export video',
             'started_at': datetime.now()
         }
         
@@ -400,22 +424,58 @@ def export_sequence_video():
             try:
                 app_state['export_tasks'][task_id]['status'] = 'processing'
                 
-                export_mp4(
+                # Define progress callback function
+                def update_progress(progress, message=None):
+                    # Update task progress
+                    app_state['export_tasks'][task_id]['progress'] = progress
+                    if message:
+                        app_state['export_tasks'][task_id]['message'] = message
+                    
+                    # Handle error signal
+                    if progress < 0:
+                        app_state['export_tasks'][task_id]['status'] = 'error'
+                        app_state['export_tasks'][task_id]['error'] = message if message else "Unknown error"
+                
+                # Get the global fallback image for the project
+                fallback_path = app_state['current_project'].get('fallback_image')
+                if fallback_path:
+                    print(f"Using project fallback image: {fallback_path}")
+                
+                # Ensure all sequence frames have the project fallback for consistency
+                for frame in sequence:
+                    if not frame.get('fallback_img') and fallback_path:
+                        frame['fallback_img'] = fallback_path
+                
+                # Call export with progress callback
+                success = export_mp4(
                     seq=sequence,
                     path=export_path,
                     fps=settings['fps'],
                     crf=quality_config['crf'],
-                    preset=quality_config['preset']
+                    preset=quality_config['preset'],
+                    progress_callback=update_progress
                 )
                 
-                app_state['export_tasks'][task_id]['status'] = 'completed'
-                app_state['export_tasks'][task_id]['progress'] = 100
+                # Update final status based on success flag
+                if success:
+                    app_state['export_tasks'][task_id]['status'] = 'completed'
+                    app_state['export_tasks'][task_id]['progress'] = 100
+                    app_state['export_tasks'][task_id]['message'] = "Export completed successfully"
+                else:
+                    # If export_mp4 returned False but didn't set error status via callback
+                    if app_state['export_tasks'][task_id]['status'] != 'error':
+                        app_state['export_tasks'][task_id]['status'] = 'error'
+                        app_state['export_tasks'][task_id]['error'] = "Export failed"
             
             except Exception as e:
+                import traceback
+                traceback.print_exc()
                 app_state['export_tasks'][task_id]['status'] = 'error'
                 app_state['export_tasks'][task_id]['error'] = str(e)
         
-        thread = threading.Thread(target=export_worker, daemon=True)
+        # Create a non-daemon thread so it won't be killed when Flask reloads
+        thread = threading.Thread(target=export_worker)
+        thread.daemon = False  # Set to non-daemon so it completes even if main thread exits
         thread.start()
         
         return jsonify({
@@ -442,6 +502,246 @@ def get_export_status(task_id):
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 400
 
+@app.route('/api/export/retry/<task_id>', methods=['POST'])
+def retry_export(task_id):
+    """Retry a failed export task"""
+    try:
+        # Check if task exists
+        if task_id not in app_state['export_tasks']:
+            return jsonify({'success': False, 'error': 'Task not found'}), 404
+        
+        original_task = app_state['export_tasks'][task_id]
+        
+        # Only retry if task was in error state
+        if original_task['status'] != 'error':
+            return jsonify({'success': False, 'error': 'Can only retry failed exports'}), 400
+        
+        # Get current sequence and settings
+        sequence = app_state['current_project']['sequence']
+        settings = app_state['current_project']['settings']
+        
+        if not sequence:
+            return jsonify({'success': False, 'error': 'No sequence to export'}), 400
+        
+        # Generate a new task ID
+        new_task_id = str(uuid.uuid4())
+        
+        # Use same quality settings as original
+        # Default to medium quality if original settings not available
+        quality_preset = 'medium'
+        if 'quality_preset' in original_task:
+            quality_preset = original_task['quality_preset']
+            
+        # Quality presets
+        quality_settings = {
+            'high': {'crf': 12, 'preset': 'slow'},
+            'medium': {'crf': 18, 'preset': 'medium'},
+            'fast': {'crf': 24, 'preset': 'fast'}
+        }
+        
+        quality_config = quality_settings.get(quality_preset, quality_settings['medium'])
+        
+        # Create new export task
+        export_path = original_task['path']
+        
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(os.path.abspath(export_path)), exist_ok=True)
+        
+        app_state['export_tasks'][new_task_id] = {
+            'status': 'pending',
+            'progress': 0,
+            'filename': original_task['filename'],
+            'path': export_path,
+            'error': None,
+            'message': 'Preparing to retry export',
+            'started_at': datetime.now(),
+            'quality_preset': quality_preset
+        }
+        
+        # Start export in background thread
+        def export_worker():
+            try:
+                app_state['export_tasks'][new_task_id]['status'] = 'processing'
+                
+                # Define progress callback function
+                def update_progress(progress, message=None):
+                    try:
+                        # Ensure progress is a valid number
+                        if progress is not None and not isinstance(progress, (int, float)):
+                            print(f"Warning: Invalid progress value: {progress}, type: {type(progress)}")
+                            progress = 0
+                            
+                        # Update task progress (ensure it's an integer)
+                        if progress is not None:
+                            app_state['export_tasks'][new_task_id]['progress'] = int(progress)
+                        
+                        # Update message if provided
+                        if message:
+                            app_state['export_tasks'][new_task_id]['message'] = message
+                            print(f"Export progress: {progress}% - {message}")
+                        
+                        # Handle error signal
+                        if progress is not None and progress < 0:
+                            app_state['export_tasks'][new_task_id]['status'] = 'error'
+                            app_state['export_tasks'][new_task_id]['error'] = message if message else "Unknown error"
+                            print(f"Export error: {message}")
+                    except Exception as e:
+                        print(f"Error in update_progress: {e} (progress: {progress}, message: {message})")
+                
+                # Get the global fallback image for the project
+                fallback_path = app_state['current_project'].get('fallback_image')
+                if fallback_path:
+                    print(f"Using project fallback image: {fallback_path}")
+                
+                # Ensure all sequence frames have the project fallback for consistency
+                for frame in sequence:
+                    if not frame.get('fallback_img') and fallback_path:
+                        frame['fallback_img'] = fallback_path
+                
+                # Call export with progress callback
+                success = export_mp4(
+                    seq=sequence,
+                    path=export_path,
+                    fps=settings['fps'],
+                    crf=quality_config['crf'],
+                    preset=quality_config['preset'],
+                    progress_callback=update_progress
+                )
+                
+                # Update final status based on success flag
+                if success:
+                    app_state['export_tasks'][new_task_id]['status'] = 'completed'
+                    app_state['export_tasks'][new_task_id]['progress'] = 100
+                    app_state['export_tasks'][new_task_id]['message'] = "Export retry completed successfully"
+                else:
+                    # If export_mp4 returned False but didn't set error status via callback
+                    if app_state['export_tasks'][new_task_id]['status'] != 'error':
+                        app_state['export_tasks'][new_task_id]['status'] = 'error'
+                        app_state['export_tasks'][new_task_id]['error'] = "Export retry failed"
+            
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                app_state['export_tasks'][new_task_id]['status'] = 'error'
+                app_state['export_tasks'][new_task_id]['error'] = str(e)
+        
+        # Create a non-daemon thread so it won't be killed when Flask reloads
+        thread = threading.Thread(target=export_worker)
+        thread.daemon = False  # Set to non-daemon so it completes even if main thread exits
+        thread.start()
+        
+        return jsonify({
+            'success': True,
+            'original_task_id': task_id,
+            'new_task_id': new_task_id
+        })
+    
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+def validate_mp4_file(file_path):
+    """Validate that a file is a proper MP4 file
+    
+    Args:
+        file_path: Path to the file to validate
+        
+    Returns:
+        tuple: (is_valid, error_message, file_size)
+    """
+    # Check file existence
+    if not os.path.exists(file_path):
+        return False, "File not found", 0
+    
+    # Check file size
+    file_size = os.path.getsize(file_path)
+    print(f"Validating MP4 file: {file_path} (size: {file_size} bytes)")
+    
+    if file_size < 1024:  # If file is smaller than 1KB
+        return False, f"File too small ({file_size} bytes)", file_size
+    
+    # Check if the file is a text file (error output)
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            first_line = f.readline().strip()
+            if first_line.startswith("Error") or "error" in first_line.lower():
+                return False, f"File contains error message: {first_line}", file_size
+    except UnicodeDecodeError:
+        # Not a text file, which is good for an MP4
+        pass
+    
+    # Check MP4 signature
+    try:
+        with open(file_path, 'rb') as f:
+            header = f.read(16)  # Read more bytes to be safe
+            # MP4 files typically start with ftyp or mdat
+            if not any(sig in header for sig in [b'ftyp', b'mdat', b'moov', b'free']):
+                return False, f"Invalid MP4 signature", file_size
+    except Exception as e:
+        return False, f"Error reading file header: {str(e)}", file_size
+    
+    # Optional: Try to check video with FFmpeg if available
+    try:
+        import subprocess
+        # Use FFprobe to check if file is valid
+        result = subprocess.run(
+            ['ffprobe', '-v', 'error', file_path],
+            capture_output=True,
+            text=True,
+            timeout=3  # 3 second timeout
+        )
+        
+        if result.returncode != 0:
+            error = result.stderr.strip()
+            return False, f"FFprobe validation failed: {error}", file_size
+    except Exception as e:
+        # FFprobe unavailable or failed, just log and continue
+        print(f"FFprobe validation skipped: {e}")
+    
+    print(f"MP4 validation passed for {file_path}")
+    return True, f"Valid MP4 file ({file_size} bytes)", file_size
+
+@app.route('/api/export/validate/<task_id>', methods=['GET'])
+def validate_export(task_id):
+    """Validate that an exported MP4 file is proper"""
+    try:
+        if task_id not in app_state['export_tasks']:
+            return jsonify({'success': False, 'error': 'Task not found'}), 404
+        
+        task = app_state['export_tasks'][task_id]
+        
+        if task['status'] != 'completed':
+            return jsonify({
+                'success': False, 
+                'error': 'Export not completed',
+                'status': task['status'],
+                'progress': task['progress'],
+                'message': task['message']
+            }), 400
+        
+        is_valid, error_msg, filesize = validate_mp4_file(task['path'])
+        
+        if not is_valid:
+            app_state['export_tasks'][task_id]['status'] = 'error'
+            app_state['export_tasks'][task_id]['error'] = error_msg
+            return jsonify({
+                'success': False, 
+                'error': error_msg,
+                'valid': False,
+                'fileSize': filesize,
+                'filename': task['filename']
+            }), 400
+        
+        return jsonify({
+            'success': True,
+            'valid': True,
+            'fileSize': filesize,
+            'filename': task['filename'],
+            'message': error_msg  # This will contain the validation success message
+        })
+    
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+
 @app.route('/api/export/download/<task_id>', methods=['GET'])
 def download_export(task_id):
     """Download completed export"""
@@ -457,10 +757,98 @@ def download_export(task_id):
         if not os.path.exists(task['path']):
             return jsonify({'success': False, 'error': 'Export file not found'}), 404
         
-        return send_file(task['path'], as_attachment=True, download_name=task['filename'])
+        # Always validate the MP4 file before downloading
+        print(f"Validating file before download: {task['path']}")
+        is_valid, error_msg, filesize = validate_mp4_file(task['path'])
+        
+        if not is_valid:
+            print(f"Validation failed: {error_msg}")
+            app_state['export_tasks'][task_id]['status'] = 'error'
+            app_state['export_tasks'][task_id]['error'] = error_msg
+            return jsonify({'success': False, 'error': error_msg, 'fileSize': filesize}), 400
+            
+        print(f"Validation passed: {error_msg}, size: {filesize} bytes")
+        
+        # If validation passes, try different approaches to serve the file
+        file_path = os.path.abspath(task['path'])
+        directory = os.path.dirname(file_path)
+        filename = os.path.basename(file_path)
+        
+        # Define common headers for all response methods
+        headers = {
+            'Content-Disposition': f'attachment; filename="{task["filename"]}"',
+            'Content-Type': 'video/mp4',
+            'Content-Length': str(filesize),
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET',
+            'Access-Control-Allow-Headers': 'Content-Type'
+        }
+        
+        # Try different methods to send the file
+        try:
+            # Method 1: Flask's send_file
+            response = send_file(
+                task['path'], 
+                as_attachment=True,
+                download_name=task['filename'],
+                mimetype='video/mp4'
+            )
+            
+            # Add custom headers
+            for header, value in headers.items():
+                response.headers[header] = value
+                
+            print(f"Using send_file method to serve {task['filename']} ({filesize} bytes)")
+            return response
+            
+        except Exception as e1:
+            print(f"send_file failed: {str(e1)}, trying alternate method...")
+            
+            try:
+                # Method 2: send_from_directory
+                response = send_from_directory(
+                    directory, 
+                    filename,
+                    as_attachment=True,
+                    download_name=task['filename'],
+                    mimetype='video/mp4'
+                )
+                
+                # Add custom headers
+                for header, value in headers.items():
+                    response.headers[header] = value
+                    
+                print(f"Using send_from_directory method to serve {task['filename']}")
+                return response
+                
+            except Exception as e2:
+                print(f"send_from_directory failed: {str(e2)}, using direct Response...")
+                
+                # Method 3: Direct response with file data
+                try:
+                    with open(file_path, 'rb') as file_data:
+                        response = Response(
+                            file_data.read(),
+                            mimetype='video/mp4',
+                            headers=headers
+                        )
+                        print(f"Using direct Response method to serve {task['filename']}")
+                        return response
+                        
+                except Exception as e3:
+                    print(f"Direct Response method failed: {str(e3)}")
+                    return jsonify({
+                        'success': False, 
+                        'error': f"All file serving methods failed: {str(e3)}"
+                    }), 500
     
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 400
+        error_msg = f"Error downloading export: {str(e)}"
+        app.logger.error(error_msg)  # Log the error
+        return jsonify({'success': False, 'error': error_msg}), 400
 
 @app.route('/api/project/save', methods=['POST'])
 def save_project():
@@ -610,6 +998,644 @@ def save_managed_project():
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 400
+
+# ============================================================================
+# AUDIO ALIGNMENT SYSTEM
+# ============================================================================
+
+def allowed_audio_file(filename):
+    """Check if file has allowed audio extension"""
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_AUDIO_EXTENSIONS']
+
+def get_audio_aligner():
+    """Get or create audio aligner instance"""
+    if not AUDIO_ALIGNMENT_AVAILABLE:
+        return None
+        
+    if not hasattr(get_audio_aligner, '_aligner'):
+        get_audio_aligner._aligner = AudioAligner(language="pt-BR")
+        print("🎵 Audio aligner initialized (Portuguese-first)")
+    
+    return get_audio_aligner._aligner
+
+@app.route('/api/audio/status', methods=['GET'])
+def audio_status():
+    """Get audio alignment system status"""
+    return jsonify({
+        'success': True,
+        'available': AUDIO_ALIGNMENT_AVAILABLE,
+        'language': 'pt-BR' if AUDIO_ALIGNMENT_AVAILABLE else None,
+        'supported_formats': list(app.config['ALLOWED_AUDIO_EXTENSIONS'])
+    })
+
+@app.route('/api/audio/upload', methods=['POST'])
+def upload_audio():
+    """Upload and validate audio file"""
+    # Import error handling
+    from audio_error_handling import (
+        AudioProcessingError, 
+        AudioErrorType, 
+        validate_audio_file, 
+        validate_audio_content,
+        detect_speech_activity,
+        handle_audio_errors
+    )
+    
+    @handle_audio_errors()
+    def process_audio_upload():
+        if not AUDIO_ALIGNMENT_AVAILABLE:
+            raise AudioProcessingError(
+                AudioErrorType.SYSTEM_UNAVAILABLE,
+                'Audio alignment system not available'
+            )
+            
+        # Check if file was uploaded
+        if 'audio' not in request.files:
+            raise AudioProcessingError(
+                AudioErrorType.UPLOAD_ERROR,
+                'No audio file provided'
+            )
+        
+        file = request.files['audio']
+        
+        # Check if this is an ElevenLabs file and we have a pre-processed version
+        optimized_elevenlabs_path = os.path.join(app.config['AUDIO_FOLDER'], "optimized_elevenlabs.wav")
+        is_elevenlabs = "ElevenLabs" in file.filename
+        use_optimized = is_elevenlabs and os.path.exists(optimized_elevenlabs_path)
+        
+        if is_elevenlabs:
+            print(f"⚠️ ElevenLabs audio file detected: {file.filename}")
+            if use_optimized:
+                print(f"✅ Using pre-processed optimized version for better alignment")
+        
+        # Validate file
+        validate_audio_file(file)
+        
+        # Generate unique filename
+        timestamp = int(time.time())
+        safe_filename = secure_filename(file.filename)
+        unique_filename = f"{timestamp}_{safe_filename}"
+        audio_path = os.path.join(app.config['AUDIO_FOLDER'], unique_filename)
+        
+        try:
+            # Save file
+            file.save(audio_path)
+            
+            # Use the optimized version for processing if available for ElevenLabs audio
+            processing_path = optimized_elevenlabs_path if use_optimized else audio_path
+            
+            # Validate audio content (using optimized version if available)
+            audio_metadata = validate_audio_content(processing_path)
+            
+            # Detect speech in the audio (using optimized version if available)
+            speech_info = detect_speech_activity(processing_path)
+            
+            # Get basic audio info with our audio aligner
+            aligner = get_audio_aligner()
+            if not aligner:
+                raise AudioProcessingError(
+                    AudioErrorType.SYSTEM_UNAVAILABLE,
+                    'Audio aligner not initialized'
+                )
+            
+            # Use the optimized version for preprocessing if available
+            audio_data, sample_rate = aligner.preprocess_audio(processing_path)
+            
+            audio_info = {
+                'filename': unique_filename,
+                'original_filename': file.filename,
+                'path': audio_path,
+                'duration_ms': audio_metadata['duration_ms'],
+                'sample_rate': sample_rate,
+                'samples': len(audio_data),
+                'speech_info': speech_info,
+                'is_elevenlabs': is_elevenlabs,
+                'using_optimized': use_optimized,
+                'processing_path': processing_path
+            }
+        except Exception as e:
+            # Clean up on error
+            if os.path.exists(audio_path):
+                os.remove(audio_path)
+            
+            # Re-raise as AudioProcessingError if not already
+            if not isinstance(e, AudioProcessingError):
+                raise AudioProcessingError(
+                    AudioErrorType.PROCESSING_TIMEOUT,
+                    f'Audio processing failed: {str(e)}',
+                    {'error': str(e)}
+                )
+            raise
+        
+        return jsonify({
+            'success': True,
+            'audio': audio_info,
+            'message': 'Audio uploaded and validated successfully'
+        })
+    
+    # Call the wrapped function
+    return process_audio_upload()
+
+@app.route('/api/audio/align', methods=['POST'])
+def align_audio():
+    """Align audio with text to generate timing sequence"""
+    # Import error handling
+    from audio_error_handling import (
+        AudioProcessingError, 
+        AudioErrorType, 
+        handle_audio_errors,
+        with_timeout,
+        AudioFallbackHandler
+    )
+    
+    @handle_audio_errors(fallback_handler=AudioFallbackHandler.fallback_to_manual_timing)
+    def process_audio_alignment():
+        if not AUDIO_ALIGNMENT_AVAILABLE:
+            raise AudioProcessingError(
+                AudioErrorType.SYSTEM_UNAVAILABLE,
+                'Audio alignment system not available'
+            )
+            
+        data = request.get_json()
+        if not data:
+            raise AudioProcessingError(
+                AudioErrorType.UPLOAD_ERROR,
+                'No JSON data provided'
+            )
+            
+        audio_filename = data.get('filename')
+        text = data.get('text', '')
+        language = data.get('language', 'pt-BR')  # Default to Portuguese
+        
+        if not audio_filename:
+            raise AudioProcessingError(
+                AudioErrorType.UPLOAD_ERROR,
+                'No audio filename provided'
+            )
+            
+        if not text.strip():
+            raise AudioProcessingError(
+                AudioErrorType.ALIGNMENT_FAILED,
+                'No text provided for alignment'
+            )
+        
+        # Check if audio file exists
+        audio_path = os.path.join(app.config['AUDIO_FOLDER'], audio_filename)
+        if not os.path.exists(audio_path):
+            raise AudioProcessingError(
+                AudioErrorType.UPLOAD_ERROR,
+                'Audio file not found',
+                {'filename': audio_filename}
+            )
+            
+        # Check if this is an ElevenLabs file and we have a pre-processed version
+        is_elevenlabs = "ElevenLabs" in audio_filename
+        optimized_elevenlabs_path = os.path.join(app.config['AUDIO_FOLDER'], "optimized_elevenlabs.wav")
+        use_optimized = is_elevenlabs and os.path.exists(optimized_elevenlabs_path)
+        
+        # Use optimized version if available for ElevenLabs audio
+        processing_path = optimized_elevenlabs_path if use_optimized else audio_path
+        
+        if is_elevenlabs:
+            print(f"⚠️ ElevenLabs audio file detected in alignment: {audio_filename}")
+            if use_optimized:
+                print(f"✅ Using pre-processed optimized version for better alignment")
+                print(f"   Original: {audio_path}")
+                print(f"   Optimized: {optimized_elevenlabs_path}")
+        
+        # Get aligner and process
+        aligner = get_audio_aligner()
+        if not aligner:
+            raise AudioProcessingError(
+                AudioErrorType.SYSTEM_UNAVAILABLE,
+                'Audio aligner not available'
+            )
+        
+        # Perform alignment with timeout
+        @with_timeout(timeout_seconds=300)  # Allow up to 5 minutes for alignment (increased from 180)
+        def run_alignment():
+            print(f"🎵 Starting audio alignment for: {audio_filename}")
+            print(f"📝 Text: {text[:100]}...")
+            print(f"⏳ First alignment may take longer as models are downloaded...")
+            
+            try:
+                # Call the alignment function with the appropriate audio file
+                alignment_result = aligner.align_audio_to_text(processing_path, text, language=language)
+                
+                if not alignment_result:
+                    raise AudioProcessingError(
+                        AudioErrorType.ALIGNMENT_FAILED,
+                        'Alignment failed - no result returned',
+                        {'text': text[:100]}
+                    )
+                
+                # Converter o objeto AlignmentResult para dicionário
+                result_dict = {
+                    'success': True,
+                    'language': alignment_result.language,
+                    'sample_rate': alignment_result.sample_rate,
+                    'used_optimized': use_optimized if is_elevenlabs else False,
+                    'tokens': [
+                        {
+                            'type': token.type.value,
+                            'text': token.text,
+                            'viseme': token.viseme,
+                            'start_ms': token.start_ms,
+                            'end_ms': token.end_ms,
+                            'confidence': token.confidence,
+                            'lang': token.lang
+                        }
+                        for token in alignment_result.tokens
+                    ],
+                    'stats': {
+                        'audio_ms': alignment_result.stats.audio_ms,
+                        'drift_ms': alignment_result.stats.drift_ms,
+                        'unaligned_count': alignment_result.stats.unaligned_count,
+                        'avg_confidence': alignment_result.stats.avg_confidence,
+                        'pause_count': alignment_result.stats.pause_count
+                    },
+                    'total_duration_ms': alignment_result.stats.audio_ms
+                }
+                
+                return result_dict
+            except Exception as e:
+                print(f"❌ Alignment error: {e}")
+                raise AudioProcessingError(
+                    AudioErrorType.ALIGNMENT_FAILED,
+                    str(e),
+                    {'text': text[:100]}
+                )
+            
+        # Run alignment with timeout
+        alignment_result = run_alignment()
+        
+        # Convert alignment tokens to sequence format
+        tokens = alignment_result.get('tokens', [])
+        sequence = []
+        
+        for token in tokens:
+            # Os tokens já são dicionários devido à nossa conversão acima
+            token_dict = token.copy() if isinstance(token, dict) else token
+            
+            # Adicionar duração se não estiver presente
+            if isinstance(token_dict, dict) and 'start_ms' in token_dict and 'end_ms' in token_dict and 'duration_ms' not in token_dict:
+                token_dict['duration_ms'] = token_dict['end_ms'] - token_dict['start_ms']
+                
+            sequence.append(token_dict)
+        
+        # Update current project with audio-driven sequence
+        app_state['current_project']['text'] = text
+        app_state['current_project']['audio_alignment'] = {
+            'filename': audio_filename,
+            'alignment_method': alignment_result.get('method', 'unknown'),
+            'total_duration_ms': alignment_result.get('total_duration_ms', 0),
+            'confidence_score': alignment_result.get('confidence_score', 0.0),
+            'created_at': datetime.now().isoformat()
+        }
+        
+        print(f"✅ Audio alignment completed: {len(sequence)} tokens generated")
+        
+        # Add a special message if using optimized ElevenLabs audio
+        success_message = 'Audio alignment completed successfully'
+        if is_elevenlabs and use_optimized:
+            success_message = 'Audio alignment completed successfully using optimized ElevenLabs audio'
+        
+        return jsonify({
+            'success': True,
+            'alignment': alignment_result,
+            'sequence': sequence,
+            'stats': {
+                'total_tokens': len(sequence),
+                'word_tokens': len([t for t in sequence if t.get('type') == 'word']),
+                'gap_tokens': len([t for t in sequence if t.get('type') == 'gap']),
+                'total_duration_ms': alignment_result.get('total_duration_ms', 0),
+                'method': alignment_result.get('method', 'energy-based'),
+                'is_elevenlabs': is_elevenlabs,
+                'used_optimized': use_optimized if is_elevenlabs else False
+            },
+            'message': success_message
+        })
+    
+    # Call the wrapped function
+    return process_audio_alignment()
+
+@app.route('/api/sequence/build-from-audio', methods=['POST'])
+def build_sequence_from_audio():
+    """Build animation sequence using audio timing"""
+    # Import error handling
+    from audio_error_handling import (
+        AudioProcessingError, 
+        AudioErrorType, 
+        AudioFallbackHandler
+    )
+    
+    def process_audio_sequence_building():
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'success': False, 
+                'error': 'No JSON data provided',
+                'error_info': {'type': 'UPLOAD_ERROR'}
+            }), 400
+            
+        # Extract required parameters
+        audio_filename = data.get('audio_filename')
+        text = data.get('text', '')
+        alignment_tokens = data.get('alignment_tokens', [])
+        
+        # Validate parameters
+        if not audio_filename:
+            return jsonify({
+                'success': False, 
+                'error': 'No audio filename provided',
+                'error_info': {'type': 'UPLOAD_ERROR', 'parameter': 'audio_filename'}
+            }), 400
+            
+        if not text.strip():
+            return jsonify({
+                'success': False, 
+                'error': 'No text provided for alignment',
+                'error_info': {'type': 'ALIGNMENT_FAILED', 'parameter': 'text'}
+            }), 400
+            
+        if not alignment_tokens:
+            return jsonify({
+                'success': False, 
+                'error': 'No alignment tokens provided',
+                'error_info': {'type': 'ALIGNMENT_FAILED', 'parameter': 'alignment_tokens'}
+            }), 400
+        
+        # Check if audio file exists
+        audio_path = os.path.join(app.config['AUDIO_FOLDER'], audio_filename)
+        if not os.path.exists(audio_path):
+            return jsonify({
+                'success': False, 
+                'error': 'Audio file not found',
+                'error_info': {'type': 'UPLOAD_ERROR', 'filename': audio_filename}
+            }), 400
+        
+        # Process alignment tokens to build sequence
+        project = app_state['current_project']
+        letter_map = project['letter_map']
+        settings = project['settings']
+        fallback_image = project['fallback_image'] or None
+        
+        try:
+            # Calculate timing based on alignment tokens
+            sequence = []
+            
+            # Process each token to create frame entries
+            for token in alignment_tokens:
+                token_type = token.get('type')
+                token_text = token.get('text', '')
+                token_viseme = token.get('viseme', '')
+                start_ms = token.get('start_ms', 0)
+                end_ms = token.get('end_ms', 0)
+                duration_ms = end_ms - start_ms if end_ms > start_ms else settings['frame_duration']
+                
+                if token_type == 'word':
+                    # Check if token has text content
+                    if not token_text:
+                        # If no text is available in the token but we have a viseme, use that for animation
+                        if token_viseme and token_viseme != 'neutral':
+                            # Map the viseme back to a character
+                            viseme_to_char = {
+                                'A': 'A', 'E': 'E', 'I': 'I', 'O': 'O', 'U': 'U',
+                                'BMP': 'M', 'FV': 'F', 'L': 'L', 'TH': 'T',
+                                'R': 'R', 'CDGKNSTXYZ': 'T', 'QW': 'Q'
+                            }
+                            # Find the character that corresponds to the viseme
+                            char_to_use = next((k for k, v in viseme_to_char.items() if token_viseme == v), 'A')
+                            
+                            sequence.append({
+                                'char': char_to_use,
+                                'img': letter_map.get(char_to_use, fallback_image),
+                                'ms': duration_ms,
+                                'audio_start': start_ms,
+                                'audio_end': end_ms,
+                                'source': 'audio_alignment_viseme'
+                            })
+                        else:
+                            # If we have neither text nor viseme, add a neutral frame
+                            if 'A' in letter_map:
+                                sequence.append({
+                                    'char': 'A',  # Default to 'A' viseme as fallback
+                                    'img': letter_map.get('A'),
+                                    'ms': duration_ms,
+                                    'audio_start': start_ms,
+                                    'audio_end': end_ms,
+                                    'source': 'audio_alignment_fallback'
+                                })
+                            else:
+                                # No 'A' in letter map, use global fallback
+                                sequence.append({
+                                    'char': 'A',
+                                    'img': fallback_image,
+                                    'fallback_img': fallback_image,
+                                    'ms': duration_ms,
+                                    'audio_start': start_ms,
+                                    'audio_end': end_ms,
+                                    'source': 'audio_alignment_fallback',
+                                    'is_symbol_fallback': True
+                                })
+                    else:
+                        # Process each character in the word normally when text is available
+                        for char in token_text.upper():
+                            if char in letter_map or char.isalpha():
+                                # Calculate proportional duration
+                                char_duration = max(40, duration_ms // max(1, len(token_text)))
+                                
+                                # Check if character is in letter map
+                                if char in letter_map:
+                                    sequence.append({
+                                        'char': char,
+                                        'img': letter_map.get(char),
+                                        'ms': char_duration,
+                                        'audio_start': start_ms,
+                                        'audio_end': end_ms,
+                                        'source': 'audio_alignment'
+                                    })
+                                else:
+                                    # Character not in letter map, use fallback
+                                    sequence.append({
+                                        'char': char,
+                                        'img': fallback_image,
+                                        'fallback_img': fallback_image,
+                                        'ms': char_duration,
+                                        'audio_start': start_ms,
+                                        'audio_end': end_ms,
+                                        'source': 'audio_alignment',
+                                        'is_symbol_fallback': True
+                                    })
+                
+                elif token_type == 'gap':
+                    # Add pause frame with fallback image
+                    gap_duration = max(settings['pause_duration'], duration_ms)
+                    sequence.append({
+                        'char': ' ',
+                        'img': None,  # Keep as None for UI purposes
+                        'fallback_img': fallback_image,  # Add fallback image for export
+                        'ms': gap_duration,
+                        'audio_start': start_ms,
+                        'audio_end': end_ms,
+                        'is_pause': True,
+                        'source': 'audio_gap'
+                    })
+            
+            # Update app state
+            app_state['current_project']['sequence'] = sequence
+            app_state['current_project']['text'] = text
+            app_state['current_project']['audio_file'] = audio_filename
+            app_state['current_project']['timing_mode'] = 'audio_driven'
+            
+            return jsonify({
+                'success': True,
+                'sequence': sequence,
+                'stats': {
+                    'total_frames': len(sequence),
+                    'total_duration_ms': sum(frame['ms'] for frame in sequence),
+                    'source': 'audio_alignment'
+                },
+                'message': 'Sequence built from audio alignment successfully'
+            })
+            
+        except Exception as e:
+            return jsonify({
+                'success': False, 
+                'error': f"Failed to build sequence from audio alignment: {str(e)}",
+                'error_info': {'type': 'PROCESSING_TIMEOUT', 'error': str(e)}
+            }), 500
+    
+    # Call the function
+    return process_audio_sequence_building()
+
+@app.route('/api/audio/analyze', methods=['POST'])  
+def analyze_audio():
+    """Analyze audio file for timing and features without full alignment"""
+    try:
+        if not AUDIO_ALIGNMENT_AVAILABLE:
+            return jsonify({
+                'success': False, 
+                'error': 'Audio alignment system not available'
+            }), 503
+            
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'No JSON data provided'}), 400
+            
+        audio_filename = data.get('audio_filename')
+        if not audio_filename:
+            return jsonify({'success': False, 'error': 'No audio filename provided'}), 400
+        
+        # Check if audio file exists
+        audio_path = os.path.join(app.config['AUDIO_FOLDER'], audio_filename)
+        if not os.path.exists(audio_path):
+            return jsonify({'success': False, 'error': 'Audio file not found'}), 404
+        
+        # Get aligner and analyze
+        aligner = get_audio_aligner()
+        if not aligner:
+            return jsonify({'success': False, 'error': 'Audio aligner not available'}), 500
+        
+        # Load and preprocess audio
+        audio_data, sample_rate = aligner.preprocess_audio(audio_path)
+        duration_ms = len(audio_data) * 1000 / sample_rate
+        
+        # Detect gaps/pauses
+        gaps = aligner._detect_gaps_energy_based(audio_data, sample_rate)
+        
+        # Calculate basic statistics
+        analysis = {
+            'filename': audio_filename,
+            'duration_ms': duration_ms,
+            'sample_rate': sample_rate,
+            'samples': len(audio_data),
+            'gaps': [
+                {
+                    'start_ms': start_ms,
+                    'end_ms': end_ms, 
+                    'duration_ms': end_ms - start_ms
+                }
+                for start_ms, end_ms in gaps
+            ],
+            'speech_segments': [],
+            'analysis_timestamp': datetime.now().isoformat()
+        }
+        
+        # Calculate speech segments (between gaps)
+        speech_segments = []
+        last_end = 0.0
+        
+        for gap_start, gap_end in gaps:
+            if gap_start > last_end:
+                speech_segments.append({
+                    'start_ms': last_end,
+                    'end_ms': gap_start,
+                    'duration_ms': gap_start - last_end
+                })
+            last_end = gap_end
+        
+        # Add final segment if needed
+        if last_end < duration_ms:
+            speech_segments.append({
+                'start_ms': last_end,
+                'end_ms': duration_ms,
+                'duration_ms': duration_ms - last_end
+            })
+        
+        analysis['speech_segments'] = speech_segments
+        
+        return jsonify({
+            'success': True,
+            'analysis': analysis,
+            'stats': {
+                'total_gaps': len(gaps),
+                'total_speech_segments': len(speech_segments),
+                'speech_ratio': sum(seg['duration_ms'] for seg in speech_segments) / duration_ms if duration_ms > 0 else 0,
+                'silence_ratio': sum(gap['duration_ms'] for gap in analysis['gaps']) / duration_ms if duration_ms > 0 else 0
+            },
+            'message': 'Audio analysis completed successfully'
+        })
+        
+    except Exception as e:
+        print(f"❌ Audio analysis error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/audio/markers', methods=['POST'])
+def get_audio_markers():
+    """Get timing markers for audio playback synchronization"""
+    data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'error': 'No data provided'}), 400
+    
+    alignment = data.get('alignment')
+    if not alignment:
+        return jsonify({'success': False, 'error': 'No alignment provided'}), 400
+    
+    # Extract tokens and audio duration
+    tokens = alignment.get('tokens', [])
+    audio_duration_ms = alignment.get('audio', {}).get('duration_ms', 3000)  # Default 3s
+    
+    # Extract word tokens only (not gaps)
+    word_tokens = [t for t in tokens if t.get('type') == 'word']
+    
+    # Calculate marker positions as percentages
+    markers = []
+    for token in word_tokens:
+        start_ms = token.get('start_ms', 0)
+        position_percent = (start_ms / audio_duration_ms) * 100 if audio_duration_ms > 0 else 0
+        
+        markers.append({
+            'text': token.get('text', ''),
+            'position': position_percent,
+            'time_ms': start_ms
+        })
+    
+    return jsonify({
+        'success': True,
+        'markers': markers
+    })
 
 if __name__ == '__main__':
     print("Starting Face Sequencer Pro web server...")

@@ -1,0 +1,119 @@
+/* playback-controls.css - Enhanced playback controls styling */
+
+/* Scrubber handle */
+.scrubber-handle {
+  width: 12px;
+  height: 20px;
+  background-color: var(--primary-color);
+  border-radius: 4px;
+  position: absolute;
+  top: -2px;
+  left: 0;
+  transform: translateX(-50%);
+  cursor: pointer;
+  transition: background-color 0.15s ease, width 0.15s ease, height 0.15s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  z-index: 10;
+}
+
+.scrubber-handle:hover,
+.scrubber-handle.active {
+  background-color: var(--primary-hover);
+  width: 14px;
+  height: 24px;
+  top: -4px;
+}
+
+/* Timeline frame highlighting */
+.timeline-frame.selected {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.3);
+  position: relative;
+  z-index: 5;
+}
+
+/* Playback control buttons with improved feedback */
+.timeline-controls button,
+.audio-control-btn {
+  transition: transform 0.1s ease, background-color 0.2s ease;
+}
+
+.timeline-controls button:active,
+.audio-control-btn:active {
+  transform: scale(0.95);
+}
+
+.timeline-controls button:hover,
+.audio-control-btn:hover {
+  background-color: var(--primary-hover);
+  color: var(--text-inverse);
+}
+
+.audio-control-btn.playing {
+  background-color: var(--success-color);
+  border-color: var(--success-color);
+}
+
+.audio-control-btn.playing:hover {
+  background-color: #0da56f;
+}
+
+/* Keyboard navigation hint */
+.keyboard-hint {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-top: 8px;
+  text-align: center;
+  opacity: 0.7;
+}
+
+.keyboard-hint kbd {
+  background-color: var(--bg-tertiary);
+  border-radius: 3px;
+  border: 1px solid var(--border-color);
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1;
+  padding: 3px 5px;
+  margin: 0 2px;
+}
+
+/* Add animation for time indicator */
+.audio-time {
+  transition: color 0.2s ease;
+}
+
+.audio-progress-bar {
+  transition: width 0.1s linear;
+}
+
+/* Improve preview feedback */
+.preview-container {
+  position: relative;
+}
+
+.preview-frame img {
+  transition: opacity 0.15s ease;
+}
+
+.preview-frame.loading img {
+  opacity: 0.7;
+}
+
+.preview-loading-indicator {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--primary-color);
+  font-size: 2rem;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  z-index: 2;
+}
+
+.preview-frame.loading .preview-loading-indicator {
+  opacity: 1;
+}
