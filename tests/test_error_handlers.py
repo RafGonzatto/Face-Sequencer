@@ -25,29 +25,34 @@ class Dummy:
 def test_value_error_classification():
     d = Dummy()
     with flask_app.app_context():
-        body, status = d.value()
-    assert status == 400
+        resp = d.value()
+    assert resp.status_code == 400
+    body = resp.get_json()
 
 def test_not_found_classification():
     d = Dummy()
     with flask_app.app_context():
-        body, status = d.not_found()
-    assert status == 404
+        resp = d.not_found()
+    assert resp.status_code == 404
+    body = resp.get_json()
 
 def test_timeout_classification():
     d = Dummy()
     with flask_app.app_context():
-        body, status = d.timeout()
-    assert status == 504
+        resp = d.timeout()
+    assert resp.status_code == 504
+    body = resp.get_json()
 
 def test_classified_passthrough():
     d = Dummy()
     with flask_app.app_context():
-        body, status = d.classified()
-    assert status == 422
+        resp = d.classified()
+    assert resp.status_code == 422
+    body = resp.get_json()
 
 def test_unexpected_error():
     d = Dummy()
     with flask_app.app_context():
-        body, status = d.unexpected()
-    assert status == 500
+        resp = d.unexpected()
+    assert resp.status_code == 500
+    body = resp.get_json()
