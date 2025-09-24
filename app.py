@@ -1521,7 +1521,9 @@ def util_error_demo() -> Response:
     """Demonstration endpoint for unified error handler (WP003).
     Pass query param ?mode=timeout|missing|value|classified to trigger errors.
     """
-    mode = request.args.get('mode', 'ok')
+    # Normalize mode to ensure branch activation even with casing / whitespace
+    raw_mode = request.args.get('mode', 'ok')
+    mode = (raw_mode or 'ok').strip().lower()
     from flask import jsonify
     from api_responses import error_response, success_response
     if mode == 'timeout':
