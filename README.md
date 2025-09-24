@@ -28,6 +28,29 @@ A modern, web-based lip-sync animation tool that transforms text into animated s
 
 - **Responsive Design**: Works on desktop, tablet, and mobile devices
 - **Drag & Drop**: Easily assign images to characters by dragging files
+
+### API Documentation & Schema Management
+
+- **OpenAPI Specification**: Comprehensive API documentation available at `/docs`
+- **Single Source of Truth**: All API schemas are generated from modular fragments
+- **Automated Schema Generation**: Consistent schema generation for YAML and JSON versions
+- **Schema Validation**: Runtime schema validation ensures API response consistency
+
+#### Managing API Schemas
+
+The project uses a single source of truth for API schemas:
+
+```bash
+# Generate both OpenAPI YAML and JSON Schema files:
+python build_openapi.py --json-schema
+
+# Or use the convenience script:
+./generate_schemas.bat
+```
+
+Schema files are automatically regenerated when accessing the API docs if the
+source fragments have changed.
+
 - **Real-time Preview**: See your animation as you build it
 - **Interactive Timeline**: Scrub through frames and edit durations
 
@@ -150,21 +173,15 @@ Extend features by modifying:
 
 ### High Quality
 
-- **CRF**: 12 (highest quality)
-- **Preset**: Slow (best compression)
-- **Use Case**: Professional productions
+**CRF**: 15 (high quality, optimized for animation edges)
 
 ### Medium Quality (Default)
 
-- **CRF**: 18 (balanced quality/size)
-- **Preset**: Medium (balanced speed)
-- **Use Case**: General purpose animations
+**CRF**: 20 (balanced quality/size for lip-sync sequences)
 
 ### Fast Export
 
-- **CRF**: 24 (smaller file size)
-- **Preset**: Fast (quick processing)
-- **Use Case**: Rapid prototyping and testing
+**CRF**: 26 (smaller file size, acceptable for previews)
 
 ## 🔧 Troubleshooting
 
@@ -241,6 +258,48 @@ For full documentation, see [ElevenLabs Audio Guide](elevenlabs_audio_guide.md)
 
 Contributions are welcome! Areas for improvement:
 
+## 🧩 Modularization & Blueprints
+
+The application is migrating from a monolithic `app.py` to a modular blueprint
+structure for clearer separation of concerns and improved test reliability.
+
+Current blueprint modules:
+
+- `util_endpoints.py` (`util_bp`): Houses utility / diagnostic endpoints such as
+   `/api/util/error-demo-v2` used to validate standardized error response
+   contracts.
+
+Rationale:
+
+1. Avoid brittle import-time side effects and route rebinding hacks.
+2. Allow late registration after optional heavy initialization (e.g. audio
+    alignment) while keeping tests lightweight via `UNIT_TEST_MODE`.
+3. Encourage future grouping (e.g. `audio_bp`, `export_bp`, `project_bp`).
+
+Migration Guidance:
+
+- New non-core endpoints should be added in a dedicated blueprint module and
+   registered in `app.py` after core configuration.
+- Avoid direct mutation of `app.view_functions`; rely on blueprint registration.
+- If an endpoint needs to expose versioned behavior, prefer adding a new route
+   (e.g. `*-v2`) and deprecate the old one with a thin delegate.
+
+Testing Impact:
+
+- Previous test-only rebinding fixtures have been removed—the blueprint ensures
+   deterministic view function binding.
+- Set `UNIT_TEST_MODE=1` (already handled in tests) to bypass heavy audio
+   initialization during imports for faster test cycles.
+
+Planned Future Blueprints (candidates):
+
+- `audio_bp`: Upload, preprocessing, alignment routes
+- `export_bp`: Video/JSON export initiation + status
+- `metrics_bp`: Health and metrics aggregation endpoints
+- `model_bp`: Model preload/list/unload lifecycle endpoints
+
+Feel free to open a PR if you start modularizing another logical area.
+
 - Additional export formats (GIF, WebM)
 - Cloud storage integration
 - Collaborative editing features
@@ -269,3 +328,16 @@ Contributions are welcome! Areas for improvement:
 - Basic desktop interface
 - Core animation functionality
 - MP4 and JSON export
+
+## Development
+
+### Error Handling System
+
+Face Sequencer Pro implements a comprehensive centralized error handling system. The system provides:
+
+- **Centralized Logging**: All errors are logged to daily log files in the `logs` directory
+- **Standardized API Responses**: Consistent error format for API endpoints
+- **Graceful Recovery**: Fall back mechanisms for critical operations
+- **User-Friendly Messages**: Clear error messages with recommendations
+
+For detailed information, see [ERROR_HANDLING_GUIDE.md](ERROR_HANDLING_GUIDE.md).
