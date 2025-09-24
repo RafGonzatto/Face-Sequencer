@@ -67,6 +67,19 @@ def load_project():
     except Exception as e:  # noqa: BLE001
         return jsonify(error_response(str(e), error_type='unexpected_error', status=400)), 400
 
+@project_bp.route('/api/project', methods=['GET'])
+def get_current_project():
+    """Return the current in-memory project state.
+
+    Added to support front-end attempts to fetch existing project without uploading a file.
+    """
+    from flask import current_app
+    try:
+        app_state = _get_state(current_app)
+        return jsonify(success_response('Current project', project=app_state['current_project']))
+    except Exception as e:  # noqa: BLE001
+        return jsonify(error_response(str(e), error_type='unexpected_error', status=400)), 400
+
 @project_bp.route('/api/projects/recent', methods=['GET'])
 def get_recent_projects():
     from flask import current_app

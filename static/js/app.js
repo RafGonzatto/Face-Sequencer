@@ -390,7 +390,7 @@ class FaceSequencerApp {
       headers: {
         "Content-Type": "application/json",
       },
-      _retryAttempts: 2
+      _retryAttempts: 2,
     };
 
     if (data && method !== "GET") {
@@ -398,13 +398,17 @@ class FaceSequencerApp {
     }
 
     try {
-      const url = endpoint.startsWith('/api') ? endpoint : `/api${endpoint}`;
+      const url = endpoint.startsWith("/api") ? endpoint : `/api${endpoint}`;
       const response = await fetch(url, config);
       const result = await response.json();
-      if (!result.success) throw new Error(result.error || 'API call failed');
+      if (!result.success) throw new Error(result.error || "API call failed");
       return result;
     } catch (error) {
-      this.reportError(`API Error: ${error.message}`, { level: 'error', action: () => this.apiCall(endpoint, method, data), actionLabel: 'Retry' });
+      this.reportError(`API Error: ${error.message}`, {
+        level: "error",
+        action: () => this.apiCall(endpoint, method, data),
+        actionLabel: "Retry",
+      });
       throw error;
     }
   }
@@ -428,9 +432,9 @@ class FaceSequencerApp {
           this.showSuccess("Project loaded successfully");
         }
       } else {
-        const result = await this.apiCall("/project");
-        this.state.project = result.project;
-        this.updateUI();
+          // No GET /api/project endpoint exists; skip silent fetch.
+          // Optionally we could implement a backend endpoint to return current project state.
+          console.warn("No direct /api/project fetch implemented (skipping)");
       }
     } catch (error) {
       this.showError("Failed to load project");
@@ -1611,31 +1615,43 @@ class FaceSequencerApp {
       let cumulative = 0;
       this.state.sequence.forEach((frame, index) => {
         const frameElement = document.createElement("div");
-        frameElement.className = `timeline-frame ${frame.is_pause ? "pause" : ""}`;
+        frameElement.className = `timeline-frame ${
+          frame.is_pause ? "pause" : ""
+        }`;
         frameElement.setAttribute("data-frame", index);
         const thumbnail = frame.is_pause
           ? '<div class="frame-thumbnail pause-frame">⏸</div>'
           : frame.thumbnail
-            ? `<div class="frame-thumbnail"><img src="${frame.thumbnail}" alt="${frame.char}"></div>`
-            : '<div class="frame-thumbnail"><i class="fas fa-image"></i></div>';
+          ? `<div class="frame-thumbnail"><img src="${frame.thumbnail}" alt="${frame.char}"></div>`
+          : '<div class="frame-thumbnail"><i class="fas fa-image"></i></div>';
         frameElement.innerHTML = `
           ${thumbnail}
           <div class="frame-info">
-            <div class="frame-char">${frame.char === " " ? "Space" : frame.char}</div>
+            <div class="frame-char">${
+              frame.char === " " ? "Space" : frame.char
+            }</div>
             <div class="frame-duration">${frame.ms || frame.duration}ms</div>
           </div>
           <div class="frame-index">${index + 1}</div>`;
         frameElement.addEventListener("click", () => this.selectFrame(index));
         this.timelineFrames.appendChild(frameElement);
         this.frameStartTimes[index] = cumulative;
-        cumulative += (frame.ms || frame.duration || this.state.project.settings.frame_duration);
+        cumulative +=
+          frame.ms ||
+          frame.duration ||
+          this.state.project.settings.frame_duration;
       });
       if (this.timelineEnhancer) this.timelineEnhancer.refresh();
     } catch (err) {
-      console.error('Timeline render failed', err);
+      console.error("Timeline render failed", err);
       this.timelineFrames.innerHTML = `<div class="timeline-error">Timeline failed to render. <button class="btn btn-outline btn-sm" id="retryTimelineBtn">Retry</button></div>`;
-      document.getElementById('retryTimelineBtn')?.addEventListener('click', () => this.updateTimeline());
-      this.reportError('Timeline rendering error', { action: () => this.updateTimeline(), actionLabel: 'Retry Timeline' });
+      document
+        .getElementById("retryTimelineBtn")
+        ?.addEventListener("click", () => this.updateTimeline());
+      this.reportError("Timeline rendering error", {
+        action: () => this.updateTimeline(),
+        actionLabel: "Retry Timeline",
+      });
     }
   }
 
@@ -1667,16 +1683,24 @@ class FaceSequencerApp {
     // Load frame preview
     this.loadFramePreview(index);
     // Update playback line
-    if (this.timelineEnhancer) this.timelineEnhancer.updatePlaybackPositionByFrame(index);
+    if (this.timelineEnhancer)
+      this.timelineEnhancer.updatePlaybackPositionByFrame(index);
   }
 
   // Map millisecond offset to frame index using frameStartTimes (binary search)
   getFrameIndexForMs(ms) {
     if (!this.frameStartTimes) return 0;
-    let lo = 0, hi = this.frameStartTimes.length - 1, ans = 0;
+    let lo = 0,
+      hi = this.frameStartTimes.length - 1,
+      ans = 0;
     while (lo <= hi) {
       const mid = (lo + hi) >> 1;
-      if (this.frameStartTimes[mid] <= ms) { ans = mid; lo = mid + 1; } else { hi = mid - 1; }
+      if (this.frameStartTimes[mid] <= ms) {
+        ans = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
     }
     return ans;
   }
@@ -1852,25 +1876,33 @@ class FaceSequencerApp {
 
   // Centralized error reporting -> toast + console + ARIA (WP-UX-007)
   reportError(message, options = {}) {
-    console.error('[AppError]', message, options?.error || '');
+    console.error("[AppError]", message, options?.error || "");
     // ARIA assertive region if present
     try {
-      const alertRegion = document.getElementById('ariaAlertRegion');
+      const alertRegion = document.getElementById("ariaAlertRegion");
       if (alertRegion) {
-        alertRegion.textContent = typeof message === 'string' ? message : (message?.toString?.() || 'Error');
+        alertRegion.textContent =
+          typeof message === "string"
+            ? message
+            : message?.toString?.() || "Error";
       }
-    } catch(_) {}
+    } catch (_) {}
     if (this.errorToasts) {
-      this.errorToasts.show(message, { level: options.level || 'error', action: options.action, actionLabel: options.actionLabel, autoDismiss: options.autoDismiss !== false });
+      this.errorToasts.show(message, {
+        level: options.level || "error",
+        action: options.action,
+        actionLabel: options.actionLabel,
+        autoDismiss: options.autoDismiss !== false,
+      });
     } else if (window.alert) {
       alert(message);
     }
   }
 
   // Helper to validate a required input field and show inline errors
-  validateRequiredInput(el, hintMessage = 'This field is required') {
+  validateRequiredInput(el, hintMessage = "This field is required") {
     if (!el) return true;
-    const value = (el.value || '').trim();
+    const value = (el.value || "").trim();
     if (!value) {
       this.errorToasts?.fieldError(el, hintMessage);
       return false;
@@ -1881,25 +1913,61 @@ class FaceSequencerApp {
   }
 
   // Generic FormData upload helper with retry & correlation (returns JSON)
-  async uploadFormData(endpoint, formData, { attempts = 2, onProgress, actionLabel = 'Retry Upload' } = {}) {
-    const correlationId = `fd-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`;
-    window.ErrorInstrumentation?.record('upload.start', { endpoint, correlationId });
+  async uploadFormData(
+    endpoint,
+    formData,
+    { attempts = 2, onProgress, actionLabel = "Retry Upload" } = {}
+  ) {
+    const correlationId = `fd-${Date.now().toString(36)}-${Math.random()
+      .toString(36)
+      .slice(2, 6)}`;
+    window.ErrorInstrumentation?.record("upload.start", {
+      endpoint,
+      correlationId,
+    });
     let lastErr;
-    for (let i=0;i<attempts;i++) {
+    for (let i = 0; i < attempts; i++) {
       try {
-        const resp = await fetch(endpoint, { method: 'POST', body: formData, _retryAttempts: 1 });
+        const resp = await fetch(endpoint, {
+          method: "POST",
+          body: formData,
+          _retryAttempts: 1,
+        });
         const json = await resp.json();
-        if (!json.success) throw new Error(json.error || `Upload failed (${resp.status})`);
-        window.ErrorInstrumentation?.record('upload.success', { endpoint, correlationId, attempt: i+1 });
+        if (!json.success)
+          throw new Error(json.error || `Upload failed (${resp.status})`);
+        window.ErrorInstrumentation?.record("upload.success", {
+          endpoint,
+          correlationId,
+          attempt: i + 1,
+        });
         return json;
       } catch (err) {
         lastErr = err;
-        window.ErrorInstrumentation?.record('upload.retry', { endpoint, correlationId, attempt: i+1, error: err.message });
-        if (i < attempts - 1) await new Promise(r=>setTimeout(r, 400 * (i+1)));
+        window.ErrorInstrumentation?.record("upload.retry", {
+          endpoint,
+          correlationId,
+          attempt: i + 1,
+          error: err.message,
+        });
+        if (i < attempts - 1)
+          await new Promise((r) => setTimeout(r, 400 * (i + 1)));
       }
     }
-    this.reportError(`Upload error: ${lastErr.message}`, { action: () => this.uploadFormData(endpoint, formData, { attempts, onProgress, actionLabel }), actionLabel });
-    window.ErrorInstrumentation?.record('upload.failure', { endpoint, correlationId, error: lastErr?.message });
+    this.reportError(`Upload error: ${lastErr.message}`, {
+      action: () =>
+        this.uploadFormData(endpoint, formData, {
+          attempts,
+          onProgress,
+          actionLabel,
+        }),
+      actionLabel,
+    });
+    window.ErrorInstrumentation?.record("upload.failure", {
+      endpoint,
+      correlationId,
+      error: lastErr?.message,
+    });
     throw lastErr;
   }
 
@@ -1916,32 +1984,43 @@ class FaceSequencerApp {
 
     const updateScrubberPosition = (clientX) => {
       const rect = scrubber.getBoundingClientRect();
-      let percentage = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      let percentage = Math.max(
+        0,
+        Math.min(1, (clientX - rect.left) / rect.width)
+      );
       let frameIndex = 0;
       const seqLen = this.state.sequence?.length || 0;
       if (seqLen > 0) {
         if (this.timelineEnhancer?.snapEnabled) {
           // Convert percentage to ms using total duration
-            if (!this.frameStartTimes) this.buildFrameStartTimes?.();
-            const totalMs = (this.frameStartTimes?.[seqLen-1] || 0) + (this.state.sequence[seqLen-1].ms || this.state.sequence[seqLen-1].duration || this.state.project.settings.frame_duration);
-            let ms = percentage * totalMs;
-            // Snap to nearest alignment token boundary if available
-            const snapped = this.getNearestSnapMs(ms);
-            ms = snapped;
-            percentage = totalMs ? (ms / totalMs) : percentage;
-            frameIndex = this.getFrameIndexForMs(ms);
+          if (!this.frameStartTimes) this.buildFrameStartTimes?.();
+          const totalMs =
+            (this.frameStartTimes?.[seqLen - 1] || 0) +
+            (this.state.sequence[seqLen - 1].ms ||
+              this.state.sequence[seqLen - 1].duration ||
+              this.state.project.settings.frame_duration);
+          let ms = percentage * totalMs;
+          // Snap to nearest alignment token boundary if available
+          const snapped = this.getNearestSnapMs(ms);
+          ms = snapped;
+          percentage = totalMs ? ms / totalMs : percentage;
+          frameIndex = this.getFrameIndexForMs(ms);
         } else {
           frameIndex = Math.min(Math.floor(percentage * seqLen), seqLen - 1);
         }
       }
       this.scrubberHandle.style.left = `${percentage * 100}%`;
-      if (frameIndex !== this.state.currentFrame && frameIndex >=0 && frameIndex < seqLen) {
+      if (
+        frameIndex !== this.state.currentFrame &&
+        frameIndex >= 0 &&
+        frameIndex < seqLen
+      ) {
         this.selectFrame(frameIndex);
-        this.previewFrame.classList.add('loading');
+        this.previewFrame.classList.add("loading");
         this.loadFramePreview(frameIndex);
         this.updateTimelineInfo(frameIndex);
         this.highlightTimelineFrame(frameIndex);
-        setTimeout(()=> this.previewFrame.classList.remove('loading'), 100);
+        setTimeout(() => this.previewFrame.classList.remove("loading"), 100);
       }
       return frameIndex;
     };
@@ -1949,32 +2028,72 @@ class FaceSequencerApp {
     // Helper: build frameStartTimes if missing
     this.buildFrameStartTimes = () => {
       this.frameStartTimes = [];
-      let c=0;
-      (this.state.sequence||[]).forEach((f,i)=>{ this.frameStartTimes[i]=c; c+= (f.ms||f.duration|| this.state.project.settings.frame_duration); });
+      let c = 0;
+      (this.state.sequence || []).forEach((f, i) => {
+        this.frameStartTimes[i] = c;
+        c += f.ms || f.duration || this.state.project.settings.frame_duration;
+      });
     };
 
     this.getFrameIndexForMs = (ms) => {
       if (!this.frameStartTimes) this.buildFrameStartTimes();
       const starts = this.frameStartTimes;
-      let lo=0, hi=starts.length-1; let ans=0;
-      while (lo<=hi) { const mid=(lo+hi)>>1; if (starts[mid]<=ms){ans=mid; lo=mid+1;} else hi=mid-1; }
+      let lo = 0,
+        hi = starts.length - 1;
+      let ans = 0;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (starts[mid] <= ms) {
+          ans = mid;
+          lo = mid + 1;
+        } else hi = mid - 1;
+      }
       return ans;
     };
 
     this.getNearestSnapMs = (ms) => {
-      const tokens = this.alignmentTokens || this.audioManager?.alignmentTokens || this.app?.alignmentTokens || [];
+      const tokens =
+        this.alignmentTokens ||
+        this.audioManager?.alignmentTokens ||
+        this.app?.alignmentTokens ||
+        [];
       if (Array.isArray(tokens) && tokens.length) {
         // Collect candidate boundaries (start_ms)
-        let best = ms; let bestDiff = Infinity;
+        let best = ms;
+        let bestDiff = Infinity;
         // Binary search by assuming tokens sorted by start
         // Build array of starts lazily
         if (!this._tokenStartsCache) {
-          this._tokenStartsCache = tokens.map(t => t.start_ms ?? t.start ?? 0).sort((a,b)=>a-b);
+          this._tokenStartsCache = tokens
+            .map((t) => t.start_ms ?? t.start ?? 0)
+            .sort((a, b) => a - b);
         }
         const arr = this._tokenStartsCache;
         // Binary search nearest
-        let lo=0, hi=arr.length-1;
-        while (lo<=hi) { const mid=(lo+hi)>>1; const v=arr[mid]; if (v===ms){best=v; bestDiff=0; break;} if (v<ms){ if (ms-v<bestDiff){best=v; bestDiff=ms-v;} lo=mid+1; } else { if (v-ms<bestDiff){best=v; bestDiff=v-ms;} hi=mid-1; } }
+        let lo = 0,
+          hi = arr.length - 1;
+        while (lo <= hi) {
+          const mid = (lo + hi) >> 1;
+          const v = arr[mid];
+          if (v === ms) {
+            best = v;
+            bestDiff = 0;
+            break;
+          }
+          if (v < ms) {
+            if (ms - v < bestDiff) {
+              best = v;
+              bestDiff = ms - v;
+            }
+            lo = mid + 1;
+          } else {
+            if (v - ms < bestDiff) {
+              best = v;
+              bestDiff = v - ms;
+            }
+            hi = mid - 1;
+          }
+        }
         return best;
       }
       // Fallback numeric snapping
