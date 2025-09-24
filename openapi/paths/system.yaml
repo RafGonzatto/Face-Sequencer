@@ -1,0 +1,13 @@
+# System endpoints
+/api/health:
+  get:
+    tags: [system]
+    summary: Application health check
+    responses:
+      "200": { description: Health status }
+/api/cache/stats:
+  get:
+    tags: [system]
+    summary: Audio cache statistics
+    responses:
+      "200": { description: Cache stats }

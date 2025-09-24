@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Face Sequencer Pro API
-  version: 9c99e73
+  version: c6f429b
   description: Modular OpenAPI specification (assembled)
 servers:
 - url: http://localhost:5000
@@ -635,6 +635,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /api/health:
+    get:
+      tags:
+      - system
+      summary: Application health check
+      responses:
+        '200':
+          description: Health status
+  /api/cache/stats:
+    get:
+      tags:
+      - system
+      summary: Audio cache statistics
+      responses:
+        '200':
+          description: Cache stats
   /api/templates:
     get:
       tags:
@@ -643,6 +659,22 @@ paths:
       responses:
         '200':
           description: Templates list
+  /api/util/error-demo-v2:
+    get:
+      tags:
+      - util
+      summary: Error demo v2 endpoint
+      responses:
+        '200':
+          description: OK or error envelope depending on mode
+  /api/util/error-demo:
+    get:
+      tags:
+      - util
+      summary: Legacy error demo delegating to v2
+      responses:
+        '200':
+          description: Delegate response
 components:
   schemas:
     StandardResponse:
@@ -811,6 +843,22 @@ components:
           nullable: true
         message:
           type: string
+        quality_preset:
+          type: string
+        crf:
+          type: integer
+        preset:
+          type: string
+        fps:
+          type: integer
+        started_at:
+          type: string
+        encode_duration_ms:
+          type: number
+          nullable: true
+        frame_count:
+          type: integer
+          nullable: true
     ExportStatusResponse:
       allOf:
       - $ref: '#/components/schemas/StandardResponse'

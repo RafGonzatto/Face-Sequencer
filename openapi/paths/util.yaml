@@ -1,0 +1,13 @@
+# Utility/demo endpoints
+/api/util/error-demo-v2:
+  get:
+    tags: [util]
+    summary: Error demo v2 endpoint
+    responses:
+      "200": { description: OK or error envelope depending on mode }
+/api/util/error-demo:
+  get:
+    tags: [util]
+    summary: Legacy error demo delegating to v2
+    responses:
+      "200": { description: Delegate response }

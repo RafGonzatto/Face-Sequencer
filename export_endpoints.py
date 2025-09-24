@@ -53,7 +53,8 @@ def export_sequence_video():
     os.makedirs(os.path.dirname(os.path.abspath(export_path)), exist_ok=True)
     state['export_tasks'][task_id] = {
         'status': 'pending','progress': 0,'filename': filename,'path': export_path,'error': None,'message': 'Preparing to export video','started_at': datetime.now(),
-        'quality_preset': quality_preset,'crf': quality_config['crf'],'preset': quality_config['preset'],'fps': settings['fps']
+        'quality_preset': quality_preset,'crf': quality_config['crf'],'preset': quality_config['preset'],'fps': settings['fps'],
+        'encode_duration_ms': None,'frame_count': len(sequence)
     }
     def export_worker():
         try:
@@ -78,6 +79,7 @@ def export_sequence_video():
                 state['export_tasks'][task_id]['status'] = 'completed'
                 state['export_tasks'][task_id]['progress'] = 100
                 state['export_tasks'][task_id]['message'] = 'Export completed successfully'
+                state['export_tasks'][task_id]['encode_duration_ms'] = (time.perf_counter()-_t0)*1000.0
                 try: record_timing('export_time_ms', (time.perf_counter()-_t0)*1000.0)
                 except Exception: pass
                 sse_manager.publish_event(task_id,'export_progress',{'status':'completed','progress':100,'message':'Export completed successfully','error':None})
@@ -118,7 +120,8 @@ def retry_export(task_id):
         return jsonify(error_response('No sequence to export', error_type='empty_sequence', status=400)), 400
     state['export_tasks'][new_task_id] = {
         'status': 'pending','progress': 0,'filename': original['filename'],'path': original['path'],'error': None,'message': 'Retrying export','started_at': datetime.now(),
-        'quality_preset': original.get('quality_preset'),'crf': original.get('crf'),'preset': original.get('preset'),'fps': original.get('fps', settings['fps'])
+        'quality_preset': original.get('quality_preset'),'crf': original.get('crf'),'preset': original.get('preset'),'fps': original.get('fps', settings['fps']),
+        'encode_duration_ms': None,'frame_count': len(sequence)
     }
     def retry_worker():
         try:
@@ -147,6 +150,7 @@ def retry_export(task_id):
                 state['export_tasks'][new_task_id]['status'] = 'completed'
                 state['export_tasks'][new_task_id]['progress'] = 100
                 state['export_tasks'][new_task_id]['message'] = 'Export retry completed successfully'
+                state['export_tasks'][new_task_id]['encode_duration_ms'] = (time.perf_counter()-_t0)*1000.0
                 try: record_timing('export_time_ms', (time.perf_counter()-_t0)*1000.0)
                 except Exception: pass
                 sse_manager.publish_event(new_task_id,'export_progress',{'status':'completed','progress':100,'message':'Export retry completed successfully','error':None})

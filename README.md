@@ -265,9 +265,12 @@ structure for clearer separation of concerns and improved test reliability.
 
 Current blueprint modules:
 
-- `util_endpoints.py` (`util_bp`): Houses utility / diagnostic endpoints such as
-  `/api/util/error-demo-v2` used to validate standardized error response
-  contracts.
+- `util_endpoints.py` (`util_bp`): Utility / diagnostic endpoints (e.g. `/api/util/error-demo-v2`).
+- `audio_endpoints.py` (`audio_bp`): Audio upload, markers and (moving toward) alignment wrappers.
+- `export_endpoints.py` (`export_bp`): JSON & video export initiation, status polling, retry, SSE progress streaming.
+- `model_endpoints.py` (`model_bp`): Model lifecycle (preload/list/stats/unload) plus dynamic alias registration.
+- `sequence_endpoints.py` (`sequence_bp`): Sequence frame CRUD & frame preview endpoints.
+- `system_endpoints.py` (`system_bp`): Health and cache stats endpoints.
 
 Rationale:
 
@@ -278,11 +281,10 @@ Rationale:
 
 Migration Guidance:
 
-- New non-core endpoints should be added in a dedicated blueprint module and
-  registered in `app.py` after core configuration.
+- Add new logical domains as `<domain>_endpoints.py` with `<domain>_bp = Blueprint(...)`.
+- Register in the blueprint block near the bottom of `app.py` (after heavy init) to preserve test determinism.
 - Avoid direct mutation of `app.view_functions`; rely on blueprint registration.
-- If an endpoint needs to expose versioned behavior, prefer adding a new route
-  (e.g. `*-v2`) and deprecate the old one with a thin delegate.
+- For backward-compatible evolution, add a `*-v2` route and delegate the legacy route.
 
 Testing Impact:
 
@@ -291,12 +293,26 @@ Testing Impact:
 - Set `UNIT_TEST_MODE=1` (already handled in tests) to bypass heavy audio
   initialization during imports for faster test cycles.
 
-Planned Future Blueprints (candidates):
+OpenAPI Tagging:
 
-- `audio_bp`: Upload, preprocessing, alignment routes
-- `export_bp`: Video/JSON export initiation + status
-- `metrics_bp`: Health and metrics aggregation endpoints
-- `model_bp`: Model preload/list/unload lifecycle endpoints
+All endpoints are now tagged (`audio`, `export`, `models`, `sequence`, `system`, `util`, `project`, `templates`) to aid grouped documentation views.
+
+Export Task Metadata Enhancements:
+
+`/api/export/video` and `/api/export/retry/<task_id>` now record additional fields:
+
+```
+quality_preset, crf, preset, fps, started_at, frame_count, encode_duration_ms
+```
+
+These appear in `ExportStatusResponse.task` and in SSE progress payload final state.
+
+Future Candidates:
+
+- Additional export formats (GIF, WebM)
+- Cloud storage integration
+- Collaborative editing features
+- Mobile app companion
 
 Feel free to open a PR if you start modularizing another logical area.
 

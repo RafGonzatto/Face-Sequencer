@@ -100,6 +100,13 @@ ExportTask:
     path: { type: string }
     error: { type: string, nullable: true }
     message: { type: string }
+    quality_preset: { type: string }
+    crf: { type: integer }
+    preset: { type: string }
+    fps: { type: integer }
+    started_at: { type: string }
+    encode_duration_ms: { type: number, nullable: true }
+    frame_count: { type: integer, nullable: true }
 ExportStatusResponse:
   allOf:
     - $ref: "#/components/schemas/StandardResponse"
