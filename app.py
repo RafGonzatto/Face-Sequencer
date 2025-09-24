@@ -137,6 +137,51 @@ def index():  # pragma: no cover - UI route
         # Fallback minimal HTML so user isn't stuck on a raw 404
         return f"<html><body><h1>UI Load Error</h1><pre>{e}</pre></body></html>", 500
 
+# ---------------------------------------------------------------------------
+# Folder Scan Endpoint (image mapping support) - missing caused 404 on /api/folder/scan
+# ---------------------------------------------------------------------------
+@app.route('/api/folder/scan', methods=['POST'])
+def folder_scan():
+    """Scan a provided folder path for image files and build a letter mapping.
+
+    Expects JSON: { "path": "C:/path/to/images" }
+    Returns: { success, mapped_count, total_letters, mappings: { 'A': {mapped, path}, ... } }
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        folder_path = data.get('path') or ''
+        if not folder_path or not os.path.isdir(folder_path):
+            return jsonify(error_response('Invalid or missing folder path', error_type='invalid_input', status=400)), 400
+
+        # Load mapping using existing helper
+        letter_map = load_letter_map_from_dir(folder_path)
+        total_letters = len(string.ascii_uppercase)
+        mapped_count = len(letter_map)
+
+        # Persist basic mapping paths into app_state for future sequence build
+        app_state['current_project']['folder_path'] = folder_path
+        # Convert to internal structure expected by frontend (with mapped flag)
+        mapping_payload = {}
+        for letter in string.ascii_uppercase:
+            if letter in letter_map:
+                mapping_payload[letter] = {
+                    'mapped': True,
+                    'path': letter_map[letter]
+                }
+            else:
+                mapping_payload[letter] = {
+                    'mapped': False,
+                    'path': None
+                }
+
+        return jsonify(success_response('Folder scanned',
+                                         mapped_count=mapped_count,
+                                         total_letters=total_letters,
+                                         mappings=mapping_payload))
+    except Exception as e:  # noqa: BLE001
+        logger.exception('Folder scan failed')
+        return jsonify(error_response(str(e), error_type='unexpected_error', status=500)), 500
+
 project_manager = ProjectManager(projects_dir=str(config.paths.projects_folder()))
 
 # Use project defaults from centralized config
