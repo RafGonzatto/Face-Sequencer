@@ -1515,8 +1515,8 @@ def health_check():
     return jsonify(health)
 
 from error_handlers import handle_api_errors, ClassifiedAPIError
-@app.route('/api/util/error-demo', methods=['GET'])
 @handle_api_errors()
+@app.route('/api/util/error-demo', methods=['GET'])
 def util_error_demo():
     """Demonstration endpoint for unified error handler (WP003).
     Pass query param ?mode=timeout|missing|value|classified to trigger errors.
