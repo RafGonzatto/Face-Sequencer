@@ -1548,6 +1548,27 @@ try:  # pragma: no cover - defensive
 except Exception:
     pass
 
+# Rebind with a fresh implementation to guarantee error branches yield proper HTTP status codes
+def _util_error_demo_impl():  # pragma: no cover - exercised via tests
+    from flask import jsonify, request as _rq
+    from api_responses import error_response, success_response
+    mode = (_rq.args.get('mode', 'ok') or 'ok').strip().lower()
+    if mode == 'timeout':
+        return jsonify(error_response('Simulated timeout', error_type='timeout_error', status=504)), 504
+    if mode == 'missing':
+        return jsonify(error_response('Simulated not found', error_type='not_found', status=404)), 404
+    if mode == 'value':
+        return jsonify(error_response('Simulated validation error', error_type='validation_error', status=400)), 400
+    if mode == 'classified':
+        return jsonify(error_response('Explicit processing classification', error_type='processing_error', status=422)), 422
+    return jsonify(success_response('OK', mode=mode)), 200
+
+try:  # Rebind endpoint to new impl
+    if 'util_error_demo' in app.view_functions:
+        app.view_functions['util_error_demo'] = _util_error_demo_impl
+except Exception:
+    pass
+
 @app.route('/api/audio/upload', methods=['POST'])
 def upload_audio():
     """Upload and validate audio file"""
