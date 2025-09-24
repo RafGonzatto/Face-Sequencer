@@ -1,0 +1,13 @@
+# Project related paths
+/api/project/save:
+  post:
+    tags: [project]
+    summary: Save project to JSON
+    responses:
+      "200": { description: Project JSON file }
+/api/project/load:
+  post:
+    tags: [project]
+    summary: Load project from uploaded file
+    responses:
+      "200": { description: Project loaded }

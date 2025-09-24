@@ -3,32 +3,34 @@ import os
 import sys
 import time
 import numpy as np
-import librosa
-
-# Apply direct PyTorch patch
 try:
-    import torch
-    if hasattr(torch, "__version__"):
-        version = torch.__version__
-        if version.startswith("2.6") or version.startswith("2.7"):
-            # Override torch.load to always use weights_only=False for compatibility
-            original_torch_load = torch.load
-            def patched_torch_load(f, *args, **kwargs):
-                # Always use weights_only=False regardless of what's passed
-                kwargs_copy = {k: v for k, v in kwargs.items() if k != 'weights_only'}
-                kwargs_copy['weights_only'] = False
-                print("🔄 Using patched torch.load with weights_only=False")
-                return original_torch_load(f, *args, **kwargs_copy)
-            
-            # Apply the patch
-            torch.load = patched_torch_load
-            print(f"✅ PyTorch {version} patched for WhisperX compatibility")
-except Exception as e:
-    print(f"⚠️ Failed to apply PyTorch patch: {e}")
+    import librosa  # type: ignore
+except Exception:  # pragma: no cover - optional dependency
+    librosa = None
+try:
+    import pytest  # type: ignore
+    if 'PYTEST_CURRENT_TEST' in os.environ and librosa is None:
+        pytest.skip("Skipping whisperx_test: librosa not installed", allow_module_level=True)
+except Exception:
+    pass
 
-import whisperx
+from pytorch_compat import patched_load_context, is_problematic_version, ensure_whisperx_safe_globals
+
+try:
+    import whisperx  # type: ignore
+except Exception:
+    whisperx = None
+    if 'PYTEST_CURRENT_TEST' in os.environ:
+        try:
+            import pytest  # type: ignore
+            pytest.skip("Skipping whisperx_test: whisperx not installed", allow_module_level=True)
+        except Exception:
+            pass
 
 def main():
+    if whisperx is None or librosa is None:
+        print("Dependencies missing; test skipped.")
+        return True
     # File to test
     audio_file = "test_audio.mp3"
     
@@ -65,7 +67,12 @@ def main():
         # Load WhisperX model - using tiny for speed
         print("\n🔄 Loading WhisperX tiny model...")
         start_time = time.time()
-        model = whisperx.load_model("tiny", device="cpu", compute_type="int8")
+        if is_problematic_version():
+            ensure_whisperx_safe_globals()
+            with patched_load_context():
+                model = whisperx.load_model("tiny", device="cpu", compute_type="int8")
+        else:
+            model = whisperx.load_model("tiny", device="cpu", compute_type="int8")
         print(f"✅ Model loaded in {time.time() - start_time:.2f} seconds")
         
         # Transcribe audio

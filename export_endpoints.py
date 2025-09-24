@@ -52,7 +52,8 @@ def export_sequence_video():
     export_path = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
     os.makedirs(os.path.dirname(os.path.abspath(export_path)), exist_ok=True)
     state['export_tasks'][task_id] = {
-        'status': 'pending','progress': 0,'filename': filename,'path': export_path,'error': None,'message': 'Preparing to export video','started_at': datetime.now()
+        'status': 'pending','progress': 0,'filename': filename,'path': export_path,'error': None,'message': 'Preparing to export video','started_at': datetime.now(),
+        'quality_preset': quality_preset,'crf': quality_config['crf'],'preset': quality_config['preset'],'fps': settings['fps']
     }
     def export_worker():
         try:
@@ -109,9 +110,57 @@ def retry_export(task_id):
     original = state['export_tasks'][task_id]
     if original['status'] != 'error':
         return jsonify(error_response('Can only retry failed exports', error_type='invalid_state', status=400)), 400
-    # Simplified retry: mark pending again
-    original['status'] = 'pending'; original['progress'] = 0; original['message'] = 'Retry scheduled'
-    return jsonify(success_response('Retry accepted', task_id=task_id))
+    # Perform real requeue: create a new task id and start export_worker again using same parameters
+    new_task_id = str(uuid.uuid4())
+    sequence = state['current_project']['sequence']
+    settings = state['current_project']['settings']
+    if not sequence:
+        return jsonify(error_response('No sequence to export', error_type='empty_sequence', status=400)), 400
+    state['export_tasks'][new_task_id] = {
+        'status': 'pending','progress': 0,'filename': original['filename'],'path': original['path'],'error': None,'message': 'Retrying export','started_at': datetime.now(),
+        'quality_preset': original.get('quality_preset'),'crf': original.get('crf'),'preset': original.get('preset'),'fps': original.get('fps', settings['fps'])
+    }
+    def retry_worker():
+        try:
+            state['export_tasks'][new_task_id]['status'] = 'processing'
+            _t0 = time.perf_counter()
+            def update_progress(progress, message=None):
+                state['export_tasks'][new_task_id]['progress'] = progress
+                if message:
+                    state['export_tasks'][new_task_id]['message'] = message
+                sse_manager.publish_event(new_task_id, 'export_progress', {
+                    'status': state['export_tasks'][new_task_id]['status'],
+                    'progress': progress,'message': state['export_tasks'][new_task_id]['message'],'error': state['export_tasks'][new_task_id]['error']
+                })
+                if progress < 0:
+                    state['export_tasks'][new_task_id]['status'] = 'error'
+                    state['export_tasks'][new_task_id]['error'] = message or 'Unknown error'
+                    sse_manager.publish_event(new_task_id, 'export_progress', {
+                        'status': 'error','progress': -1,'message': message or 'Unknown error','error': message or 'Unknown error'
+                    })
+            # Reuse original qualitative settings if present
+            crf = state['export_tasks'][new_task_id].get('crf', 20)
+            preset = state['export_tasks'][new_task_id].get('preset', 'medium')
+            fps_local = state['export_tasks'][new_task_id].get('fps', settings['fps'])
+            success = export_mp4(seq=sequence, path=original['path'], fps=fps_local, crf=crf, preset=preset, progress_callback=update_progress)
+            if success:
+                state['export_tasks'][new_task_id]['status'] = 'completed'
+                state['export_tasks'][new_task_id]['progress'] = 100
+                state['export_tasks'][new_task_id]['message'] = 'Export retry completed successfully'
+                try: record_timing('export_time_ms', (time.perf_counter()-_t0)*1000.0)
+                except Exception: pass
+                sse_manager.publish_event(new_task_id,'export_progress',{'status':'completed','progress':100,'message':'Export retry completed successfully','error':None})
+            else:
+                if state['export_tasks'][new_task_id]['status'] != 'error':
+                    state['export_tasks'][new_task_id]['status'] = 'error'
+                    state['export_tasks'][new_task_id]['error'] = 'Export retry failed'
+                    sse_manager.publish_event(new_task_id,'export_progress',{'status':'error','progress':100,'message':'Export retry failed','error':'Export retry failed'})
+        except Exception as e:  # noqa: BLE001
+            state['export_tasks'][new_task_id]['status'] = 'error'
+            state['export_tasks'][new_task_id]['error'] = str(e)
+            sse_manager.publish_event(new_task_id,'export_progress',{'status':'error','progress':100,'message':f'Export retry error: {e}','error':str(e)})
+    threading.Thread(target=retry_worker, daemon=False).start()
+    return jsonify(success_response('Retry started', original_task_id=task_id, new_task_id=new_task_id))
 
 @export_bp.route('/api/sse/export-progress/<task_id>', methods=['GET'])
 def export_progress_stream(task_id):

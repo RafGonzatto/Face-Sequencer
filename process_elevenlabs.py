@@ -67,9 +67,16 @@ def main():
         return True
     
     except Exception as e:
-        import traceback
-        print(f"❌ Error: {str(e)}")
-        traceback.print_exc()
+        try:
+            # Try to use centralized logging
+            from logger import get_logger, log_exception
+            audio_logger = get_logger('audio.elevenlabs')
+            log_exception(audio_logger, e, {'phase': 'processing'})
+        except ImportError:
+            # Fall back to basic logging if logger module isn't available
+            import traceback
+            print(f"❌ Error: {str(e)}")
+            traceback.print_exc()
         return False
 
 if __name__ == "__main__":

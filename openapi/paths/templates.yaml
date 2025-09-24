@@ -1,0 +1,7 @@
+# Template related paths
+/api/templates:
+  get:
+    tags: [templates]
+    summary: List templates
+    responses:
+      "200": { description: Templates list }

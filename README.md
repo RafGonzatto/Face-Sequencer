@@ -266,30 +266,30 @@ structure for clearer separation of concerns and improved test reliability.
 Current blueprint modules:
 
 - `util_endpoints.py` (`util_bp`): Houses utility / diagnostic endpoints such as
-   `/api/util/error-demo-v2` used to validate standardized error response
-   contracts.
+  `/api/util/error-demo-v2` used to validate standardized error response
+  contracts.
 
 Rationale:
 
 1. Avoid brittle import-time side effects and route rebinding hacks.
 2. Allow late registration after optional heavy initialization (e.g. audio
-    alignment) while keeping tests lightweight via `UNIT_TEST_MODE`.
+   alignment) while keeping tests lightweight via `UNIT_TEST_MODE`.
 3. Encourage future grouping (e.g. `audio_bp`, `export_bp`, `project_bp`).
 
 Migration Guidance:
 
 - New non-core endpoints should be added in a dedicated blueprint module and
-   registered in `app.py` after core configuration.
+  registered in `app.py` after core configuration.
 - Avoid direct mutation of `app.view_functions`; rely on blueprint registration.
 - If an endpoint needs to expose versioned behavior, prefer adding a new route
-   (e.g. `*-v2`) and deprecate the old one with a thin delegate.
+  (e.g. `*-v2`) and deprecate the old one with a thin delegate.
 
 Testing Impact:
 
 - Previous test-only rebinding fixtures have been removed—the blueprint ensures
-   deterministic view function binding.
+  deterministic view function binding.
 - Set `UNIT_TEST_MODE=1` (already handled in tests) to bypass heavy audio
-   initialization during imports for faster test cycles.
+  initialization during imports for faster test cycles.
 
 Planned Future Blueprints (candidates):
 

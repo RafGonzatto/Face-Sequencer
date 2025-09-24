@@ -272,99 +272,7 @@ def enforce_response_schema(response):
         print(f"Response schema enforcement skipped: {hook_err}")
     return response
 
-@app.route('/api/sequence/frame/<int:frame_id>', methods=['GET'])
-def get_frame_image(frame_id):
-    """Get full-size frame image for preview"""
-    try:
-        sequence = app_state['current_project']['sequence']
-        
-        if frame_id < 0 or frame_id >= len(sequence):
-            return jsonify(error_response('Invalid frame ID', error_type='validation_error', status=400)), 400
-        
-        frame = sequence[frame_id]
-        
-        if frame['img'] is None:
-            return jsonify(success_response('Pause frame', is_pause=True, char=frame['char'], duration=frame['ms']))
-        
-        if not valid_img(frame['img']):
-            return jsonify(error_response('Invalid image path', error_type='not_found', status=400)), 400
-        
-        # Generate base64 image for preview
-        with Image.open(frame['img']) as img:
-            # Resize for web preview if too large
-            if max(img.size) > 800:
-                img.thumbnail((800, 800), Image.Resampling.LANCZOS)
-            
-            buffer = io.BytesIO()
-            img.save(buffer, format='PNG')
-            image_data = base64.b64encode(buffer.getvalue()).decode()
-        
-        return jsonify(success_response('Frame retrieved', is_pause=False, char=frame['char'], duration=frame['ms'], image=f"data:image/png;base64,{image_data}", dimensions=img.size))
-    
-    except Exception as e:
-        return jsonify(error_response(str(e), error_type='unexpected_error', status=400)), 400
-
-@app.route('/api/sequence/update', methods=['POST'])
-def update_sequence():
-    """Update sequence frame properties"""
-    try:
-        data = request.get_json()
-        frame_id = data.get('frame_id')
-        updates = data.get('updates', {})
-        
-        sequence = app_state['current_project']['sequence']
-        
-        if frame_id < 0 or frame_id >= len(sequence):
-            return jsonify(error_response('Invalid frame ID', error_type='validation_error', status=400)), 400
-        
-        # Update frame properties
-        if 'duration' in updates:
-            sequence[frame_id]['ms'] = max(1, int(updates['duration']))
-        return jsonify(success_response('Frame updated'))
-    
-    except Exception as e:
-        return jsonify(error_response(str(e), error_type='unexpected_error', status=400)), 400
-
-@app.route('/api/sequence/reorder', methods=['POST'])
-def reorder_sequence():
-    """Reorder sequence frames"""
-    try:
-        data = request.get_json()
-        from_index = data.get('from_index')
-        to_index = data.get('to_index')
-        
-        sequence = app_state['current_project']['sequence']
-        
-        if (from_index < 0 or from_index >= len(sequence) or \
-            to_index < 0 or to_index >= len(sequence)):
-            return jsonify(error_response('Invalid frame indices', error_type='validation_error', status=400)), 400
-        
-        # Reorder frames
-        frame = sequence.pop(from_index)
-        sequence.insert(to_index, frame)
-        return jsonify(success_response('Sequence reordered'))
-    
-    except Exception as e:
-        return jsonify(error_response(str(e), error_type='unexpected_error', status=400)), 400
-
-@app.route('/api/sequence/delete', methods=['POST'])
-def delete_frame():
-    """Delete frame from sequence"""
-    try:
-        data = request.get_json()
-        frame_id = data.get('frame_id')
-        
-        sequence = app_state['current_project']['sequence']
-        
-        if frame_id < 0 or frame_id >= len(sequence):
-            return jsonify(error_response('Invalid frame ID', error_type='validation_error', status=400)), 400
-        
-        # Delete frame
-        del sequence[frame_id]
-        return jsonify(success_response('Frame deleted'))
-    
-    except Exception as e:
-        return jsonify(error_response(str(e), error_type='unexpected_error', status=400)), 400
+## Sequence endpoints moved to sequence_endpoints.sequence_bp
 
 
 def validate_mp4_file(file_path):
@@ -1860,6 +1768,8 @@ try:  # pragma: no cover - defensive
     from audio_endpoints import audio_bp
     from export_endpoints import export_bp
     from model_endpoints import model_bp
+    from sequence_endpoints import sequence_bp
+    from system_endpoints import system_bp
     # Register if not already present
     existing = {bp.name for bp in app.blueprints.values()}
     if 'util' not in existing:
@@ -1870,6 +1780,10 @@ try:  # pragma: no cover - defensive
         app.register_blueprint(export_bp)
     if 'models' not in existing:
         app.register_blueprint(model_bp)
+    if 'sequence' not in existing:
+        app.register_blueprint(sequence_bp)
+    if 'system' not in existing:
+        app.register_blueprint(system_bp)
 except Exception as _bp_err:  # noqa: BLE001
     try:
         logger.warning("Failed to register util blueprint: %s", _bp_err)

@@ -713,7 +713,69 @@ class FaceSequencerApp {
 
     // Show the modal
     this.exportProgressModal.style.display = "flex";
-
+    
+    // Close any existing SSE connections for this task
+    if (window.sseClient) {
+      window.sseClient.unsubscribe(this.state.exportTask, 'export_progress');
+    }
+    
+    // Handler for SSE updates
+    const handleProgressUpdate = (data) => {
+      // Update progress bar and message
+      const progressFill = this.exportProgressModal.querySelector(".progress-fill");
+      const progressText = this.exportProgressModal.querySelector(".progress-text");
+      const progressMessage = this.exportProgressModal.querySelector(".progress-message");
+      
+      if (progressFill && progressText) {
+        const progress = data.progress || 0;
+        progressFill.style.width = `${progress}%`;
+        progressText.textContent = `${progress}%`;
+        
+        if (progressMessage && data.message) {
+          progressMessage.textContent = data.message;
+        }
+        
+        // Update visual state based on status
+        if (data.status === 'error') {
+          progressFill.classList.add('error');
+          progressMessage.classList.add('error');
+        } else {
+          progressFill.classList.remove('error');
+          progressMessage.classList.remove('error');
+        }
+      }
+      
+      // Handle completed or error states
+      if (data.status === 'completed') {
+        // Handle completion just like before
+        this.handleExportCompletion();
+      } else if (data.status === 'error') {
+        // Handle error state
+        this.showError(`Export failed: ${data.error || 'Unknown error'}`);
+        
+        // Change the cancel button to close
+        const cancelBtn = this.exportProgressModal.querySelector(".cancel-export-btn");
+        if (cancelBtn) {
+          cancelBtn.textContent = "Close";
+        }
+      }
+    };
+    
+    // Subscribe to SSE updates for this task
+    if (window.sseClient) {
+      window.sseClient.subscribe(
+        this.state.exportTask,
+        'export_progress',
+        handleProgressUpdate
+      );
+    } else {
+      // Fallback to polling if SSE client is not available
+      this.pollExportProgress();
+    }
+  }
+  
+  // Fallback method using polling (called if SSE is not available)
+  pollExportProgress() {
     const checkProgress = async () => {
       try {
         const result = await this.apiCall(
@@ -742,50 +804,8 @@ class FaceSequencerApp {
 
           setTimeout(checkProgress, 1000);
         } else if (task.status === "completed") {
-          // Update modal to show validation
-          const progressMessage =
-            this.exportProgressModal.querySelector(".progress-message");
-          if (progressMessage) {
-            progressMessage.textContent =
-              "Export completed. Validating file...";
-          }
-
-          // Validate the file before downloading
-          try {
-            // First verify the export is valid
-            const validateResponse = await this.apiCall(
-              `/export/validate/${this.state.exportTask}`
-            );
-
-            if (validateResponse.success && validateResponse.valid) {
-              // Update message to show validation success
-              if (progressMessage) {
-                progressMessage.textContent =
-                  "Export validated successfully! Starting download...";
-              }
-
-              // Auto-download after short delay
-              setTimeout(() => {
-                this.hideExportProgressModal();
-                this.downloadExport();
-              }, 1000);
-            } else {
-              // Show validation error
-              if (progressMessage) {
-                progressMessage.textContent = `Export validation failed: ${
-                  validateResponse.error || "Unknown error"
-                }`;
-                progressMessage.style.color = "red";
-              }
-
-              // Change the cancel button to retry
-              const cancelBtn =
-                this.exportProgressModal.querySelector(".cancel-export-btn");
-              if (cancelBtn) {
-                cancelBtn.textContent = "Close";
-              }
-
-              // Add a retry button
+          // Use the centralized method for handling export completion
+          this.handleExportCompletion();
               const actionsDiv =
                 this.exportProgressModal.querySelector(".progress-actions");
               if (
@@ -830,6 +850,7 @@ class FaceSequencerApp {
 
           this.showError(`Export failed: ${task.error}`);
         }
+        }
       } catch (error) {
         this.hideExportProgressModal();
         this.showError("Failed to check export progress");
@@ -842,6 +863,88 @@ class FaceSequencerApp {
   hideExportProgressModal() {
     if (this.exportProgressModal) {
       this.exportProgressModal.style.display = "none";
+      
+      // Unsubscribe from SSE updates when hiding the modal
+      if (window.sseClient && this.state.exportTask) {
+        window.sseClient.unsubscribe(this.state.exportTask, 'export_progress');
+      }
+    }
+  }
+  
+  handleExportCompletion() {
+    // Update modal to show validation
+    const progressMessage =
+      this.exportProgressModal.querySelector(".progress-message");
+    if (progressMessage) {
+      progressMessage.textContent = "Export completed. Validating file...";
+    }
+
+    // Validate the file before downloading
+    this.validateAndDownloadExport();
+  }
+  
+  async validateAndDownloadExport() {
+    const progressMessage =
+      this.exportProgressModal.querySelector(".progress-message");
+    
+    try {
+      // First verify the export is valid
+      const validateResponse = await this.apiCall(
+        `/export/validate/${this.state.exportTask}`
+      );
+
+      if (validateResponse.success && validateResponse.valid) {
+        // Update message to show validation success
+        if (progressMessage) {
+          progressMessage.textContent =
+            "Export validated successfully! Starting download...";
+        }
+
+        // Auto-download after short delay
+        setTimeout(() => {
+          this.hideExportProgressModal();
+          this.downloadExport();
+        }, 1000);
+      } else {
+        // Show validation error
+        if (progressMessage) {
+          progressMessage.textContent = `Export validation failed: ${
+            validateResponse.error || "Unknown error"
+          }`;
+          progressMessage.style.color = "red";
+        }
+
+        // Change the cancel button to retry
+        const cancelBtn =
+          this.exportProgressModal.querySelector(".cancel-export-btn");
+        if (cancelBtn) {
+          cancelBtn.textContent = "Close";
+        }
+
+        // Add a retry button if it doesn't exist
+        this.addRetryExportButton();
+      }
+    } catch (validateError) {
+      console.error("Export validation error:", validateError);
+      // Continue with download anyway
+      setTimeout(() => {
+        this.hideExportProgressModal();
+        this.downloadExport();
+      }, 1000);
+    }
+  }
+  
+  addRetryExportButton() {
+    const actionsDiv = this.exportProgressModal.querySelector(".progress-actions");
+    if (actionsDiv && !actionsDiv.querySelector(".retry-export-btn")) {
+      const retryBtn = document.createElement("button");
+      retryBtn.className = "btn btn-primary retry-export-btn";
+      retryBtn.textContent = "Retry Export";
+      retryBtn.addEventListener("click", () => {
+        this.hideExportProgressModal();
+        this.exportVideo();
+      });
+      actionsDiv.appendChild(retryBtn);
     }
   }
 

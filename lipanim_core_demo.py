@@ -2,7 +2,10 @@
 import os
 import json
 import string
+import time
 from PIL import Image
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import math
 
 LETTERS = list(string.ascii_uppercase)
 
@@ -138,14 +141,14 @@ def export_mp4(seq, path, fps, crf, preset, bg=(0, 0, 0, 0), progress_callback=N
         
         # Report initial progress
         if progress_callback:
-            progress_callback(0, "Preparing frames")
+            progress_callback(0, "Starting export process")
         
         # Generate frames from sequence
         total_frames = len(seq)
         
         # First scan to determine optimal dimensions
         if progress_callback:
-            progress_callback(5, "Scanning images for dimensions")
+            progress_callback(2, f"Scanning {total_frames} images for dimensions")
         
         # Initialize with default dimensions
         max_width = STANDARD_WIDTH
@@ -166,146 +169,97 @@ def export_mp4(seq, path, fps, crf, preset, bg=(0, 0, 0, 0), progress_callback=N
         
         print(f"Using standard dimensions: {max_width}x{max_height}")
         
-        # Second pass - generate and resize frames
-        for i, frame in enumerate(seq):
-            # Report progress periodically
-            if progress_callback and i % max(1, total_frames // 20) == 0:
-                progress_percent = int((i / total_frames) * 40)  # First 40% of progress is frame preparation
-                progress_callback(progress_percent, f"Preparing frame {i+1}/{total_frames}")
-            
+        # ---------------- Parallel frame generation (WP004) ----------------
+        def _prepare_single(i_frame):
+            i, frame = i_frame
             try:
-                # For all frames, first try to get the image path from the frame data
                 img_path = frame.get('img')
-                
-                # Check for any type of frame that should use fallback image
                 fallback_needed = False
-                
-                # 1. Is it a pause frame without an image?
                 if frame.get('is_pause', False) and not img_path:
                     fallback_needed = True
-                
-                # 2. Is it a symbol fallback frame?
                 if frame.get('is_symbol_fallback', False):
                     fallback_needed = True
-                    
-                # 3. Does the frame not have a valid image?
                 if not img_path or not os.path.exists(img_path):
                     fallback_needed = True
-                
-                # If fallback needed, try to get it
                 if fallback_needed:
                     fallback_img_path = frame.get('fallback_img')
                     if fallback_img_path and os.path.exists(fallback_img_path):
                         img_path = fallback_img_path
-                        frame_type = "pause" if frame.get('is_pause', False) else "symbol"
-                        print(f"Using fallback image for {frame_type} frame {i}: {img_path}")
-                
-                # After trying fallback, if still no valid image, use an existing image from our folders
                 if not img_path or not os.path.exists(img_path):
-                    # Try each possible folder for fallbacks in order of preference
                     default_fallback = None
                     potential_folders = [
                         os.path.join(os.path.dirname(os.path.abspath(__file__)), 'images'),
                         os.path.join(os.path.dirname(os.path.abspath(__file__)), 'debug_export'),
                         os.path.join(os.path.dirname(os.path.abspath(__file__)), 'outros')
                     ]
-                    
-                    # Try each folder until we find a usable image
                     for folder in potential_folders:
                         if os.path.exists(folder):
-                            image_files = [f for f in os.listdir(folder) 
-                                          if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
+                            image_files = [f for f in os.listdir(folder) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
                             if image_files:
                                 default_fallback = os.path.join(folder, image_files[0])
-                                print(f"Using default fallback image from {folder}: {default_fallback}")
                                 break
-                    
                     if default_fallback and os.path.exists(default_fallback):
                         img_path = default_fallback
-                        print(f"Using existing image as fallback for frame {i}: {img_path}")
-                    else:
-                        # As last resort, create a warning frame
-                        print(f"WARNING: Missing image and fallback for frame {i} (char: {frame.get('char', '?')})")
-                        img = np.zeros((max_height, max_width, 4), dtype=np.uint8)
-                        # Use magenta background to make it obvious this is an error condition
-                        img[:, :, 0] = 255  # Red
-                        img[:, :, 2] = 255  # Blue
-                else:
+                if img_path and os.path.exists(img_path):
                     try:
-                        # Load and convert to numpy array with standardized dimensions
                         pil_img = Image.open(img_path).convert('RGBA')
-                        
-                        # Check if image needs resizing for standardization
                         current_width, current_height = pil_img.size
                         if current_width != max_width or current_height != max_height:
-                            print(f"Resizing frame {i} from {current_width}x{current_height} to {max_width}x{max_height}")
-                            
-                            # Create a blank image with standard dimensions
                             new_img = Image.new('RGBA', (max_width, max_height), (0, 0, 0, 0))
-                            
-                            # Calculate position to center the original image
                             paste_x = (max_width - current_width) // 2
                             paste_y = (max_height - current_height) // 2
-                            
-                            # Paste the original image onto the blank canvas
                             new_img.paste(pil_img, (paste_x, paste_y), pil_img)
                             pil_img = new_img
-                            
-                        # Convert to numpy array
                         img = np.array(pil_img)
                     except Exception as e:
-                        print(f"Error processing image {img_path}: {str(e)}")
-                        # Create a blank frame with error message on failure
                         img = np.zeros((max_height, max_width, 4), dtype=np.uint8)
-                        # Try to add error text
-                        try:
-                            error_img = Image.fromarray(img)
-                            draw = ImageDraw.Draw(error_img)
-                            draw.text((20, 20), f"Error: {str(e)}", fill=(255, 0, 0, 255))
-                            img = np.array(error_img)
-                        except:
-                            pass
+                else:
+                    img = np.zeros((max_height, max_width, 4), dtype=np.uint8)
+                    img[:, :, 0] = 255
+                    img[:, :, 2] = 255
+                frame_duration = frame.get('ms', 100) / 1000.0
+                if frame_duration <= 0:
+                    frame_duration = 0.1
+                frame_count = max(1, int(round(frame_duration * fps)))
+                return i, img, frame_count
             except Exception as e:
-                print(f"Error processing frame {i}: {str(e)}")
-                # Create a placeholder frame on error
-                img = np.zeros((480, 640, 4), dtype=np.uint8)
-                # Add error text if possible
-                try:
-                    from PIL import Image, ImageDraw, ImageFont
-                    error_img = Image.fromarray(img)
-                    draw = ImageDraw.Draw(error_img)
-                    draw.text((20, 20), f"Error: {str(e)}", fill=(255, 0, 0, 255))
-                    img = np.array(error_img)
-                except:
-                    pass
-            
-            # Save frame to temp directory
-            from PIL import Image
-            frame_path = os.path.join(temp_dir, f"frame_{i:05d}.png")
-            frame_files.append(frame_path)
-            Image.fromarray(img).save(frame_path)
-            
-            # Calculate frame duration based on sequence
-            # Default to 100ms if not specified
-            frame_duration = frame.get('ms', 100) / 1000.0  # Convert ms to seconds
-            if frame_duration <= 0:
-                print(f"Warning: Invalid duration for frame {i}, using default")
-                frame_duration = 0.1  # Default to 100ms
-            
-            # Duplicate the frame to achieve the desired duration at the given FPS
-            frame_count = max(1, int(round(frame_duration * fps)))
-            
-            # Repeat the frame path in the list to achieve the correct duration
-            if frame_count > 1:
-                frame_files.extend([frame_path] * (frame_count - 1))
+                blank = np.zeros((max_height, max_width, 4), dtype=np.uint8)
+                return i, blank, 1
+
+        max_workers = min(8, os.cpu_count() or 4)
+        results = [None] * total_frames
+        last_update_time = time.time()
+        update_interval = 0.1  # Update progress more frequently (100ms) for smoother UI
         
-        # Report progress
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(_prepare_single, item): item[0] for item in enumerate(seq)}
+            for idx, fut in enumerate(as_completed(futures)):
+                i, img, frame_count = fut.result()
+                frame_path = os.path.join(temp_dir, f"frame_{i:05d}.png")
+                Image.fromarray(img).save(frame_path)
+                frame_files.append(frame_path)
+                if frame_count > 1:
+                    frame_files.extend([frame_path] * (frame_count - 1))
+                
+                # More frequent progress updates with more detailed information
+                current_time = time.time()
+                if progress_callback and (idx % max(1, total_frames // 40) == 0 or 
+                                        current_time - last_update_time >= update_interval):
+                    last_update_time = current_time
+                    progress_percent = int(5 + (idx / total_frames) * 35)  # Scale from 5% to 40%
+                    percent_complete = int((idx / total_frames) * 100)
+                    progress_callback(
+                        progress_percent, 
+                        f"Preparing frames: {percent_complete}% complete ({idx+1}/{total_frames})"
+                    )
+        
+        # Report progress with more detail
         if progress_callback:
-            progress_callback(40, "Creating video clip")
+            progress_callback(40, f"Creating video clip from {len(frame_files)} frames")
         
         # Verify all frames have the same dimensions before creating the clip
         if progress_callback:
-            progress_callback(45, "Verifying frame consistency")
+            progress_callback(42, "Verifying frame consistency and preparing for encoding")
         
         # Final check - verify all PNGs have identical dimensions
         from PIL import Image
@@ -341,9 +295,14 @@ def export_mp4(seq, path, fps, crf, preset, bg=(0, 0, 0, 0), progress_callback=N
                         else:
                             print(f"Frame {frame_index}: {frame_path} does not exist!")
             
-            # Report progress
+            # Report progress with more detailed information
             if progress_callback:
-                progress_callback(50, "Starting video encoding with FFmpeg")
+                total_frames = len(frame_files)
+                estimated_duration = total_frames / fps
+                progress_callback(
+                    48, 
+                    f"Starting video encoding with FFmpeg: {total_frames} frames at {fps} FPS (~{estimated_duration:.1f}s)"
+                )
             
             # Ensure the directory exists
             os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
@@ -396,12 +355,18 @@ def export_mp4(seq, path, fps, crf, preset, bg=(0, 0, 0, 0), progress_callback=N
                 bufsize=1
             )
             
-            # Monitor FFmpeg progress
+            # Monitor FFmpeg progress with more frequent updates
             last_progress = 0
+            last_update_time = time.time()
+            update_interval = 0.2  # Update progress at most every 0.2 seconds for smoother UI
             while True:
                 output_line = process.stderr.readline()
                 if output_line == '' and process.poll() is not None:
                     break
+                
+                current_time = time.time()
+                elapsed_since_update = current_time - last_update_time
+                
                 if output_line:
                     # Try to parse progress from FFmpeg output
                     if 'time=' in output_line:
@@ -416,16 +381,26 @@ def export_mp4(seq, path, fps, crf, preset, bg=(0, 0, 0, 0), progress_callback=N
                             total_duration = len(frame_files) / fps
                             progress_percent = min(95, 50 + int((seconds / total_duration) * 45))
                             
-                            # Only update if progress has changed
-                            if progress_percent > last_progress:
+                            # Only update if progress has changed and enough time has passed
+                            if (progress_percent > last_progress or elapsed_since_update >= update_interval) and progress_callback:
                                 last_progress = progress_percent
-                                if progress_callback:
-                                    progress_callback(progress_percent, f"Encoding video: {int((seconds / total_duration) * 100)}%")
-                        except:
+                                last_update_time = current_time
+                                
+                                # Calculate more detailed percentage
+                                encoding_percent = int((seconds / total_duration) * 100)
+                                
+                                # Send more detailed progress update
+                                progress_callback(
+                                    progress_percent, 
+                                    f"Encoding video: {encoding_percent}% complete (frame {int(seconds * fps)}/{len(frame_files)})"
+                                )
+                        except Exception as e:
                             # If we can't parse progress, still show that we're working
-                            if progress_callback and (last_progress < 75):
-                                last_progress = 75
-                                progress_callback(75, "Encoding video (progress estimation error)")
+                            if progress_callback and (elapsed_since_update >= update_interval):
+                                last_update_time = current_time
+                                if last_progress < 75:
+                                    last_progress = 75
+                                progress_callback(last_progress, f"Encoding video (progress at {last_progress}%)")
             
             # Get the return code
             return_code = process.poll()

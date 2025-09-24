@@ -10,6 +10,13 @@ import tempfile
 import traceback
 from functools import wraps
 from enum import Enum
+from typing import Dict, Any, Optional, Callable
+
+from logger import get_logger, log_exception
+from audio_exceptions import AlignmentError, map_audio_processing_error
+
+# Get logger for this module
+audio_logger = get_logger('audio')
 
 class AudioErrorType(Enum):
     """Types of errors that can occur during audio processing"""
@@ -23,71 +30,23 @@ class AudioErrorType(Enum):
     SYSTEM_UNAVAILABLE = "system_unavailable"
 
 
-class AudioProcessingError(Exception):
-    """Custom exception for audio processing errors"""
-    
-    def __init__(self, error_type, message, details=None):
-        """Initialize with error type, message, and optional details"""
+class AudioProcessingError(Exception):  # Deprecated shim
+    """Deprecated legacy exception kept temporarily; raise AlignmentError instead."""
+    def __init__(self, error_type, message, details=None):  # pragma: no cover
         self.error_type = error_type
         self.message = message
         self.details = details or {}
         super().__init__(message)
 
-    def to_dict(self):
-        """Convert to dictionary for API responses"""
+    def to_dict(self):  # pragma: no cover
         return {
-            "error_type": self.error_type.value,
+            "error_type": getattr(self.error_type, 'value', str(self.error_type)),
             "message": self.message,
             "details": self.details,
-            "recommendations": self.get_recommendations()
         }
 
-    def get_recommendations(self):
-        """Get user-friendly recommendations based on error type"""
-        recommendations = {
-            AudioErrorType.UPLOAD_ERROR: [
-                "Try uploading a smaller file (under 20MB)",
-                "Check your internet connection",
-                "Try a different audio file"
-            ],
-            AudioErrorType.FORMAT_ERROR: [
-                "Convert your file to WAV, MP3, OGG, or FLAC format",
-                "Try using a standard audio editing tool to resave the file"
-            ],
-            AudioErrorType.CORRUPT_FILE: [
-                "Your audio file appears to be corrupted",
-                "Try re-encoding it with an audio editor",
-                "Record a new audio file if possible"
-            ],
-            AudioErrorType.ALIGNMENT_FAILED: [
-                "Make sure your text matches what is spoken in the audio",
-                "Try using shorter, clearer audio with less background noise",
-                "Fall back to manual timing mode"
-            ],
-            AudioErrorType.PROCESSING_TIMEOUT: [
-                "Try a shorter audio file (under 60 seconds)",
-                "Try again when the server is less busy",
-                "Fall back to manual timing mode"
-            ],
-            AudioErrorType.NO_SPEECH_DETECTED: [
-                "Ensure your audio file contains clear speech",
-                "Check the audio volume and make sure it's not too quiet",
-                "Try removing background noise or music"
-            ],
-            AudioErrorType.LANGUAGE_UNSUPPORTED: [
-                "Currently supported languages are: English (en-US) and Portuguese (pt-BR)",
-                "Try providing audio in one of these languages"
-            ],
-            AudioErrorType.SYSTEM_UNAVAILABLE: [
-                "The audio alignment system is currently unavailable",
-                "Fall back to manual timing mode",
-                "Try again later when the system is back online"
-            ]
-        }
-        return recommendations.get(self.error_type, ["Try again with a different file"])
 
-
-def handle_audio_errors(fallback_handler=None):
+def handle_audio_errors(fallback_handler: Optional[Callable] = None):
     """
     Decorator for API endpoints to handle audio processing errors gracefully.
     
@@ -96,41 +55,148 @@ def handle_audio_errors(fallback_handler=None):
                          Signature: fallback_handler(error, *args, **kwargs)
     """
     def decorator(func):
+        # Get function-specific logger
+        func_logger = get_logger(f"audio.{func.__module__}.{func.__name__}")
+        
         @wraps(func)
         def wrapper(*args, **kwargs):
+            # Build context for logging
+            context = {
+                'function': func.__name__,
+                'module': func.__module__
+            }
+            
+            # Add request context if available
+            try:
+                from flask import request
+                if request:
+                    context.update({
+                        'endpoint': request.endpoint,
+                        'method': request.method,
+                        'path': request.path,
+                        'remote_addr': request.remote_addr
+                    })
+            except Exception:
+                pass
+                
             try:
                 return func(*args, **kwargs)
             except AudioProcessingError as e:
-                # Log the error
-                print(f"Audio processing error: {e.error_type.value} - {e.message}")
-                
-                # Try fallback if provided
+                # Log the error with context
+                log_exception(
+                    func_logger, 
+                    e, 
+                    {
+                        **context,
+                        'error_type': e.error_type.value,
+                        'details': e.details
+                    }
+                )
+
+                # Try fallback if provided (allows custom response)
                 if fallback_handler:
                     try:
+                        func_logger.info(f"Trying fallback handler for {e.error_type.value}")
                         return fallback_handler(e, *args, **kwargs)
                     except Exception as fallback_error:
-                        print(f"Fallback handler failed: {str(fallback_error)}")
-                
-                # Return error response
+                        log_exception(
+                            func_logger, 
+                            fallback_error, 
+                            {**context, 'phase': 'fallback_handler'}
+                        )
+
+                # Map error types to HTTP status codes
+                status_map = {
+                    AudioErrorType.UPLOAD_ERROR: 400,
+                    AudioErrorType.FORMAT_ERROR: 415,
+                    AudioErrorType.CORRUPT_FILE: 422,
+                    AudioErrorType.ALIGNMENT_FAILED: 422,
+                    AudioErrorType.PROCESSING_TIMEOUT: 504,
+                    AudioErrorType.NO_SPEECH_DETECTED: 422,
+                    AudioErrorType.LANGUAGE_UNSUPPORTED: 422,
+                    AudioErrorType.SYSTEM_UNAVAILABLE: 503,
+                }
+                status_code = status_map.get(e.error_type, 400)
+
+                # Build standardized error response (bridge to new hierarchy)
                 from flask import jsonify
-                return jsonify({
-                    "success": False,
-                    "error": e.message,
-                    "error_info": e.to_dict(),
-                    "fallback_attempted": fallback_handler is not None
-                }), 400
+                try:
+                    from api_responses import error_response  # Local import to avoid circular issues
+                    # Map to new AlignmentError for unified structure if alignment related
+                    mapped = map_audio_processing_error(e)
+                    body = error_response(
+                        mapped.args[0],
+                        error_type=mapped.category,
+                        status=status_code,
+                        details={**e.details, **getattr(mapped, 'details', {})},
+                        recommendations=getattr(mapped, 'recommendations', e.get_recommendations()),
+                        lifecycle='alignment'
+                    )
+                except Exception as import_err:
+                    log_exception(func_logger, import_err, {**context, 'phase': 'response_generation'})
+                    # Fallback if helper import fails
+                    body = {
+                        "success": False,
+                        "error": e.message,
+                        "error_type": e.error_type.value,
+                        "status": status_code,
+                        "details": e.details,
+                        "recommendations": e.get_recommendations(),
+                    }
+
+                return jsonify(body), status_code
+            except AlignmentError as e:  # New unified exception support
+                # Log with context
+                log_exception(
+                    func_logger,
+                    e,
+                    {**context, 'error_type': e.category, 'details': getattr(e, 'details', {})}
+                )
+                from flask import jsonify
+                try:
+                    from api_responses import error_response  # local import
+                    body = error_response(
+                        str(e),
+                        error_type=e.category,
+                        status=422,
+                        details=getattr(e, 'details', {}),
+                        recommendations=getattr(e, 'recommendations', []),
+                        lifecycle='alignment'
+                    )
+                except Exception:
+                    body = {
+                        'success': False,
+                        'error': str(e),
+                        'error_type': e.category,
+                        'status': 422,
+                        'details': getattr(e, 'details', {}),
+                    }
+                return jsonify(body), 422
+                
             except Exception as e:
-                # Handle unexpected errors
-                print(f"Unexpected error in audio processing: {str(e)}")
-                print(traceback.format_exc())
+                # Handle unexpected errors with full logging
+                log_exception(func_logger, e, {**context, 'error_type': 'unexpected_error'})
                 
-                # Return a generic error response
                 from flask import jsonify
-                return jsonify({
-                    "success": False,
-                    "error": "An unexpected error occurred during audio processing",
-                    "error_details": str(e)
-                }), 500
+                try:
+                    from api_responses import error_response
+                    body = error_response(
+                        "An unexpected error occurred during audio processing",
+                        error_type="unexpected_error",
+                        status=500,
+                        details={"error": str(e)},
+                        lifecycle='alignment'
+                    )
+                except Exception as import_err:
+                    log_exception(func_logger, import_err, {**context, 'phase': 'response_generation'})
+                    body = {
+                        "success": False,
+                        "error": "An unexpected error occurred during audio processing",
+                        "error_type": "unexpected_error",
+                        "status": 500,
+                        "details": {"error": str(e)},
+                    }
+                return jsonify(body), 500
         return wrapper
     return decorator
 
@@ -149,11 +215,7 @@ def validate_audio_file(file):
         True if validation passed
     """
     if not file or not hasattr(file, 'filename'):
-        raise AudioProcessingError(
-            AudioErrorType.UPLOAD_ERROR,
-            "No audio file provided",
-            {"field": "audio"}
-        )
+        raise AlignmentError("No audio file provided", details={"field": "audio", 'legacy_error_type': 'upload_error'})
     
     # Check file extension
     filename = file.filename
@@ -161,11 +223,7 @@ def validate_audio_file(file):
     
     allowed_extensions = {'wav', 'mp3', 'ogg', 'flac', 'm4a'}
     if ext not in allowed_extensions:
-        raise AudioProcessingError(
-            AudioErrorType.FORMAT_ERROR,
-            f"Unsupported audio format: {ext}",
-            {"format": ext, "allowed_formats": list(allowed_extensions)}
-        )
+        raise AlignmentError("Unsupported audio format", details={"format": ext, "allowed_formats": list(allowed_extensions), 'legacy_error_type': 'format_error'})
     
     # Check if file is too large (over 50MB)
     file.seek(0, os.SEEK_END)
@@ -173,11 +231,7 @@ def validate_audio_file(file):
     file.seek(0)
     
     if file_size > 50 * 1024 * 1024:  # 50MB
-        raise AudioProcessingError(
-            AudioErrorType.UPLOAD_ERROR,
-            "Audio file is too large (max size: 50MB)",
-            {"file_size": file_size, "max_size": 50 * 1024 * 1024}
-        )
+        raise AlignmentError("Audio file is too large (max size: 50MB)", details={"file_size": file_size, "max_size": 50 * 1024 * 1024, 'legacy_error_type': 'upload_error'})
     
     return True
 
@@ -219,11 +273,7 @@ def validate_audio_content(file_path):
                 "format": os.path.splitext(file_path)[1].replace('.', '')
             }
     except Exception as e:
-        raise AudioProcessingError(
-            AudioErrorType.CORRUPT_FILE,
-            "Failed to process audio file, it may be corrupted",
-            {"error_details": str(e)}
-        )
+        raise AlignmentError("Failed to process audio file, it may be corrupted", details={"error_details": str(e), 'legacy_error_type': 'corrupt_file'})
 
 
 def detect_speech_activity(file_path):
@@ -251,11 +301,7 @@ def detect_speech_activity(file_path):
         
         # Check if audio has sufficient energy (not just silence)
         if np.mean(rms) < 0.01:
-            raise AudioProcessingError(
-                AudioErrorType.NO_SPEECH_DETECTED,
-                "No speech detected in the audio file",
-                {"mean_energy": float(np.mean(rms))}
-            )
+            raise AlignmentError("No speech detected in the audio file", details={"mean_energy": float(np.mean(rms)), 'legacy_error_type': 'no_speech_detected'})
         
         # Detect speech segments
         speech_intervals = []
@@ -291,27 +337,17 @@ def detect_speech_activity(file_path):
         # If we found no intervals or very short total duration, raise error
         total_speech_duration = sum(interval["duration"] for interval in speech_intervals)
         if not speech_intervals or total_speech_duration < 0.5:
-            raise AudioProcessingError(
-                AudioErrorType.NO_SPEECH_DETECTED,
-                "Insufficient speech detected in the audio file",
-                {"speech_duration": total_speech_duration}
-            )
+            raise AlignmentError("Insufficient speech detected in the audio file", details={"speech_duration": total_speech_duration, 'legacy_error_type': 'no_speech_detected'})
         
         return {
             "speech_intervals": speech_intervals,
             "total_speech_duration": total_speech_duration,
             "total_duration": librosa.get_duration(y=y, sr=sr)
         }
-    except AudioProcessingError:
-        # Re-raise specific errors
-        raise
+    except AlignmentError:
+        raise  # pass through unified errors
     except Exception as e:
-        # Convert general errors to AudioProcessingError
-        raise AudioProcessingError(
-            AudioErrorType.PROCESSING_TIMEOUT,
-            "Failed to analyze speech in the audio file",
-            {"error_details": str(e)}
-        )
+        raise AlignmentError("Failed to analyze speech in the audio file", details={"error_details": str(e), 'legacy_error_type': 'processing_timeout'})
 
 
 def with_timeout(timeout_seconds=30):

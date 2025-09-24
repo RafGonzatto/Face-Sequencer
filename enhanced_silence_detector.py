@@ -7,7 +7,14 @@ Replaces basic amplitude threshold with robust multi-feature VAD.
 import numpy as np
 from scipy.signal import butter, lfilter
 from typing import List, Tuple, Optional
-from dataclasses import dataclass
+
+# WP001: ensure dataclass decorator is available even in constrained runtimes.
+try:
+    from dataclasses import dataclass
+except ImportError:  # extremely rare on supported Python versions, but fail gracefully
+    def dataclass(cls):  # type: ignore
+        return cls
+    print("Warning: dataclasses module unavailable; proceeding without dataclass features")
 
 @dataclass
 class SilenceSegment:
@@ -29,14 +36,22 @@ class EnhancedSilenceDetector:
     - Smoothing and hysteresis for stability
     """
     
-    def __init__(self, sample_rate: int = 16000):
-        self.sample_rate = sample_rate
-        self.frame_length = int(0.025 * sample_rate)  # 25ms frames
-        self.frame_shift = int(0.010 * sample_rate)   # 10ms shift (overlap for smoothness)
+    def __init__(self, sample_rate: Optional[int] = None):
+        # Import config here to avoid circular imports
+        from config import config
         
-        # Adaptive thresholds (will be computed from audio stats)
-        self.energy_threshold = 0.01
-        self.zcr_threshold = 0.1
+        # Use provided sample_rate or get from config
+        self.sample_rate = sample_rate if sample_rate is not None else config.audio.sample_rate()
+        
+        # Get frame parameters from config
+        self.frame_length = int(config.audio.silence_frame_length_ms() * 0.001 * self.sample_rate)
+        self.frame_shift = int(config.audio.silence_frame_shift_ms() * 0.001 * self.sample_rate)
+        
+        # Get threshold parameters from config
+        self.energy_threshold = config.audio.silence_energy_threshold()
+        self.zcr_threshold = config.audio.silence_zcr_threshold()
+        self.noise_floor_energy = config.audio.silence_noise_floor()
+        self.energy_ceiling = config.audio.silence_energy_ceiling()
         
         # Smoothing parameters
         self.min_silence_duration = 0.1  # 100ms minimum silence
@@ -65,9 +80,12 @@ class EnhancedSilenceDetector:
             
         print(f"🔍 Analyzing {len(audio_data)/self.sample_rate:.2f}s of audio for silence detection")
         
+        # Normalize audio prior to feature extraction
+        normalized_audio = self._normalize_audio(audio_data)
+        
         # Calculate acoustic features
-        energy = self._calculate_energy(audio_data)
-        zcr = self._calculate_zcr(audio_data)
+        energy = self._calculate_energy(normalized_audio)
+        zcr = self._calculate_zcr(normalized_audio)
         
         # Adaptive threshold computation
         if adaptive_thresholds:
@@ -85,10 +103,33 @@ class EnhancedSilenceDetector:
         smoothed_mask = self._smooth_silence_decisions(silence_mask)
         
         # Convert frame-level decisions to time segments
-        silence_segments = self._frames_to_segments(smoothed_mask)
+        silence_segments = self._frames_to_segments(smoothed_mask, energy, zcr)
         
         print(f"✅ Detected {len(silence_segments)} silence segments")
         return silence_segments
+
+    def _normalize_audio(self, audio: np.ndarray) -> np.ndarray:
+        """Normalize audio signal to stabilise feature thresholds."""
+        if len(audio) == 0:
+            return audio
+
+        # Remove DC offset
+        normalized = audio - np.mean(audio)
+
+        # Apply gentle high-pass to remove rumble
+        nyquist = 0.5 * self.sample_rate
+        cutoff = max(30.0, 1.0)
+        if nyquist > cutoff:
+            norm_cutoff = cutoff / nyquist
+            b, a = butter(2, norm_cutoff, btype='highpass')
+            normalized = lfilter(b, a, normalized)
+
+        # Peak normalise to maintain dynamic range without clipping
+        peak = np.max(np.abs(normalized))
+        if peak > 0:
+            normalized = normalized / peak
+
+        return normalized
     
     def _calculate_energy(self, audio: np.ndarray) -> np.ndarray:
         """Calculate short-time energy for each frame"""
@@ -136,15 +177,17 @@ class EnhancedSilenceDetector:
         """Compute adaptive energy threshold based on audio statistics"""
         if len(energy) == 0:
             return self.energy_threshold
-            
+        
         # Use percentile-based threshold (more robust than mean)
-        low_energy_percentile = np.percentile(energy, 15)  # Bottom 15% (more sensitive)
-        high_energy_percentile = np.percentile(energy, 70)  # Top 70%
-        
-        # Threshold at 25% between low and high energy (more sensitive to silence)
-        threshold = low_energy_percentile + 0.25 * (high_energy_percentile - low_energy_percentile)
-        
-        return max(threshold, -5.0)  # Lower minimum threshold for better silence detection
+        noise_floor = np.percentile(energy, 10)
+        speech_floor = np.percentile(energy, 60)
+
+        self.noise_floor_energy = noise_floor
+        self.energy_ceiling = speech_floor
+
+        # Threshold biased towards silence detection, clamped by dynamic range
+        threshold = noise_floor + 0.35 * (speech_floor - noise_floor)
+        return float(max(threshold, noise_floor - 0.5))
     
     def _compute_adaptive_zcr_threshold(self, zcr: np.ndarray) -> float:
         """Compute adaptive ZCR threshold"""
@@ -180,17 +223,20 @@ class EnhancedSilenceDetector:
         if len(silence_mask) < self.smoothing_window:
             return silence_mask
         
-        # Median filtering for noise reduction
-        from scipy.ndimage import median_filter
-        smoothed = median_filter(silence_mask.astype(float), size=self.smoothing_window)
-        
-        # Convert back to binary with hysteresis
+        # Use a rolling mean (convolution) for smoothing to avoid SciPy median filter quirks
+        window = self.smoothing_window
+        kernel = np.ones(window, dtype=float) / window
+        # Pad edges to preserve length
+        pad_left = window // 2
+        pad_right = window - 1 - pad_left
+        padded = np.pad(silence_mask.astype(float), (pad_left, pad_right), mode='edge')
+        smoothed = np.convolve(padded, kernel, mode='valid')
+
+        # Binary decision with hysteresis threshold
         smoothed_mask = smoothed > 0.5
-        
-        # Apply minimum duration constraints
-        smoothed_mask = self._apply_duration_constraints(smoothed_mask)
-        
-        return smoothed_mask
+
+        # Apply duration constraints post-smoothing
+        return self._apply_duration_constraints(smoothed_mask)
     
     def _apply_duration_constraints(self, mask: np.ndarray) -> np.ndarray:
         """Enforce minimum duration for silence and speech segments"""
@@ -220,7 +266,7 @@ class EnhancedSilenceDetector:
         
         return result
     
-    def _frames_to_segments(self, silence_mask: np.ndarray) -> List[SilenceSegment]:
+    def _frames_to_segments(self, silence_mask: np.ndarray, energy: np.ndarray, zcr: np.ndarray) -> List[SilenceSegment]:
         """Convert frame-level mask to time-based segments"""
         segments = []
         
@@ -239,9 +285,20 @@ class EnhancedSilenceDetector:
             end_time = end_frame * frame_time
             duration = end_time - start_time
             
-            # Calculate confidence based on segment length and consistency
-            confidence = min(1.0, duration / 0.2)  # Full confidence for 200ms+ segments
-            
+            frame_slice = slice(start_frame, end_frame)
+            segment_energy = energy[frame_slice]
+            segment_zcr = zcr[frame_slice]
+
+            energy_margin = self.energy_threshold - np.mean(segment_energy)
+            energy_range = max(1e-6, self.energy_threshold - self.noise_floor_energy)
+            energy_conf = np.clip(energy_margin / energy_range, 0.0, 1.0)
+
+            zcr_margin = self.zcr_threshold - np.mean(segment_zcr)
+            zcr_conf = np.clip(zcr_margin / max(self.zcr_threshold, 1e-6), 0.0, 1.0)
+
+            duration_conf = np.clip(duration / self.min_silence_duration, 0.0, 1.0)
+            confidence = float(np.clip(0.6 * energy_conf + 0.2 * zcr_conf + 0.2 * duration_conf, 0.0, 1.0))
+
             segments.append(SilenceSegment(
                 start_time=start_time,
                 end_time=end_time,

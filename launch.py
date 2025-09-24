@@ -8,6 +8,19 @@ import os
 import sys
 import subprocess
 import platform
+import importlib
+
+# Import centralized logging after creating the initial logger
+try:
+    # Dynamic import to allow launch.py to be run standalone
+    from logger import get_logger, log_exception
+    launch_logger = get_logger('app.launch')
+except ImportError:
+    # Create a basic logger if the main logger module isn't available yet
+    import logging
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(name)s: %(message)s')
+    launch_logger = logging.getLogger('app.launch')
+    log_exception = lambda logger, exc, context=None: logger.exception(str(exc))
 
 def check_python_version():
     """Check if Python version is compatible"""
@@ -77,7 +90,25 @@ def launch_application():
     
     try:
         # Import and run the Flask app
-        from app import app
+        from app import app  # imports model preload endpoint etc.
+        # Optional model warmup (non-fatal)
+        try:
+            from model_manager import get_model_manager
+            mm = get_model_manager()
+            # Register common audio models lazily if not present
+            if not any(m['name'] == 'whisperx_transcribe_tiny' for m in mm.stats()['models']):
+                def _loader_transcribe():
+                    import whisperx_compat as whisperx  # type: ignore
+                    import torch  # type: ignore
+                    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+                    return whisperx.load_model('tiny', device, compute_type='int8')
+                mm.register_model('whisperx_transcribe_tiny', _loader_transcribe, size_estimate=120_000_000, tags=['audio','whisperx'])
+            # Preload if env flag set
+            if os.environ.get('FACE_SEQ_PRELOAD_MODELS', 'false').lower() in ('1','true','yes'):
+                print('🔄 Preloading configured models...')
+                mm.preload(['whisperx_transcribe_tiny'])
+        except Exception as warm_err:  # noqa: BLE001
+            print(f"⚠️ Model warmup skipped: {warm_err}")
         app.run(host='0.0.0.0', port=5000, debug=False)
     except ImportError as e:
         print(f"❌ Failed to import application: {e}")
@@ -94,12 +125,19 @@ def open_browser():
     import webbrowser
     import time
     
+    # Import at top level to avoid circular imports
+    from logger import get_logger, log_exception
+    browser_logger = get_logger('app.browser')
+    
     def delayed_open():
         time.sleep(2)  # Wait for server to start
         try:
+            browser_logger.info("Opening web browser to application URL")
             webbrowser.open('http://localhost:5000')
-        except Exception:
-            pass  # Silently fail if browser can't be opened
+        except Exception as e:
+            # Log the error instead of silently failing
+            log_exception(browser_logger, e)
+            print("⚠️ Could not open browser automatically. Please navigate to http://localhost:5000 manually.")
     
     import threading
     thread = threading.Thread(target=delayed_open, daemon=True)

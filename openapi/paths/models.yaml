@@ -1,0 +1,181 @@
+# Model management endpoints (WP003)
+/api/models/preload:
+  post:
+    tags: [models]
+    summary: Preload one or more ML models into memory
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [models]
+            properties:
+              models:
+                type: array
+                items: { type: string }
+              register:
+                type: object
+                additionalProperties:
+                  type: object
+                  properties:
+                    type:
+                      {
+                        type: string,
+                        description: "Alias of known model type (e.g. whisperx_transcribe_tiny)",
+                      }
+    responses:
+      "200":
+        description: Preload status
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StandardResponse"
+      "400":
+        {
+          description: Invalid request payload,
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+        }
+      "404":
+        {
+          description: Model not found,
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+        }
+      "409":
+        {
+          description: Model already registered with conflicting type,
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+        }
+      "413":
+        {
+          description: Memory budget exceeded (too large to load),
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+        }
+      "500":
+        {
+          description: Unexpected load failure,
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+        }
+/api/models/stats:
+  get:
+    tags: [models]
+    summary: Retrieve model manager statistics
+    responses:
+      "200":
+        description: Manager statistics
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/StandardResponse"
+                - type: object
+                  properties:
+                    manager: { $ref: "#/components/schemas/ModelManagerStats" }
+                    success: { type: boolean }
+                    message: { type: string }
+      "500":
+        {
+          description: Unexpected error,
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+        }
+/api/models/list:
+  get:
+    tags: [models]
+    summary: List registered models (lightweight alias of stats)
+    responses:
+      "200":
+        description: Model list
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/StandardResponse"
+                - type: object
+                  properties:
+                    models:
+                      type: array
+                      items: { $ref: "#/components/schemas/ModelEntry" }
+                    loaded: { type: integer }
+                    registered: { type: integer }
+      "500":
+        {
+          description: Unexpected error,
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+        }
+/api/models/unload:
+  post:
+    tags: [models]
+    summary: Unload (release) one or more models from memory
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [models]
+            properties:
+              models:
+                type: array
+                items: { type: string }
+    responses:
+      "200":
+        description: Unload result
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StandardResponse"
+      "400":
+        {
+          description: Invalid request payload,
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+        }
+      "404":
+        {
+          description: One or more models not registered,
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+        }
+      "500":
+        {
+          description: Unexpected error,
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+        }

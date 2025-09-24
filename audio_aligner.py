@@ -4,35 +4,61 @@ Audio alignment system for Portuguese-first lip-sync animation.
 Derives precise word/phoneme timings from audio using forced alignment.
 """
 
+from __future__ import annotations
 import os
 import librosa
 import numpy as np
 import json
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any
 from dataclasses import dataclass, asdict
 from enum import Enum
 
-# Import PyTorch 2.6 compatibility patch
-try:
-    from torch_patch import patch_torch_for_whisperx
-except ImportError:
-    # Define a no-op function if the patch isn't available
-    def patch_torch_for_whisperx():
-        print("⚠️ Warning: torch_patch not found, WhisperX might fail with PyTorch 2.6+")
-        pass
-        pass
+"""WP002 integration: centralized PyTorch compatibility via pytorch_compat.
+The previous scattered monkey patches (torch_patch, inline torch.load overrides)
+are being transitioned to an explicit safe_load wrapper to avoid hidden side-effects.
+"""
 
-# Import enhanced components
-try:
-    from enhanced_silence_detector import EnhancedSilenceDetector
-    from forced_alignment import ForcedAligner, AlignmentResult as ForcedAlignmentResult
-    from frame_synchronizer import PreciseFrameSynchronizer, WordTiming, FrameState
-    ENHANCED_COMPONENTS_AVAILABLE = True
-    print("✅ Enhanced audio alignment components loaded")
-except ImportError as e:
-    print(f"⚠️ Enhanced components not available: {e}")
-    print("📝 Using legacy audio alignment methods")
-    ENHANCED_COMPONENTS_AVAILABLE = False
+try:  # Prefer new consolidated compatibility layer
+    from pytorch_compat import (
+        safe_load,
+        is_problematic_version,
+        patched_load_context,
+        ensure_whisperx_safe_globals,
+    )
+except Exception:  # pragma: no cover - fallback to direct torch.load
+    def safe_load(f, *a, **kw):  # type: ignore
+        import torch  # local import fallback
+        return torch.load(f, *a, **kw)
+    def is_problematic_version():  # type: ignore
+        return False
+
+"""WP001: Dependency Injection refactor.
+
+This module now relies on abstract Protocols defined in `audio_protocols.py`.
+Concrete component instances can be injected directly or created via
+`ComponentFactory` from `audio_factory.py`.
+"""
+
+# Import protocol interfaces (lightweight, no heavy model loads).
+from audio_protocols import (
+    SilenceDetectorProtocol,
+    ForcedAlignerProtocol,
+    FrameSynchronizerProtocol,
+)
+
+try:  # Optional factory (may not be needed in tests)
+    from audio_factory import ComponentFactory
+except ImportError:  # Fallback if factory not present
+    class ComponentFactory:  # type: ignore
+        """Stub ComponentFactory used when real factory not available."""
+        def __init__(self, *_, **__):
+            raise RuntimeError("ComponentFactory not available; install full audio stack")
+
+# Type checking only imports for rich types (not required at runtime)
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:  # pragma: no cover
+    from frame_synchronizer import WordTiming, FrameState
+    from forced_alignment import AlignmentResult as ForcedAlignmentInternal
 
 class TokenType(Enum):
     WORD = "word"
@@ -50,26 +76,9 @@ class AlignmentToken:
     confidence: float
     lang: str
     
-# Apply direct PyTorch patch for WhisperX
-try:
-    import torch
-    if hasattr(torch, "__version__"):
-        version = torch.__version__
-        if version.startswith("2.6") or version.startswith("2.7"):
-            # Override torch.load to always use weights_only=False for compatibility
-            original_torch_load = torch.load
-            def patched_torch_load(f, *args, **kwargs):
-                # Always use weights_only=False regardless of what's passed
-                kwargs_copy = {k: v for k, v in kwargs.items() if k != 'weights_only'}
-                kwargs_copy['weights_only'] = False
-                print("🔄 Using patched torch.load with weights_only=False")
-                return original_torch_load(f, *args, **kwargs_copy)
-            
-            # Apply the patch
-            torch.load = patched_torch_load
-            print(f"✅ PyTorch {version} patched for WhisperX compatibility")
-except Exception as e:
-    print(f"⚠️ Failed to apply PyTorch patch: {e}")
+# NOTE: We intentionally DO NOT patch torch.load globally here anymore.
+# Call sites should use pytorch_compat.safe_load when loading model weights.
+# This keeps side-effects explicit and localized.
 
 @dataclass 
 class AlignmentStats:
@@ -92,13 +101,69 @@ class AudioAligner:
     """
     Main audio alignment class supporting pt-BR and en-US.
     Uses WhisperX for forced alignment and WebRTC VAD for gap detection.
+    
+    Implements dependency injection pattern to avoid circular imports.
     """
     
-    def __init__(self, language: str = "pt-BR", device: str = "auto"):
+    def __init__(
+        self,
+        language: str = "pt-BR",
+        device: str = "auto",
+        silence_detector: Optional[SilenceDetectorProtocol] = None,
+        forced_aligner: Optional[ForcedAlignerProtocol] = None,
+        aligner: Optional[ForcedAlignerProtocol] = None,  # backward-compatible alias
+        frame_synchronizer: Optional[FrameSynchronizerProtocol] = None,
+        factory: Optional[ComponentFactory] = None,
+        auto_build_enhanced: bool = True,
+    ):
+        """Create an AudioAligner.
+
+        Args:
+            language: Language code (e.g. pt-BR, en-US)
+            device: Compute device or 'auto'
+            silence_detector: Injected silence detector (Protocol)
+            forced_aligner: Injected forced aligner (Protocol)
+            frame_synchronizer: Injected frame synchronizer (Protocol)
+            factory: Optional ComponentFactory to lazily build components
+            auto_build_enhanced: If True and components missing, attempt to build via factory
+        """
         self.language = language
         self.device = self._setup_device(device)
-        self.models = {}
-        
+        self.models: Dict[str, Any] = {}
+
+        self._factory = factory
+        # Prefer explicitly passed components; only use factory if missing
+        self.silence_detector = silence_detector
+        # Support legacy 'aligner' parameter name
+        self.forced_aligner = forced_aligner or aligner
+        self.frame_synchronizer = frame_synchronizer
+
+        if auto_build_enhanced and self._factory and (
+            self.silence_detector is None
+            or self.forced_aligner is None
+            or self.frame_synchronizer is None
+        ):
+            try:
+                sd, fa, fs = self._factory.build_enhanced_stack()  # type: ignore[attr-defined]
+                self.silence_detector = self.silence_detector or sd
+                self.forced_aligner = self.forced_aligner or fa
+                self.frame_synchronizer = self.frame_synchronizer or fs
+                print("✅ Enhanced components built via factory")
+            except Exception as e:  # pragma: no cover - defensive
+                print(f"⚠️ Failed to build enhanced stack: {e}")
+
+        # Determine enhanced availability
+        self.use_enhanced = all([
+            isinstance(self.silence_detector, SilenceDetectorProtocol),
+            isinstance(self.forced_aligner, ForcedAlignerProtocol),
+            isinstance(self.frame_synchronizer, FrameSynchronizerProtocol),
+        ])
+
+        if self.use_enhanced:
+            print("🚀 Using enhanced alignment pipeline (DI)")
+        else:
+            print("📝 Falling back to legacy WhisperX-based alignment pipeline")
+
         # Portuguese-specific configuration
         self.pt_br_config = {
             "contractions": {
@@ -120,16 +185,7 @@ class AudioAligner:
             }
         }
         
-        # Initialize enhanced components if available
-        if ENHANCED_COMPONENTS_AVAILABLE:
-            self.silence_detector = EnhancedSilenceDetector(sample_rate=16000)
-            self.forced_aligner = ForcedAligner(device=device, language=language[:2])
-            self.frame_synchronizer = PreciseFrameSynchronizer(fps=30.0)
-            self.use_enhanced = True
-            print("✅ Enhanced alignment components initialized")
-        else:
-            self.use_enhanced = False
-            print("📝 Using legacy alignment methods")
+        # Legacy path uses WhisperX if enhanced components unavailable
         
     def _setup_device(self, device: str) -> str:
         """Determine optimal device for processing"""
@@ -151,19 +207,20 @@ class AudioAligner:
         Returns:
             Tuple of (audio_array, sample_rate)
         """
-        # Load audio as mono 16kHz (standard for speech processing)
+        # Load audio with sample rate from config
+        from config import config
         print(f"🔊 Loading and preprocessing audio: {os.path.basename(audio_path)}")
-        audio, sr = librosa.load(audio_path, sr=16000, mono=True)
+        audio, sr = librosa.load(audio_path, sr=config.audio.sample_rate(), mono=True)
         
         # Check audio levels
         rms = np.sqrt(np.mean(audio**2))
         print(f"📊 Audio RMS level before processing: {rms:.4f}")
         
         # Strong normalization for low-level audio
-        audio = librosa.util.normalize(audio) * 0.95
+        audio = librosa.util.normalize(audio) * config.audio.normalize_level()
         
         # Enhanced denoising - reduce background noise
-        audio = librosa.effects.preemphasis(audio, coef=0.97)
+        audio = librosa.effects.preemphasis(audio, coef=config.audio.preemphasis_coef())
         
         # Light processing for ElevenLabs audio - preserve silences for gap detection
         if "ElevenLabs" in audio_path:
@@ -173,12 +230,12 @@ class AudioAligner:
             # Apply only gentle high-pass filter to remove rumble
             from scipy.signal import butter, filtfilt
             nyq = 0.5 * sr
-            cutoff = 80 / nyq  # 80Hz high-pass
+            cutoff = config.audio.high_pass_cutoff() / nyq  # High-pass filter from config
             b, a = butter(3, cutoff, btype='high')
             audio = filtfilt(b, a, audio)
         else:
             # Standard light trimming for other audio sources
-            audio, _ = librosa.effects.trim(audio, top_db=30)  # More conservative trimming
+            audio, _ = librosa.effects.trim(audio, top_db=config.audio.trim_top_db())  # Trimming level from config
         
         # Final check of audio levels after processing
         rms_after = np.sqrt(np.mean(audio**2))
@@ -231,28 +288,44 @@ class AudioAligner:
             import whisperx_compat as whisperx
             print("✅ Using WhisperX compatibility layer for PyTorch 2.6+")
         except ImportError:
-            # Fall back to regular import with patch
-            patch_torch_for_whisperx()
+            # Direct import fallback (no legacy patch call)
             try:
                 import whisperx
             except ImportError:
                 raise ImportError("whisperx not installed. Run: pip install whisperx")
+
+        # Prepare compatibility (register safe globals) if on problematic PyTorch
+        if is_problematic_version():
+            ensure_whisperx_safe_globals()
         
         # Load models if not cached
         if 'transcribe' not in self.models:
             # Use the tiny model for faster processing and lower memory usage
             print("🔄 Loading WhisperX transcription model (first run may take longer)...")
-            self.models['transcribe'] = whisperx.load_model(
-                "tiny", self.device, compute_type="int8"
-            )
+            # Wrap in context to enforce safe torch.load behavior inside library
+            if is_problematic_version():
+                with patched_load_context():
+                    self.models['transcribe'] = whisperx.load_model(
+                        "tiny", self.device, compute_type="int8"
+                    )
+            else:
+                self.models['transcribe'] = whisperx.load_model(
+                    "tiny", self.device, compute_type="int8"
+                )
             print("✅ WhisperX transcription model loaded")
         
         if 'align' not in self.models:
             print(f"🔄 Loading alignment model for language {self.language[:2]}...")
             try:
-                self.models['align'], self.models['align_meta'] = whisperx.load_align_model(
-                    language_code=self.language[:2], device=self.device  # pt-BR -> pt
-                )
+                if is_problematic_version():
+                    with patched_load_context():
+                        self.models['align'], self.models['align_meta'] = whisperx.load_align_model(
+                            language_code=self.language[:2], device=self.device  # pt-BR -> pt
+                        )
+                else:
+                    self.models['align'], self.models['align_meta'] = whisperx.load_align_model(
+                        language_code=self.language[:2], device=self.device  # pt-BR -> pt
+                    )
                 print("✅ Alignment model loaded")
             except Exception as e:
                 print(f"⚠️ Error loading alignment model: {e}")
@@ -582,9 +655,15 @@ class AudioAligner:
             pause_count=pause_count
         )
     
-    def align_audio_to_text_enhanced(self, audio_path: str, transcript: str, 
-                                   granularity: str = "word", language: str = None,
-                                   fps: float = 30.0, method: str = "auto") -> Tuple[AlignmentResult, List[WordTiming], List[FrameState]]:
+    def align_audio_to_text_enhanced(
+        self,
+        audio_path: str,
+        transcript: str,
+        granularity: str = "word",
+        language: str | None = None,
+        fps: float = 30.0,
+        method: str = "auto",
+    ) -> Tuple[AlignmentResult, List["WordTiming"], List["FrameState"]]:
         """
         Enhanced alignment function using advanced components
         
@@ -616,12 +695,16 @@ class AudioAligner:
         try:
             # 2. Enhanced silence detection
             print("🔍 Performing enhanced silence detection...")
-            silence_segments = self.silence_detector.detect_silence_segments(
-                audio, adaptive_thresholds=True
-            )
+            silence_segments = []
+            if self.silence_detector:
+                silence_segments = self.silence_detector.detect_silence_segments(
+                    audio, adaptive_thresholds=True
+                )
             
             # 3. Forced alignment with transformer models
             print("🎯 Performing forced alignment...")
+            if not self.forced_aligner:
+                raise RuntimeError("Forced aligner not available")
             forced_result = self.forced_aligner.align_text_to_audio(
                 audio, normalized_text, sample_rate, method=method
             )
@@ -630,31 +713,35 @@ class AudioAligner:
             print("🎬 Creating frame synchronization timeline...")
             
             # Update frame synchronizer FPS
-            self.frame_synchronizer.fps = fps
-            self.frame_synchronizer.frame_duration = 1.0 / fps
+            if not self.frame_synchronizer:
+                raise RuntimeError("Frame synchronizer not available")
+            self.frame_synchronizer.fps = fps  # type: ignore[attr-defined]
+            self.frame_synchronizer.frame_duration = 1.0 / fps  # type: ignore[attr-defined]
             
             # Convert forced alignment to word timings
             word_timings_list = [
-                (token.text, token.start_time, token.end_time) 
-                for token in forced_result.tokens
+                (token.text, token.start_time, token.end_time)
+                for token in getattr(forced_result, 'tokens', [])
             ]
-            confidence_scores = [token.confidence for token in forced_result.tokens]
+            confidence_scores = [
+                token.confidence for token in getattr(forced_result, 'tokens', [])
+            ]
             
             # Create timeline with sub-frame precision including silence segments
-            timeline = self.frame_synchronizer.create_animation_timeline(
-                word_timings_list, 
-                forced_result.total_duration,
+            timeline = self.frame_synchronizer.create_animation_timeline(  # type: ignore[call-arg]
+                word_timings_list,
+                getattr(forced_result, 'total_duration', len(audio) / sample_rate),
                 confidence_scores,
-                silence_segments
+                silence_segments,
             )
             
             # Optimize timeline
-            timeline = self.frame_synchronizer.optimize_timeline(timeline)
+            timeline = self.frame_synchronizer.optimize_timeline(timeline)  # type: ignore[arg-type]
             
             # 5. Generate frame sequence
             print("🎭 Generating frame sequence...")
-            frame_states = self.frame_synchronizer.generate_frame_sequence(
-                timeline, forced_result.total_duration
+            frame_states = self.frame_synchronizer.generate_frame_sequence(  # type: ignore[arg-type]
+                timeline, getattr(forced_result, 'total_duration', len(audio) / sample_rate)
             )
             
             # 6. Convert to legacy AlignmentResult format for compatibility
@@ -673,7 +760,7 @@ class AudioAligner:
                 ))
             
             # Add word tokens
-            for token in forced_result.tokens:
+            for token in getattr(forced_result, 'tokens', []):
                 legacy_tokens.append(AlignmentToken(
                     type=TokenType.WORD,
                     text=token.text,

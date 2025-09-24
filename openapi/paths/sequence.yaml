@@ -1,0 +1,219 @@
+# Sequence related paths
+/api/sequence/frame/{frame_id}:
+  get:
+    tags: [sequence]
+    summary: Retrieve a single sequence frame preview
+    parameters:
+      - in: path
+        name: frame_id
+        required: true
+        schema: { type: integer }
+    responses:
+      "200":
+        description: Frame data
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/StandardResponse"
+                - type: object
+                  properties:
+                    char: { type: string }
+                    duration: { type: integer }
+                    is_pause: { type: boolean }
+                    image: { type: string }
+                    dimensions:
+                      type: array
+                      items: { type: integer }
+      "404":
+        {
+          description: Frame not found,
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+        }
+      "500":
+        {
+          description: Unexpected error,
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+        }
+/api/sequence/update:
+  post:
+    tags: [sequence]
+    summary: Update sequence frame properties
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SequenceUpdateRequest"
+    responses:
+      "200":
+        description: Frame updated
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StandardResponse"
+      "400":
+        {
+          description: Invalid update payload,
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+        }
+      "404":
+        {
+          description: Frame not found,
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+        }
+      "500":
+        {
+          description: Unexpected error,
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+        }
+/api/sequence/reorder:
+  post:
+    tags: [sequence]
+    summary: Reorder sequence frames
+    requestBody:
+      required: true
+    content:
+      application/json:
+        schema:
+          $ref: "#/components/schemas/SequenceReorderRequest"
+    responses:
+      "200":
+        description: Sequence reordered
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StandardResponse"
+      "400":
+        {
+          description: Invalid reorder payload,
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+        }
+      "500":
+        {
+          description: Unexpected error,
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+        }
+/api/sequence/delete:
+  post:
+    tags: [sequence]
+    summary: Delete a sequence frame
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SequenceDeleteRequest"
+    responses:
+      "200":
+        description: Frame deleted
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StandardResponse"
+      "400":
+        {
+          description: Invalid delete payload,
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+        }
+      "404":
+        {
+          description: Frame not found,
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+        }
+      "500":
+        {
+          description: Unexpected error,
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+        }
+/api/sequence/build-from-audio:
+  post:
+    tags: [sequence]
+    summary: Build sequence frames based on alignment tokens
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SequenceBuildFromAudioRequest"
+    responses:
+      "200":
+        description: Sequence constructed
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/StandardResponse"
+                - type: object
+                  properties:
+                    sequence:
+                      type: array
+                      items: { $ref: "#/components/schemas/SequenceFrame" }
+                    stats: { type: object }
+      "400":
+        {
+          description: Invalid build request,
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+        }
+      "422":
+        {
+          description: Alignment / token mismatch,
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+        }
+      "500":
+        {
+          description: Unexpected error,
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+        }

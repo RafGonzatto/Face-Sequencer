@@ -34,6 +34,10 @@
     />
     <!-- WaveSurfer.js for audio visualization -->
     <script src="https://unpkg.com/wavesurfer.js@6/dist/wavesurfer.js"></script>
+    <!-- SSE client for real-time updates -->
+    <script src="{{ url_for('static', filename='js/sse_client.js') }}"></script>
+    <!-- Real-time export progress -->
+    <script src="{{ url_for('static', filename='js/export_progress.js') }}"></script>
   </head>
   <body>
     <div class="app-container">

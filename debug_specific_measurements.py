@@ -135,8 +135,12 @@ def debug_specific_measurements():
                     if estimated_duration_ms < 2000:  # Less than 2 seconds (could be our problem)
                         print(f"      Vídeo curto: {media_file} - ~{estimated_duration_ms:.0f}ms (estimativa)")
             
-            except Exception:
-                pass  # Skip files that can't be processed
+            except Exception as e:
+                # Log the error instead of silently passing
+                from logger import get_logger, log_exception
+                debug_logger = get_logger('debug.measurements')
+                log_exception(debug_logger, e, {'file': media_file})
+                print(f"      ⚠️ Error processing {media_file}: {str(e)}")
     
     return True
 
