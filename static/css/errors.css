@@ -1,0 +1,29 @@
+/* errors.css - styles for contextual error handling (WP-UX-007) */
+.toast-stack { position: fixed; top: 1rem; right: 1rem; display: flex; flex-direction: column; gap: .75rem; z-index: 5000; width: 320px; max-width: 90vw; }
+.error-toast { background: #1e1f26; color: #fff; border-radius: 8px; box-shadow: 0 6px 20px -5px rgba(0,0,0,0.4); display: flex; align-items: stretch; padding: .75rem .9rem; gap: .75rem; border: 1px solid rgba(255,255,255,0.08); transform: translateX(8px); opacity:0; transition: opacity .25s ease, transform .25s ease; position: relative; overflow: hidden; }
+.error-toast.visible { opacity:1; transform: translateX(0); }
+.error-toast .toast-icon { font-size: 1.25rem; display: flex; align-items: center; }
+.error-toast .toast-content { flex:1; display:flex; flex-direction: column; gap:.35rem; }
+.error-toast .toast-message { line-height:1.2; font-size:.95rem; }
+.error-toast .toast-action { align-self: flex-start; background: #2563eb; color:#fff; border:none; border-radius:4px; font-size:.75rem; padding:.35rem .6rem; cursor:pointer; display:inline-flex; gap:.35rem; }
+.error-toast .toast-action:disabled { opacity:.55; cursor: not-allowed; }
+.error-toast .toast-close { background: transparent; border:none; color: #fff; font-size:1.1rem; cursor:pointer; padding:.25rem; line-height:1; }
+.error-toast .toast-progress { position:absolute; left:0; bottom:0; height:3px; width:100%; background:#ffffff33; }
+
+/* Levels */
+.error-toast.level-info { border-color:#3b82f6; }
+.error-toast.level-warning { border-color:#f59e0b; }
+.error-toast.level-error { border-color:#dc2626; }
+.error-toast.level-success { border-color:#16a34a; }
+.error-toast.level-info .toast-icon { color:#3b82f6; }
+.error-toast.level-warning .toast-icon { color:#f59e0b; }
+.error-toast.level-error .toast-icon { color:#dc2626; }
+.error-toast.level-success .toast-icon { color:#16a34a; }
+
+/* Inline field errors */
+.has-error input, .has-error select, .has-error textarea { border-color:#dc2626 !important; box-shadow:0 0 0 1px #dc2626 inset; }
+.error-hint { color:#dc2626; font-size:.75rem; margin-top:.3rem; font-weight:500; }
+
+/* Subtle entrance animation */
+@keyframes slideInErrorToast { from { opacity:0; transform: translateX(16px); } to { opacity:1; transform: translateX(0); } }
+.error-toast.visible { animation: slideInErrorToast .3s ease; }

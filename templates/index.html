@@ -33,6 +33,10 @@
       href="{{ url_for('static', filename='css/timeline.css') }}"
     />
     <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/errors.css') }}"
+    />
+    <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
@@ -46,7 +50,8 @@
     <script src="{{ url_for('static', filename='js/sse_client.js') }}"></script>
     <!-- Real-time export progress -->
     <script src="{{ url_for('static', filename='js/export_progress.js') }}"></script>
-  <script src="{{ url_for('static', filename='js/timeline_enhancements.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/timeline_enhancements.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/ErrorToast.js') }}"></script>
   </head>
   <body>
     <!-- Accessibility Live Regions -->

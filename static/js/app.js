@@ -1836,9 +1836,44 @@ class FaceSequencerApp {
       // Ensure sequence exists at both levels
       this.state.sequence = this.state.sequence || [];
       if (!this.state.project) this.state.project = {};
+
+      // Error toast manager (WP-UX-007)
+      if (window.ErrorToastManager) {
+        this.errorToasts = new window.ErrorToastManager();
+      }
       this.state.project.sequence = this.state.project.sequence || [];
     }
     // Do not update progress here - this method is just for state sync
+  }
+
+  // Centralized error reporting -> toast + console + ARIA (WP-UX-007)
+  reportError(message, options = {}) {
+    console.error('[AppError]', message, options?.error || '');
+    // ARIA assertive region if present
+    try {
+      const alertRegion = document.getElementById('ariaAlertRegion');
+      if (alertRegion) {
+        alertRegion.textContent = typeof message === 'string' ? message : (message?.toString?.() || 'Error');
+      }
+    } catch(_) {}
+    if (this.errorToasts) {
+      this.errorToasts.show(message, { level: options.level || 'error', action: options.action, actionLabel: options.actionLabel, autoDismiss: options.autoDismiss !== false });
+    } else if (window.alert) {
+      alert(message);
+    }
+  }
+
+  // Helper to validate a required input field and show inline errors
+  validateRequiredInput(el, hintMessage = 'This field is required') {
+    if (!el) return true;
+    const value = (el.value || '').trim();
+    if (!value) {
+      this.errorToasts?.fieldError(el, hintMessage);
+      return false;
+    } else {
+      this.errorToasts?.clearFieldError(el);
+      return true;
+    }
   }
 
   hideProgress() {
