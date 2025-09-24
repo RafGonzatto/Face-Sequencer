@@ -119,6 +119,24 @@ app.config.update(
     MAX_CONTENT_LENGTH=config.limits.max_upload_size(),
 )
 
+# ---------------------------------------------------------------------------
+# Root / Index Route (UI) - previously missing causing 404 on '/'
+# ---------------------------------------------------------------------------
+@app.route('/', methods=['GET'])
+def index():  # pragma: no cover - UI route
+    """Serve the main web UI.
+
+    Returns the primary single-page interface. A 404 was previously returned
+    because no root route existed; this fixes the blank page issue reported
+    when accessing http://localhost:5000/ in the browser.
+    """
+    try:
+        return render_template('index.html')
+    except Exception as e:  # noqa: BLE001
+        logger.exception("Failed to render index.html")
+        # Fallback minimal HTML so user isn't stuck on a raw 404
+        return f"<html><body><h1>UI Load Error</h1><pre>{e}</pre></body></html>", 500
+
 project_manager = ProjectManager(projects_dir=str(config.paths.projects_folder()))
 
 # Use project defaults from centralized config
