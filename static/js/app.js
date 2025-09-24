@@ -28,6 +28,10 @@ class FaceSequencerApp {
     };
 
     this.previewInterval = null;
+    // Internal drag & drop visuals
+    this._dragFileActive = false;
+    this._dragCounter = 0; // helps manage nested dragenter/dragleave
+    this.dragGhostEl = null;
     this.init();
   }
 
@@ -37,6 +41,7 @@ class FaceSequencerApp {
     this.loadProject();
     this.generateMappingGrid();
     this.updateUI();
+    this.initDragVisualFeedback();
 
     // Make sure sequences are in sync
     this.syncSequenceState();
@@ -806,30 +811,6 @@ class FaceSequencerApp {
         } else if (task.status === "completed") {
           // Use the centralized method for handling export completion
           this.handleExportCompletion();
-              const actionsDiv =
-                this.exportProgressModal.querySelector(".progress-actions");
-              if (
-                actionsDiv &&
-                !actionsDiv.querySelector(".retry-export-btn")
-              ) {
-                const retryBtn = document.createElement("button");
-                retryBtn.className = "btn btn-primary retry-export-btn";
-                retryBtn.textContent = "Retry Export";
-                retryBtn.addEventListener("click", () => {
-                  this.hideExportProgressModal();
-                  this.exportVideo();
-                });
-                actionsDiv.appendChild(retryBtn);
-              }
-            }
-          } catch (validateError) {
-            console.error("Export validation error:", validateError);
-            // Continue with download anyway
-            setTimeout(() => {
-              this.hideExportProgressModal();
-              this.downloadExport();
-            }, 1000);
-          }
         } else if (task.status === "error") {
           // Update modal to show error
           const progressMessage =
@@ -849,7 +830,6 @@ class FaceSequencerApp {
           }
 
           this.showError(`Export failed: ${task.error}`);
-        }
         }
       } catch (error) {
         this.hideExportProgressModal();
@@ -1174,34 +1154,48 @@ class FaceSequencerApp {
   }
 
   setupDragAndDrop(item, letter) {
-    // Drag over handler
+    // Enhanced drag enter
+    item.addEventListener("dragenter", (e) => {
+      e.preventDefault();
+      if (this._isFileDrag(e)) {
+        item.classList.add("drop-zone-active");
+      }
+    });
+
+    // Drag over handler (required to allow drop)
     item.addEventListener("dragover", (e) => {
       e.preventDefault();
-      item.classList.add("drag-over");
+      if (this._isFileDrag(e)) {
+        item.classList.add("drop-zone-active");
+      }
     });
 
     // Drag leave handler
-    item.addEventListener("dragleave", () => {
-      item.classList.remove("drag-over");
+    item.addEventListener("dragleave", (e) => {
+      if (!item.contains(e.relatedTarget)) {
+        item.classList.remove("drop-zone-active");
+      }
     });
 
     // Drop handler
     item.addEventListener("drop", (e) => {
       e.preventDefault();
+      item.classList.remove("drop-zone-active");
       item.classList.remove("drag-over");
 
       const files = e.dataTransfer.files;
       if (files.length > 0) {
         const file = files[0];
         if (this.isImageFile(file)) {
-          this.assignImageToLetter(letter, file);
+          this.assignImageToLetter(letter, file, item);
         } else {
-          this.showError("Please drop an image file");
+          this.triggerDropError(item, "Please drop an image file");
         }
       }
+      this.hideDragGhost();
     });
 
-    // Make the item a drop zone
+    // Ensure we don't treat mapping tiles as draggable sources currently
     item.setAttribute("draggable", "false");
   }
 
@@ -1218,12 +1212,12 @@ class FaceSequencerApp {
     input.click();
   }
 
-  async assignImageToLetter(letter, file) {
+  async assignImageToLetter(letter, file, targetItem = null) {
     try {
       // Create thumbnail preview
       const reader = new FileReader();
       reader.onload = (e) => {
-        const item = document.querySelector(`[data-letter="${letter}"]`);
+        const item = targetItem || document.querySelector(`[data-letter="${letter}"]`);
         if (item) {
           const preview = item.querySelector(".mapping-preview");
           preview.innerHTML = `<img src="${e.target.result}" alt="${letter}">`;
@@ -1232,6 +1226,9 @@ class FaceSequencerApp {
 
           const statusIcon = item.querySelector(".mapping-status-icon");
           statusIcon.style.display = "none";
+
+          // Trigger success animation
+          this.triggerDropSuccess(item);
         }
       };
       reader.readAsDataURL(file);
@@ -1248,6 +1245,105 @@ class FaceSequencerApp {
     } catch (error) {
       this.showError(`Failed to assign image: ${error.message}`);
     }
+  }
+
+  /* ---------------- Drag Visual Feedback Helpers ---------------- */
+  initDragVisualFeedback() {
+    // Create ghost element once
+    this.dragGhostEl = document.createElement("div");
+    this.dragGhostEl.className = "drag-ghost";
+    this.dragGhostEl.innerHTML = '<i class="fas fa-file-image"></i>';
+    document.body.appendChild(this.dragGhostEl);
+
+    // Window-level drag events to manage ghost visibility
+    window.addEventListener("dragenter", (e) => {
+      if (this._isFileDrag(e)) {
+        this._dragCounter++;
+        this._dragFileActive = true;
+        this.showDragGhost();
+      }
+    });
+
+    window.addEventListener("dragover", (e) => {
+      if (this._dragFileActive) {
+        this.positionDragGhost(e);
+      }
+    });
+
+    window.addEventListener("dragleave", (e) => {
+      // Manage nested dragenter/leaves
+      if (this._isFileDrag(e)) {
+        this._dragCounter--;
+        if (this._dragCounter <= 0) {
+          this.resetDragState();
+        }
+      }
+    });
+
+    window.addEventListener("drop", () => {
+      this.resetDragState();
+    });
+  }
+
+  _isFileDrag(e) {
+    return e?.dataTransfer?.types && Array.from(e.dataTransfer.types).includes("Files");
+  }
+
+  positionDragGhost(e) {
+    if (!this.dragGhostEl) return;
+    this.dragGhostEl.style.top = `${e.clientY}px`;
+    this.dragGhostEl.style.left = `${e.clientX}px`;
+  }
+
+  showDragGhost() {
+    if (this.dragGhostEl) {
+      this.dragGhostEl.classList.add("visible");
+    }
+  }
+
+  hideDragGhost() {
+    if (this.dragGhostEl) {
+      this.dragGhostEl.classList.remove("visible");
+    }
+  }
+
+  resetDragState() {
+    this._dragFileActive = false;
+    this._dragCounter = 0;
+    this.hideDragGhost();
+    // Clean any active highlight still lingering
+    document.querySelectorAll('.mapping-item.drop-zone-active').forEach(el => el.classList.remove('drop-zone-active'));
+  }
+
+  triggerDropSuccess(item) {
+    if (!item) return;
+    item.classList.remove("drop-error");
+    item.classList.add("drop-success");
+
+    // Add transient check icon
+    const indicator = document.createElement("div");
+    indicator.className = "drop-success-indicator";
+    indicator.innerHTML = '<i class="fas fa-check"></i>';
+    item.appendChild(indicator);
+
+    const cleanup = () => {
+      item.classList.remove("drop-success");
+      indicator.remove();
+      item.removeEventListener("animationend", cleanup);
+    };
+    item.addEventListener("animationend", cleanup);
+  }
+
+  triggerDropError(item, message) {
+    if (message) this.showError(message);
+    if (!item) return;
+    item.classList.remove("drop-success");
+    item.classList.add("drop-error");
+    const cleanup = () => {
+      item.classList.remove("drop-error");
+      item.removeEventListener("animationend", cleanup);
+    };
+    item.addEventListener("animationend", cleanup);
   }
 
   isImageFile(file) {
