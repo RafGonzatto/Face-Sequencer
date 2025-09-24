@@ -1612,6 +1612,34 @@ def _force_replace_route(rule_path: str, endpoint: str, new_callable):  # pragma
 # Apply force replace for util_error_demo to ensure new implementation active
 _force_replace_route('/api/util/error-demo', 'util_error_demo', _util_error_demo_impl)
 
+# ---------------------------------------------------------------------------
+# New deterministic utility error demo endpoint (v2)
+# Rationale: Original /api/util/error-demo route binding proved resistant to
+# late-stage mutation in tests due to early import-time registration. This v2
+# endpoint provides a stable contract for status code demonstration without
+# depending on decorator wrapping or raising exceptions. The legacy endpoint
+# is retained (deprecated) for backward compatibility.
+# ---------------------------------------------------------------------------
+@app.route('/api/util/error-demo-v2', methods=['GET'])
+def util_error_demo_v2():  # pragma: no cover - exercised via tests
+    from api_responses import error_response, success_response
+    from flask import request as _rq, jsonify as _jsonify
+    mode = (_rq.args.get('mode', 'ok') or 'ok').strip().lower()
+    def _err(msg, et, status):
+        body = error_response(msg, error_type=et, status=status)
+        body['lifecycle_stage'] = 'general'
+        resp = _jsonify(body); resp.status_code = status; return resp
+    if mode == 'value':
+        return _err('Simulated validation error', 'validation_error', 400)
+    if mode == 'missing':
+        return _err('Simulated not found', 'not_found', 404)
+    if mode == 'timeout':
+        return _err('Simulated timeout', 'timeout_error', 504)
+    if mode == 'classified':
+        return _err('Explicit processing classification', 'processing_error', 422)
+    ok_body = success_response('OK', mode=mode)
+    return _jsonify(ok_body), 200
+
 @app.route('/api/audio/upload', methods=['POST'])
 def upload_audio():
     """Upload and validate audio file"""
