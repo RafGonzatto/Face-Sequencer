@@ -50,9 +50,9 @@
 
     <!-- Drag & Drop Onboarding Banner -->
     <div id="dragOnboardingBanner" class="drag-onboarding-banner" role="status" aria-hidden="true" style="display:none;">
-      <i class="fas fa-hand-pointer"></i>
-      <span>Drag one or multiple image files from your computer and drop them onto the character tiles to map them. The first file goes to the tile you drop on; the rest will auto-fill the next unmapped letters.</span>
-      <button type="button" class="close-banner" aria-label="Dismiss" onclick="(function(){const b=document.getElementById('dragOnboardingBanner');if(b){b.style.display='none';b.setAttribute('aria-hidden','true'); localStorage.setItem('dragOnboardingShown','1');}})()">×</button>
+      <i class="fas fa-hand-pointer" aria-hidden="true"></i>
+      <span data-i18n-key="drag_banner_text">Drag one or multiple image files from your computer and drop them onto the character tiles to map them. The first file goes to the tile you drop on; the rest will auto-fill the next unmapped letters.</span>
+      <button type="button" class="close-banner" aria-label="Dismiss" onclick="(function(){const b=document.getElementById('dragOnboardingBanner');if(b){b.style.display='none';b.setAttribute('aria-hidden','true'); localStorage.setItem('dragOnboardingShown','1'); const btn=document.getElementById('showDragHelpBtn'); if(btn) btn.style.display='inline-flex';}})()">×</button>
     </div>
     <div class="app-container">
       <!-- Header -->
@@ -98,6 +98,17 @@
                 <span id="charCount">0 characters</span>
                 <span id="mappingStatus" class="mapping-status">Ready</span>
               </div>
+            </div>
+          </div>
+
+          <!-- UI Language Selection -->
+          <div class="section">
+            <h3><span data-i18n-key="ui_language_heading">Interface Language</span></h3>
+            <div class="input-group">
+              <select id="uiLanguageSelect" aria-label="Interface Language">
+                <option value="en">English</option>
+                <option value="pt-BR">Português (Brasil)</option>
+              </select>
             </div>
           </div>
 
@@ -308,11 +319,18 @@
             <h2><i class="fas fa-grip"></i> Character Mapping</h2>
             <div class="mapping-controls">
               <button class="btn btn-outline btn-sm" id="autoMapBtn">
-                <i class="fas fa-magic"></i> Auto Map
+                <i class="fas fa-magic"></i> <span data-i18n-key="auto_map_btn">Auto Map</span>
               </button>
               <button class="btn btn-outline btn-sm" id="clearMappingBtn">
-                <i class="fas fa-trash"></i> Clear All
+                <i class="fas fa-trash"></i> <span data-i18n-key="clear_all_btn">Clear All</span>
               </button>
+              <button class="btn btn-outline btn-sm" id="bulkImportBtn">
+                <i class="fas fa-images"></i> <span data-i18n-key="bulk_import_btn">Bulk Import</span>
+              </button>
+              <button class="btn btn-outline btn-sm" id="showDragHelpBtn" style="display:none;">
+                <i class="fas fa-question-circle"></i> <span data-i18n-key="drag_help_btn">Drag Help</span>
+              </button>
+              <input type="file" id="bulkImportInput" accept="image/*" multiple style="display:none;" aria-hidden="true" />
             </div>
           </div>
 
