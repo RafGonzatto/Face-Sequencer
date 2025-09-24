@@ -22,8 +22,54 @@
         },
         "details": {
           "type": "object"
+        },
+        "recommendations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "lifecycle_stage": {
+          "type": "string"
         }
       }
+    },
+    "ErrorResponse": {
+      "allOf": [
+        {
+          "$ref": "#/components/schemas/StandardResponse"
+        },
+        {
+          "type": "object",
+          "required": [
+            "success",
+            "error"
+          ],
+          "properties": {
+            "success": {
+              "const": false
+            },
+            "error": {
+              "type": "string"
+            },
+            "error_type": {
+              "type": "string"
+            },
+            "details": {
+              "type": "object"
+            },
+            "recommendations": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "lifecycle_stage": {
+              "type": "string"
+            }
+          }
+        }
+      ]
     },
     "AlignmentToken": {
       "type": "object",
@@ -139,6 +185,61 @@
           }
         }
       ]
+    },
+    "ModelEntry": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "loaded": {
+          "type": "boolean"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "nullable": true
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "load_time_s": {
+          "type": "number",
+          "nullable": true
+        },
+        "last_access": {
+          "type": "number"
+        },
+        "error": {
+          "type": "string",
+          "nullable": true
+        }
+      }
+    },
+    "ModelManagerStats": {
+      "type": "object",
+      "properties": {
+        "max_memory_bytes": {
+          "type": "integer"
+        },
+        "current_memory_bytes": {
+          "type": "integer"
+        },
+        "registered_models": {
+          "type": "integer"
+        },
+        "loaded_models": {
+          "type": "integer"
+        },
+        "models": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/ModelEntry"
+          }
+        }
+      }
     },
     "ExportTask": {
       "type": "object",
