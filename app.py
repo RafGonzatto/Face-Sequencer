@@ -1583,6 +1583,35 @@ def _rebind_endpoint(endpoint_name: str, new_callable):  # pragma: no cover - si
 # Rebind again explicitly (belt & suspenders)
 _rebind_endpoint('util_error_demo', _util_error_demo_impl)
 
+# Hard replace utility for stubborn routes where view_functions reassignment isn't reflected.
+def _force_replace_route(rule_path: str, endpoint: str, new_callable):  # pragma: no cover
+    try:
+        # Filter out existing rules with same path
+        new_rules = []
+        removed = False
+        for r in app.url_map._rules:  # type: ignore[attr-defined]
+            if getattr(r, 'rule', None) == rule_path and r.endpoint == endpoint:
+                removed = True
+                continue
+            new_rules.append(r)
+        if removed:
+            app.url_map._rules = new_rules  # type: ignore[attr-defined]
+            # Rebuild endpoint mapping
+            app.url_map._rules_by_endpoint = {}  # type: ignore[attr-defined]
+            for r in new_rules:
+                app.url_map._rules_by_endpoint.setdefault(r.endpoint, []).append(r)  # type: ignore[attr-defined]
+        # (Re)add rule fresh
+        app.add_url_rule(rule_path, endpoint=endpoint, view_func=new_callable, methods=['GET'])
+        app.view_functions[endpoint] = new_callable
+    except Exception as e:
+        try:
+            logger.warning(f"Route force-replace failed for {rule_path}: {e}")
+        except Exception:
+            pass
+
+# Apply force replace for util_error_demo to ensure new implementation active
+_force_replace_route('/api/util/error-demo', 'util_error_demo', _util_error_demo_impl)
+
 @app.route('/api/audio/upload', methods=['POST'])
 def upload_audio():
     """Upload and validate audio file"""
