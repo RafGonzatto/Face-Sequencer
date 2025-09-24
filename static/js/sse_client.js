@@ -42,8 +42,13 @@
         // Set up event handlers
         eventSource.onmessage = (event) => {
           try {
-            const data = JSON.parse(event.data);
-            callback(data);
+            const parsed = JSON.parse(event.data);
+            // Server may wrap payloads as { event, data, timestamp }
+            const payload =
+              parsed && typeof parsed === "object" && "data" in parsed
+                ? parsed.data
+                : parsed;
+            callback(payload);
           } catch (error) {
             console.error("Error parsing SSE data:", error);
           }

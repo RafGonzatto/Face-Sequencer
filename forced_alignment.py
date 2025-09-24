@@ -73,24 +73,58 @@ class ForcedAligner:
         return device
     
     def _load_wav2vec2_model(self) -> Tuple[object, object]:
-        """Load Wav2Vec2 model and processor"""
+        """Load Wav2Vec2 model and processor with safetensors preference and fallbacks."""
         try:
             from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
-            
-            model_name = self.model_configs[self.language]["wav2vec2"]
-            print(f"📦 Loading Wav2Vec2 model: {model_name}")
-            
-            processor = Wav2Vec2Processor.from_pretrained(model_name)
-            model = Wav2Vec2ForCTC.from_pretrained(model_name)
-            model.to(self.device)
-            model.eval()
-            
-            self.models["wav2vec2"] = (model, processor)
-            return model, processor
-            
         except Exception as e:
-            print(f"❌ Failed to load Wav2Vec2 model: {e}")
+            print(f"❌ Transformers not available: {e}")
             return None, None
+
+        # Prefer checkpoints with safetensors to avoid torch.load vulnerabilities
+        candidates = []
+        try:
+            # If available, prefer community model with safetensors
+            candidates.append("jonatasgrosman/wav2vec2-large-xlsr-53-portuguese" if self.language == "pt" else "facebook/wav2vec2-base-960h")
+        except Exception:
+            pass
+        # Fallback to configured name
+        candidates.append(self.model_configs[self.language]["wav2vec2"])
+
+        last_err = None
+        for name in candidates:
+            try:
+                print(f"📦 Loading Wav2Vec2 model: {name}")
+                # Always try safetensors first
+                processor = Wav2Vec2Processor.from_pretrained(name)
+                try:
+                    # Use safetensors when possible
+                    model = Wav2Vec2ForCTC.from_pretrained(name, use_safetensors=True)
+                except Exception as e1:
+                    last_err = e1
+                    # Retry within compatibility context for potential torch.load paths
+                    try:
+                        from pytorch_compat import patched_load_context, is_problematic_version
+                        if is_problematic_version():
+                            with patched_load_context():
+                                model = Wav2Vec2ForCTC.from_pretrained(name)
+                        else:
+                            model = Wav2Vec2ForCTC.from_pretrained(name)
+                    except Exception as e2:
+                        last_err = e2
+                        print(f"⚠️ Retry without safetensors failed for {name}: {e2}")
+                        continue
+
+                model.to(self.device)
+                model.eval()
+                self.models["wav2vec2"] = (model, processor)
+                return model, processor
+            except Exception as e:
+                last_err = e
+                print(f"⚠️ Could not load Wav2Vec2 '{name}': {e}")
+
+        print(f"❌ Failed to load any Wav2Vec2 model: {last_err}")
+        print("🔄 Falling back to duration-based alignment or Whisper where available")
+        return None, None
     
     def _load_whisper_model(self) -> object:
         """Load Whisper model as fallback"""
@@ -150,8 +184,7 @@ class ForcedAligner:
             
         except Exception as e:
             print(f"❌ Alignment failed with {method}: {e}")
-            
-            # Fallback to simple timing estimation
+            # Fallback to simple timing estimation (never raises)
             print("🔄 Falling back to duration-based timing")
             return self._fallback_alignment(audio, text, sample_rate)
     

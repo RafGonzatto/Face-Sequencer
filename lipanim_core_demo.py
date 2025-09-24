@@ -158,7 +158,7 @@ def export_mp4(seq, path, fps, crf, preset, bg=(0, 0, 0, 0), progress_callback=N
         for i, frame in enumerate(seq):
             if not frame.get('is_pause', False):
                 img_path = frame.get('img')
-                if img_path and os.path.exists(img_path):
+                if isinstance(img_path, str) and img_path and os.path.exists(img_path):
                     try:
                         with Image.open(img_path) as img:
                             width, height = img.size
@@ -179,13 +179,13 @@ def export_mp4(seq, path, fps, crf, preset, bg=(0, 0, 0, 0), progress_callback=N
                     fallback_needed = True
                 if frame.get('is_symbol_fallback', False):
                     fallback_needed = True
-                if not img_path or not os.path.exists(img_path):
+                if (not isinstance(img_path, str)) or (not img_path) or (not os.path.exists(img_path)):
                     fallback_needed = True
                 if fallback_needed:
                     fallback_img_path = frame.get('fallback_img')
-                    if fallback_img_path and os.path.exists(fallback_img_path):
+                    if isinstance(fallback_img_path, str) and fallback_img_path and os.path.exists(fallback_img_path):
                         img_path = fallback_img_path
-                if not img_path or not os.path.exists(img_path):
+                if (not isinstance(img_path, str)) or (not img_path) or (not os.path.exists(img_path)):
                     default_fallback = None
                     potential_folders = [
                         os.path.join(os.path.dirname(os.path.abspath(__file__)), 'images'),
@@ -200,7 +200,7 @@ def export_mp4(seq, path, fps, crf, preset, bg=(0, 0, 0, 0), progress_callback=N
                                 break
                     if default_fallback and os.path.exists(default_fallback):
                         img_path = default_fallback
-                if img_path and os.path.exists(img_path):
+                if isinstance(img_path, str) and img_path and os.path.exists(img_path):
                     try:
                         pil_img = Image.open(img_path).convert('RGBA')
                         current_width, current_height = pil_img.size

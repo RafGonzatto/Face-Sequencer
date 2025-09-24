@@ -56,6 +56,53 @@ def export_sequence_video():
         'quality_preset': quality_preset,'crf': quality_config['crf'],'preset': quality_config['preset'],'fps': settings['fps'],
         'encode_duration_ms': None,'frame_count': len(sequence)
     }
+    def _resolve_path(candidate, folder_path: str | None = None):
+        """Resolve a mapping candidate (str or dict) to an absolute file path if possible.
+
+        - If dict: prefer 'abs_path', else 'path' joined with folder_path when provided.
+        - If str and not absolute: join with folder_path when provided.
+        Returns the best-effort string path (may be non-existing) or None.
+        """
+        try:
+            if not candidate:
+                return None
+            # Dict payload from letter_map
+            if isinstance(candidate, dict):
+                abs_path = candidate.get('abs_path')
+                if isinstance(abs_path, str) and abs_path:
+                    return abs_path
+                rel = candidate.get('path')
+                if isinstance(rel, str) and rel:
+                    if folder_path and not os.path.isabs(rel):
+                        return os.path.normpath(os.path.join(folder_path, rel))
+                    return rel
+                return None
+            # Raw string
+            if isinstance(candidate, str):
+                if folder_path and candidate and not os.path.isabs(candidate):
+                    return os.path.normpath(os.path.join(folder_path, candidate))
+                return candidate
+        except Exception:
+            return None
+
+    def _normalize_sequence_for_export(seq, project):
+        """Return a copy of seq with any dict img/fallback_img fields resolved to strings."""
+        folder_path = (project or {}).get('folder_path')
+        normalized = []
+        for frame in (seq or []):
+            f = dict(frame)  # shallow copy
+            img_val = f.get('img')
+            fb_val = f.get('fallback_img')
+            resolved_img = _resolve_path(img_val, folder_path)
+            resolved_fb = _resolve_path(fb_val, folder_path)
+            # Only assign if resolution happened or value was non-string
+            if not (isinstance(img_val, str)):
+                f['img'] = resolved_img
+            if not (isinstance(fb_val, str)):
+                f['fallback_img'] = resolved_fb
+            normalized.append(f)
+        return normalized
+
     def export_worker():
         try:
             state['export_tasks'][task_id]['status'] = 'processing'
@@ -74,7 +121,9 @@ def export_sequence_video():
                     sse_manager.publish_event(task_id, 'export_progress', {
                         'status': 'error','progress': -1,'message': message or 'Unknown error','error': message or 'Unknown error'
                     })
-            success = export_mp4(seq=sequence, path=export_path, fps=settings['fps'], crf=quality_config['crf'], preset=quality_config['preset'], progress_callback=update_progress)
+            # Normalize sequence to ensure img/fallback_img are string paths (not dicts)
+            safe_sequence = _normalize_sequence_for_export(sequence, state.get('current_project'))
+            success = export_mp4(seq=safe_sequence, path=export_path, fps=settings['fps'], crf=quality_config['crf'], preset=quality_config['preset'], progress_callback=update_progress)
             if success:
                 state['export_tasks'][task_id]['status'] = 'completed'
                 state['export_tasks'][task_id]['progress'] = 100
@@ -123,6 +172,41 @@ def retry_export(task_id):
         'quality_preset': original.get('quality_preset'),'crf': original.get('crf'),'preset': original.get('preset'),'fps': original.get('fps', settings['fps']),
         'encode_duration_ms': None,'frame_count': len(sequence)
     }
+    def _resolve_path(candidate, folder_path: str | None = None):
+        try:
+            if not candidate:
+                return None
+            if isinstance(candidate, dict):
+                abs_path = candidate.get('abs_path')
+                if isinstance(abs_path, str) and abs_path:
+                    return abs_path
+                rel = candidate.get('path')
+                if isinstance(rel, str) and rel:
+                    if folder_path and not os.path.isabs(rel):
+                        return os.path.normpath(os.path.join(folder_path, rel))
+                    return rel
+                return None
+            if isinstance(candidate, str):
+                if folder_path and candidate and not os.path.isabs(candidate):
+                    return os.path.normpath(os.path.join(folder_path, candidate))
+                return candidate
+        except Exception:
+            return None
+
+    def _normalize_sequence_for_export(seq, project):
+        folder_path = (project or {}).get('folder_path')
+        normalized = []
+        for frame in (seq or []):
+            f = dict(frame)
+            img_val = f.get('img')
+            fb_val = f.get('fallback_img')
+            if not isinstance(img_val, str):
+                f['img'] = _resolve_path(img_val, folder_path)
+            if not isinstance(fb_val, str):
+                f['fallback_img'] = _resolve_path(fb_val, folder_path)
+            normalized.append(f)
+        return normalized
+
     def retry_worker():
         try:
             state['export_tasks'][new_task_id]['status'] = 'processing'
@@ -145,7 +229,8 @@ def retry_export(task_id):
             crf = state['export_tasks'][new_task_id].get('crf', 20)
             preset = state['export_tasks'][new_task_id].get('preset', 'medium')
             fps_local = state['export_tasks'][new_task_id].get('fps', settings['fps'])
-            success = export_mp4(seq=sequence, path=original['path'], fps=fps_local, crf=crf, preset=preset, progress_callback=update_progress)
+            safe_sequence = _normalize_sequence_for_export(sequence, state.get('current_project'))
+            success = export_mp4(seq=safe_sequence, path=original['path'], fps=fps_local, crf=crf, preset=preset, progress_callback=update_progress)
             if success:
                 state['export_tasks'][new_task_id]['status'] = 'completed'
                 state['export_tasks'][new_task_id]['progress'] = 100
@@ -192,5 +277,10 @@ def export_progress_stream(task_id):
         finally:
             sse_manager.remove_client(task_id, 'export_progress', client_queue)
     return Response(stream_with_context(event_stream()), mimetype='text/event-stream', headers={'Cache-Control':'no-cache','X-Accel-Buffering':'no','Connection':'keep-alive'})
+
+# Back-compat: some clients may request underscore variant '/api/sse/export_progress/<task_id>'
+@export_bp.route('/api/sse/export_progress/<task_id>', methods=['GET'])
+def export_progress_stream_compat(task_id):  # pragma: no cover - simple alias
+    return export_progress_stream(task_id)
 
 __all__ = ['export_bp']

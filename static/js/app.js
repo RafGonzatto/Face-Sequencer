@@ -468,6 +468,14 @@ class FaceSequencerApp {
   // Folder and Mapping Management
   async scanFolder() {
     try {
+      // Fallback: if state not yet updated (race), pull current input value
+      if (!this.state.project.folder_path) {
+        const inputEl =
+          this.folderPath || document.getElementById("folderPath");
+        if (inputEl && inputEl.value && inputEl.value.trim()) {
+          this.state.project.folder_path = inputEl.value.trim();
+        }
+      }
       if (!this.state.project.folder_path) {
         this.showError("Please select a folder first");
         return;
@@ -480,7 +488,9 @@ class FaceSequencerApp {
         this.showError("Folder path is empty");
         return;
       }
-      const result = await this.apiCall("/folder/scan", "POST", { path: scanPath });
+      const result = await this.apiCall("/folder/scan", "POST", {
+        path: scanPath,
+      });
 
       this.state.mappings = result.mappings;
       this.updateMappingGrid();
@@ -647,7 +657,7 @@ class FaceSequencerApp {
         frameIndex++;
 
         // Get the frame duration - prefer ms property but fall back to duration if needed
-        const frameDuration = result.ms || result.duration || 80; // Default to 80ms if no duration is found
+        const frameDuration = result.ms ?? result.duration ?? 80;
 
         setTimeout(() => {
           if (this.state.playing) {
@@ -1114,7 +1124,26 @@ class FaceSequencerApp {
 
     // Update form fields
     this.textInput.value = this.state.project.text;
-    this.folderPath.value = this.state.project.folder_path;
+    // Race guard: avoid clobbering a user-typed folder path if state not yet populated
+    // Scenario: init() triggers loadProject() (async) then updateUI() runs immediately while
+    // user (or automated test) is typing the folder path. Original code overwrote the input
+    // with an empty string, causing subsequent scanFolder() to early-exit and no thumbnails load.
+    // Fix: Only overwrite if (a) state has a non-empty folder_path OR (b) input currently empty.
+    // Additionally, never overwrite while the input is focused and state folder_path is empty.
+    const currentInputVal = this.folderPath.value;
+    const statePath = this.state.project.folder_path || "";
+    const folderInputFocused = document.activeElement === this.folderPath;
+    if (
+      // Allow overwrite when we actually have a state path
+      (statePath && currentInputVal !== statePath) ||
+      // Or when input is blank (no user data lost)
+      (!currentInputVal && !folderInputFocused)
+    ) {
+      // Do not overwrite if user is actively typing and statePath is still empty
+      if (!(folderInputFocused && !statePath)) {
+        this.folderPath.value = statePath;
+      }
+    }
     this.frameDuration.value = this.state.project.settings.frame_duration;
     this.pauseDuration.value = this.state.project.settings.pause_duration;
     this.fps.value = this.state.project.settings.fps;
@@ -1677,7 +1706,11 @@ class FaceSequencerApp {
     // Update frame editor
     if (index >= 0 && index < this.state.sequence.length) {
       this.frameEditor.style.display = "block";
-      this.selectedFrameDuration.value = this.state.sequence[index].duration;
+      const dur =
+        this.state.sequence[index].ms ??
+        this.state.sequence[index].duration ??
+        0;
+      this.selectedFrameDuration.value = Math.max(0, Number(dur));
     } else {
       this.frameEditor.style.display = "none";
     }
@@ -1709,6 +1742,7 @@ class FaceSequencerApp {
 
   async loadFramePreview(index) {
     try {
+      if (index < 0 || index >= this.state.sequence.length) return;
       const result = await this.apiCall(`/sequence/frame/${index}`);
 
       if (result.is_pause) {
@@ -1717,7 +1751,8 @@ class FaceSequencerApp {
         this.showFrameImage(result.image);
       }
     } catch (error) {
-      console.error("Failed to load frame preview:", error);
+      // Gracefully handle not-found during fast scrubs or missing assets
+      console.warn("Failed to load frame preview:", error?.message || error);
     }
   }
 
@@ -2639,12 +2674,29 @@ Isso vai servir pra rodar nosso projeto.`;
     }
   }
 
-  buildSequenceWithAudio() {
+  async buildSequenceWithAudio() {
     // This method would be called when building a sequence with audio timing
     this.showInfo("Building sequence with audio timing...");
 
     // Get the uploaded audio file ID from state
-    const audioFileId = this.state.audioFileId;
+    let audioFileId = this.state.audioFileId;
+
+    // If user selected a file but hasn't uploaded yet, auto-upload and wait briefly
+    if (!audioFileId && this.audioManager && this.audioManager.audioFile) {
+      try {
+        // Trigger upload (non-blocking API); then poll for state update
+        this.audioManager.uploadAudio();
+        const deadline = Date.now() + 8000; // wait up to 8s for upload to complete
+        while (!this.state.audioFileId && Date.now() < deadline) {
+          // small delay between checks
+          // eslint-disable-next-line no-await-in-loop
+          await new Promise((r) => setTimeout(r, 250));
+        }
+        audioFileId = this.state.audioFileId;
+      } catch (e) {
+        // Fall through to error handling below
+      }
+    }
 
     if (!audioFileId) {
       this.showError(

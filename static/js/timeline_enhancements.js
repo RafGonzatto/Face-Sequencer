@@ -63,25 +63,27 @@ class TimelineEnhancer {
 
     // Restore persisted preferences
     try {
-      const storedZoom = parseFloat(localStorage.getItem('timelineZoom')); if(!isNaN(storedZoom)) this.zoom = storedZoom;
-      const storedSnap = localStorage.getItem('timelineSnap'); if(storedSnap !== null) this.snapEnabled = storedSnap === '1';
-      document.body.classList.toggle('snap-enabled', this.snapEnabled);
-    } catch(_) {}
+      const storedZoom = parseFloat(localStorage.getItem("timelineZoom"));
+      if (!isNaN(storedZoom)) this.zoom = storedZoom;
+      const storedSnap = localStorage.getItem("timelineSnap");
+      if (storedSnap !== null) this.snapEnabled = storedSnap === "1";
+      document.body.classList.toggle("snap-enabled", this.snapEnabled);
+    } catch (_) {}
 
     // Playback line
-    this.playbackLine = document.createElement('div');
-    this.playbackLine.className = 'timeline-playback-line';
+    this.playbackLine = document.createElement("div");
+    this.playbackLine.className = "timeline-playback-line";
     container.appendChild(this.playbackLine);
 
     // Region selection overlay
-    this.regionSelection = document.createElement('div');
-    this.regionSelection.className = 'timeline-region-selection';
+    this.regionSelection = document.createElement("div");
+    this.regionSelection.className = "timeline-region-selection";
     container.appendChild(this.regionSelection);
 
     // Selection toolbar (hidden until selection exists)
-    this.selectionToolbar = document.createElement('div');
-    this.selectionToolbar.className = 'timeline-selection-toolbar';
-    this.selectionToolbar.style.display = 'none';
+    this.selectionToolbar = document.createElement("div");
+    this.selectionToolbar.className = "timeline-selection-toolbar";
+    this.selectionToolbar.style.display = "none";
     this.selectionToolbar.innerHTML = `
       <button data-act="trim" class="danger" title="Trim sequence to selection">Trim</button>
       <button data-act="dup" title="Duplicate selection">Duplicate</button>
@@ -91,19 +93,20 @@ class TimelineEnhancer {
     `;
     container.appendChild(this.selectionToolbar);
 
-    this.selectionToolbar.addEventListener('click', (e)=>{
-      const btn = e.target.closest('button[data-act]'); if(!btn) return;
-      const act = btn.getAttribute('data-act');
+    this.selectionToolbar.addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-act]");
+      if (!btn) return;
+      const act = btn.getAttribute("data-act");
       if (!this.selection) return;
-      if (act === 'trim') this.trimToSelection();
-      else if (act === 'dup') this.duplicateSelection();
-      else if (act === 'export-json') this.exportSelectionJSON();
-      else if (act === 'export-video') this.exportSelectionVideo();
+      if (act === "trim") this.trimToSelection();
+      else if (act === "dup") this.duplicateSelection();
+      else if (act === "export-json") this.exportSelectionJSON();
+      else if (act === "export-video") this.exportSelectionVideo();
     });
 
     // Context menu
-    this.contextMenu = document.createElement('div');
-    this.contextMenu.className = 'timeline-context-menu';
+    this.contextMenu = document.createElement("div");
+    this.contextMenu.className = "timeline-context-menu";
     this.contextMenu.innerHTML = `
       <button data-act="trim">Trim to Selection</button>
       <button data-act="dup">Duplicate Selection</button>
@@ -112,36 +115,69 @@ class TimelineEnhancer {
       <button data-act="clear">Clear Selection</button>
     `;
     document.body.appendChild(this.contextMenu);
-    this.contextMenu.addEventListener('click',(e)=>{ const b=e.target.closest('button[data-act]'); if(!b) return; const a=b.getAttribute('data-act'); this.handleContextAction(a); this.hideContextMenu(); });
-    window.addEventListener('click', ()=> this.hideContextMenu());
-    window.addEventListener('contextmenu', (e)=>{ if(e.target===this.regionSelection || this.regionSelection.contains(e.target)) { e.preventDefault(); this.showContextMenu(e.clientX,e.clientY); }});
+    this.contextMenu.addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-act]");
+      if (!b) return;
+      const a = b.getAttribute("data-act");
+      this.handleContextAction(a);
+      this.hideContextMenu();
+    });
+    window.addEventListener("click", () => this.hideContextMenu());
+    window.addEventListener("contextmenu", (e) => {
+      if (
+        e.target === this.regionSelection ||
+        this.regionSelection.contains(e.target)
+      ) {
+        e.preventDefault();
+        this.showContextMenu(e.clientX, e.clientY);
+      }
+    });
 
     // Keyboard shortcuts for next/prev token
-    window.addEventListener('keydown',(e)=>{
-      if (['INPUT','TEXTAREA'].includes(document.activeElement.tagName)) return;
+    window.addEventListener("keydown", (e) => {
+      if (["INPUT", "TEXTAREA"].includes(document.activeElement.tagName))
+        return;
       if (!this.app.alignmentTokens) return;
-      if (e.key==='[') { this.jumpToken(-1); e.preventDefault(); }
-      else if (e.key===']') { this.jumpToken(1); e.preventDefault(); }
+      if (e.key === "[") {
+        this.jumpToken(-1);
+        e.preventDefault();
+      } else if (e.key === "]") {
+        this.jumpToken(1);
+        e.preventDefault();
+      }
     });
 
     // Region selection interaction (on ruler)
-    let selecting = false; let startX = 0; let startMs = 0;
-  const rulerWrapperEl = container.querySelector('.time-ruler-wrapper');
-  rulerWrapperEl.addEventListener('mousedown', (e) => {
+    let selecting = false;
+    let startX = 0;
+    let startMs = 0;
+    const rulerWrapperEl = container.querySelector(".time-ruler-wrapper");
+    rulerWrapperEl.addEventListener("mousedown", (e) => {
       if (e.button !== 0) return; // left only
-      const total = this.getTotalDurationMs(); if(!total) return;
-  selecting = true; startX = e.clientX; startMs = this.pxToMs(this.getRelativeX(e, rulerWrapperEl));
+      const total = this.getTotalDurationMs();
+      if (!total) return;
+      selecting = true;
+      startX = e.clientX;
+      startMs = this.pxToMs(this.getRelativeX(e, rulerWrapperEl));
       this.selection = { startMs, endMs: startMs };
       this.updateRegionSelection();
       e.preventDefault();
     });
-    window.addEventListener('mousemove', (e) => {
+    window.addEventListener("mousemove", (e) => {
       if (!selecting) return;
-  const currentMs = this.pxToMs(this.getRelativeX(e, rulerWrapperEl));
-      this.selection.endMs = Math.max(0, Math.min(this.getTotalDurationMs(), currentMs));
+      const currentMs = this.pxToMs(this.getRelativeX(e, rulerWrapperEl));
+      this.selection.endMs = Math.max(
+        0,
+        Math.min(this.getTotalDurationMs(), currentMs)
+      );
       this.updateRegionSelection();
     });
-    window.addEventListener('mouseup', () => { if (selecting){ selecting = false; this.normalizeSelection(); } });
+    window.addEventListener("mouseup", () => {
+      if (selecting) {
+        selecting = false;
+        this.normalizeSelection();
+      }
+    });
 
     this.refresh();
   }
@@ -156,7 +192,9 @@ class TimelineEnhancer {
     if (badge) badge.textContent = `${Math.round(this.zoom * 100)}%`;
     this.applyZoom();
     this.renderRuler();
-    try { localStorage.setItem('timelineZoom', this.zoom.toString()); } catch(_) {}
+    try {
+      localStorage.setItem("timelineZoom", this.zoom.toString());
+    } catch (_) {}
     this.updatePlaybackLine();
     this.updateRegionSelection();
   }
@@ -172,7 +210,9 @@ class TimelineEnhancer {
   toggleSnap() {
     this.snapEnabled = !this.snapEnabled;
     document.body.classList.toggle("snap-enabled", this.snapEnabled);
-    try { localStorage.setItem('timelineSnap', this.snapEnabled ? '1':'0'); } catch(_) {}
+    try {
+      localStorage.setItem("timelineSnap", this.snapEnabled ? "1" : "0");
+    } catch (_) {}
   }
 
   getTotalDurationMs() {
@@ -275,39 +315,49 @@ class TimelineEnhancer {
   }
 
   renderTokenMarkers() {
-    const container = document.querySelector('.timeline-container');
+    const container = document.querySelector(".timeline-container");
     if (!container) return;
-    container.querySelectorAll('.timeline-beat-marker, .timeline-token-marker').forEach(e=>e.remove());
-    const total = this.getTotalDurationMs(); if(!total) return;
-    const tokens = this.app.alignmentTokens || this.app.audioManager?.alignmentTokens;
+    container
+      .querySelectorAll(".timeline-beat-marker, .timeline-token-marker")
+      .forEach((e) => e.remove());
+    const total = this.getTotalDurationMs();
+    if (!total) return;
+    const tokens =
+      this.app.alignmentTokens || this.app.audioManager?.alignmentTokens;
     const pxPerMs = this.pxPerMsBase * this.zoom;
     if (Array.isArray(tokens) && tokens.length) {
       // Density management: if zoomed out, skip some phoneme markers
       let phonemeSkip = 0;
-      if (this.zoom < 0.5) phonemeSkip = 3; else if (this.zoom < 0.8) phonemeSkip = 1;
+      if (this.zoom < 0.5) phonemeSkip = 3;
+      else if (this.zoom < 0.8) phonemeSkip = 1;
       let phonemeIndex = 0;
-      tokens.forEach(tok => {
+      tokens.forEach((tok) => {
         const start = tok.start_ms ?? tok.start ?? null;
         if (start == null) return;
-        if (tok.type === 'phoneme' && phonemeSkip && (phonemeIndex++ % (phonemeSkip+1) !== 0)) return;
-        const marker = document.createElement('div');
-        marker.className = `timeline-token-marker ${tok.type || 'token'}`;
+        if (
+          tok.type === "phoneme" &&
+          phonemeSkip &&
+          phonemeIndex++ % (phonemeSkip + 1) !== 0
+        )
+          return;
+        const marker = document.createElement("div");
+        marker.className = `timeline-token-marker ${tok.type || "token"}`;
         marker.style.left = `${start * pxPerMs}px`;
         marker.title = tok.text || tok.type;
         container.appendChild(marker);
-        if (tok.type === 'word') {
-          const label = document.createElement('div');
-            label.className = 'timeline-token-label';
-            label.textContent = tok.text;
-            label.style.left = `${start * pxPerMs}px`;
-            container.appendChild(label);
+        if (tok.type === "word") {
+          const label = document.createElement("div");
+          label.className = "timeline-token-label";
+          label.textContent = tok.text;
+          label.style.left = `${start * pxPerMs}px`;
+          container.appendChild(label);
         }
       });
     } else {
       // fallback pseudo markers every 500ms
-      for (let t=0; t<= total; t+=500) {
-        const marker = document.createElement('div');
-        marker.className = 'timeline-beat-marker';
+      for (let t = 0; t <= total; t += 500) {
+        const marker = document.createElement("div");
+        marker.className = "timeline-beat-marker";
         marker.style.left = `${t * pxPerMs}px`;
         container.appendChild(marker);
       }
@@ -323,14 +373,19 @@ class TimelineEnhancer {
 
   updatePlaybackLine(ms) {
     if (!this.playbackLine) return;
-    const total = this.getTotalDurationMs(); if(!total) { this.playbackLine.style.display='none'; return; }
-    if (typeof ms !== 'number') {
+    const total = this.getTotalDurationMs();
+    if (!total) {
+      this.playbackLine.style.display = "none";
+      return;
+    }
+    if (typeof ms !== "number") {
       // attempt current frame start
-      if (this.app.frameStartTimes) ms = this.app.frameStartTimes[this.app.state.currentFrame] || 0;
+      if (this.app.frameStartTimes)
+        ms = this.app.frameStartTimes[this.app.state.currentFrame] || 0;
       else ms = 0;
     }
     const pxPerMs = this.pxPerMsBase * this.zoom;
-    this.playbackLine.style.display = 'block';
+    this.playbackLine.style.display = "block";
     this.playbackLine.style.left = `${ms * pxPerMs}px`;
   }
 
@@ -339,28 +394,35 @@ class TimelineEnhancer {
     return e.clientX - rect.left;
   }
 
-  pxToMs(px) { return px / (this.pxPerMsBase * this.zoom); }
+  pxToMs(px) {
+    return px / (this.pxPerMsBase * this.zoom);
+  }
 
   normalizeSelection() {
     if (!this.selection) return;
     const { startMs, endMs } = this.selection;
-    if (endMs < startMs) { this.selection = { startMs: endMs, endMs: startMs }; }
+    if (endMs < startMs) {
+      this.selection = { startMs: endMs, endMs: startMs };
+    }
   }
 
   updateRegionSelection() {
-    if (!this.regionSelection || !this.selection) { if (this.regionSelection) this.regionSelection.style.display='none'; return; }
+    if (!this.regionSelection || !this.selection) {
+      if (this.regionSelection) this.regionSelection.style.display = "none";
+      return;
+    }
     const { startMs, endMs } = this.selection;
     const pxPerMs = this.pxPerMsBase * this.zoom;
     const left = Math.min(startMs, endMs) * pxPerMs;
     const width = Math.abs(endMs - startMs) * pxPerMs;
-    this.regionSelection.style.display='block';
+    this.regionSelection.style.display = "block";
     this.regionSelection.style.left = `${left}px`;
     this.regionSelection.style.width = `${width}px`;
     // Position toolbar centered above selection
     if (this.selectionToolbar) {
-      this.selectionToolbar.style.display='flex';
-      this.selectionToolbar.style.left = `${left + width/2}px`;
-      this.selectionToolbar.style.transform = 'translateX(-50%)';
+      this.selectionToolbar.style.display = "flex";
+      this.selectionToolbar.style.left = `${left + width / 2}px`;
+      this.selectionToolbar.style.transform = "translateX(-50%)";
       this.updateSelectionMeta();
     }
   }
@@ -372,23 +434,62 @@ class TimelineEnhancer {
     // Estimate frame count via frameStartTimes
     let frames = 0;
     if (this.app.frameStartTimes) {
-      const sIdx = this.app.getFrameIndexForMs ? this.app.getFrameIndexForMs(startMs) : this.binaryFrameIndex(startMs);
-      const eIdx = this.app.getFrameIndexForMs ? this.app.getFrameIndexForMs(endMs) : this.binaryFrameIndex(endMs);
-      frames = (eIdx - sIdx) + 1;
+      const sIdx = this.app.getFrameIndexForMs
+        ? this.app.getFrameIndexForMs(startMs)
+        : this.binaryFrameIndex(startMs);
+      const eIdx = this.app.getFrameIndexForMs
+        ? this.app.getFrameIndexForMs(endMs)
+        : this.binaryFrameIndex(endMs);
+      frames = eIdx - sIdx + 1;
     }
-    const metaEl = this.selectionToolbar.querySelector('.sel-meta');
+    const metaEl = this.selectionToolbar.querySelector(".sel-meta");
     if (metaEl) metaEl.textContent = `${dur.toFixed(0)}ms / ${frames}f`;
     // Also push to status bar
-    const statusMessage = document.getElementById('statusMessage');
-    if (statusMessage) statusMessage.textContent = `Selection: ${dur.toFixed(0)}ms (${frames} frames)`;
+    const statusMessage = document.getElementById("statusMessage");
+    if (statusMessage)
+      statusMessage.textContent = `Selection: ${dur.toFixed(
+        0
+      )}ms (${frames} frames)`;
   }
 
-  hideContextMenu(){ if (this.contextMenu) this.contextMenu.style.display='none'; }
-  showContextMenu(x,y){ if(!this.selection) return; this.contextMenu.style.display='block'; this.contextMenu.style.left = x+'px'; this.contextMenu.style.top = y+'px'; }
-  handleContextAction(act){ if(!this.selection) return; if (act==='trim') this.trimToSelection(); else if (act==='dup') this.duplicateSelection(); else if (act==='export-json') this.exportSelectionJSON(); else if (act==='export-video') this.exportSelectionVideo(); else if (act==='clear'){ this.selection=null; this.updateRegionSelection(); this.selectionToolbar.style.display='none'; }}
+  hideContextMenu() {
+    if (this.contextMenu) this.contextMenu.style.display = "none";
+  }
+  showContextMenu(x, y) {
+    if (!this.selection) return;
+    this.contextMenu.style.display = "block";
+    this.contextMenu.style.left = x + "px";
+    this.contextMenu.style.top = y + "px";
+  }
+  handleContextAction(act) {
+    if (!this.selection) return;
+    if (act === "trim") this.trimToSelection();
+    else if (act === "dup") this.duplicateSelection();
+    else if (act === "export-json") this.exportSelectionJSON();
+    else if (act === "export-video") this.exportSelectionVideo();
+    else if (act === "clear") {
+      this.selection = null;
+      this.updateRegionSelection();
+      this.selectionToolbar.style.display = "none";
+    }
+  }
 
-  binaryFrameIndex(ms) { // fallback binary search
-    const starts = this.app.frameStartTimes; if(!starts) return 0; let lo=0,hi=starts.length-1,ans=0; while(lo<=hi){ const mid=(lo+hi)>>1; if(starts[mid]<=ms){ans=mid;lo=mid+1;} else hi=mid-1;} return ans; }
+  binaryFrameIndex(ms) {
+    // fallback binary search
+    const starts = this.app.frameStartTimes;
+    if (!starts) return 0;
+    let lo = 0,
+      hi = starts.length - 1,
+      ans = 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (starts[mid] <= ms) {
+        ans = mid;
+        lo = mid + 1;
+      } else hi = mid - 1;
+    }
+    return ans;
+  }
 
   getSelectionFrameRange() {
     if (!this.selection || !this.app.frameStartTimes) return null;
@@ -399,59 +500,115 @@ class TimelineEnhancer {
   }
 
   trimToSelection() {
-    const range = this.getSelectionFrameRange(); if(!range) return;
+    const range = this.getSelectionFrameRange();
+    if (!range) return;
     const { startIdx, endIdx } = range;
-    this.app.state.sequence = this.app.state.sequence.slice(startIdx, endIdx+1);
-    this.selection = null; this.selectionToolbar.style.display='none';
+    this.app.state.sequence = this.app.state.sequence.slice(
+      startIdx,
+      endIdx + 1
+    );
+    this.selection = null;
+    this.selectionToolbar.style.display = "none";
     this.app.updateTimeline();
-    this.app.reportError('Sequence trimmed to selection', { level:'success', autoDismiss:true });
+    this.app.reportError("Sequence trimmed to selection", {
+      level: "success",
+      autoDismiss: true,
+    });
   }
 
   duplicateSelection() {
-    const range = this.getSelectionFrameRange(); if(!range) return;
+    const range = this.getSelectionFrameRange();
+    if (!range) return;
     const { startIdx, endIdx } = range;
-    const segment = this.app.state.sequence.slice(startIdx, endIdx+1).map(f=>({...f}));
+    const segment = this.app.state.sequence
+      .slice(startIdx, endIdx + 1)
+      .map((f) => ({ ...f }));
     // Insert immediately after endIdx
-    this.app.state.sequence.splice(endIdx+1,0,...segment);
+    this.app.state.sequence.splice(endIdx + 1, 0, ...segment);
     this.app.updateTimeline();
-    this.app.reportError('Selection duplicated', { level:'success', autoDismiss:true });
+    this.app.reportError("Selection duplicated", {
+      level: "success",
+      autoDismiss: true,
+    });
   }
 
   exportSelectionJSON() {
-    const range = this.getSelectionFrameRange(); if(!range) return;
+    const range = this.getSelectionFrameRange();
+    if (!range) return;
     const { startIdx, endIdx } = range;
-    const frames = this.app.state.sequence.slice(startIdx, endIdx+1);
+    const frames = this.app.state.sequence.slice(startIdx, endIdx + 1);
     const payload = { selection: { startIdx, endIdx }, frames };
-    const blob = new Blob([JSON.stringify(payload,null,2)], { type:'application/json' });
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json",
+    });
     this.downloadBlob(blob, `selection_${startIdx}-${endIdx}.json`);
-    this.app.reportError('Selection JSON exported', { level:'success', autoDismiss:true });
+    this.app.reportError("Selection JSON exported", {
+      level: "success",
+      autoDismiss: true,
+    });
   }
 
   exportSelectionVideo() {
-    const range = this.getSelectionFrameRange(); if(!range) return;
+    const range = this.getSelectionFrameRange();
+    if (!range) return;
     const { startIdx, endIdx } = range;
     // Simple client-side export request (assuming backend can accept indices)
-    this.app.apiCall('/export/selection', 'POST', { start: startIdx, end: endIdx }).then(()=>{
-      this.app.reportError('Selection video export started', { level:'info', autoDismiss:true });
-    }).catch(err=>{ /* apiCall already reports */ });
+    this.app
+      .apiCall("/export/selection", "POST", { start: startIdx, end: endIdx })
+      .then(() => {
+        this.app.reportError("Selection video export started", {
+          level: "info",
+          autoDismiss: true,
+        });
+      })
+      .catch((err) => {
+        /* apiCall already reports */
+      });
   }
 
   downloadBlob(blob, filename) {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = filename; document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 0);
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      URL.revokeObjectURL(a.href);
+      a.remove();
+    }, 0);
   }
 
   jumpToken(direction) {
-    const tokens = this.app.alignmentTokens || this.app.audioManager?.alignmentTokens; if(!Array.isArray(tokens) || !tokens.length) return;
+    const tokens =
+      this.app.alignmentTokens || this.app.audioManager?.alignmentTokens;
+    if (!Array.isArray(tokens) || !tokens.length) return;
     if (!this.app.frameStartTimes) return;
     // Current ms
-    const currentMs = this.app.frameStartTimes[this.app.state.currentFrame] || 0;
-    const starts = tokens.map(t=> t.start_ms ?? t.start ?? 0).filter(v=> typeof v === 'number').sort((a,b)=>a-b);
+    const currentMs =
+      this.app.frameStartTimes[this.app.state.currentFrame] || 0;
+    const starts = tokens
+      .map((t) => t.start_ms ?? t.start ?? 0)
+      .filter((v) => typeof v === "number")
+      .sort((a, b) => a - b);
     if (!starts.length) return;
     if (direction > 0) {
-      const next = starts.find(s => s > currentMs + 1); if (next!=null) { const idx = this.app.getFrameIndexForMs ? this.app.getFrameIndexForMs(next) : this.binaryFrameIndex(next); this.app.selectFrame(idx); }
+      const next = starts.find((s) => s > currentMs + 1);
+      if (next != null) {
+        const idx = this.app.getFrameIndexForMs
+          ? this.app.getFrameIndexForMs(next)
+          : this.binaryFrameIndex(next);
+        this.app.selectFrame(idx);
+      }
     } else {
-      for (let i=starts.length-1;i>=0;i--) { if (starts[i] < currentMs - 1) { const idx = this.app.getFrameIndexForMs ? this.app.getFrameIndexForMs(starts[i]) : this.binaryFrameIndex(starts[i]); this.app.selectFrame(idx); break; } }
+      for (let i = starts.length - 1; i >= 0; i--) {
+        if (starts[i] < currentMs - 1) {
+          const idx = this.app.getFrameIndexForMs
+            ? this.app.getFrameIndexForMs(starts[i])
+            : this.binaryFrameIndex(starts[i]);
+          this.app.selectFrame(idx);
+          break;
+        }
+      }
     }
   }
 }

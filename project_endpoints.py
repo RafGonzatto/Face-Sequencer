@@ -80,6 +80,32 @@ def get_current_project():
     except Exception as e:  # noqa: BLE001
         return jsonify(error_response(str(e), error_type='unexpected_error', status=400)), 400
 
+@project_bp.route('/api/project', methods=['POST'])
+def update_current_project():
+    """Update the in-memory project (text/name/settings) before sequence build.
+
+    Front-end calls this prior to /api/sequence/build. We allow partial updates; any
+    provided keys overwrite existing state. Settings are shallow-merged.
+    Returns the updated project snapshot.
+    """
+    from flask import current_app
+    try:
+        payload = request.get_json(force=True, silent=True) or {}
+        app_state = _get_state(current_app)
+        project = app_state['current_project']
+
+        if 'text' in payload:
+            project['text'] = payload['text'] or ''
+        if 'name' in payload and payload['name']:
+            project['name'] = str(payload['name'])
+        if 'settings' in payload and isinstance(payload['settings'], dict):
+            # Shallow merge
+            project['settings'].update(payload['settings'])
+
+        return jsonify(success_response('Project updated', project=project))
+    except Exception as e:  # noqa: BLE001
+        return jsonify(error_response(str(e), error_type='unexpected_error', status=400)), 400
+
 @project_bp.route('/api/projects/recent', methods=['GET'])
 def get_recent_projects():
     from flask import current_app

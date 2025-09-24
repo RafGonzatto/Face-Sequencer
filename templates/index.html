@@ -51,7 +51,7 @@
     <!-- Real-time export progress -->
     <script src="{{ url_for('static', filename='js/export_progress.js') }}"></script>
     <script src="{{ url_for('static', filename='js/timeline_enhancements.js') }}"></script>
-  <script src="{{ url_for('static', filename='js/ErrorToast.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/ErrorToast.js') }}"></script>
   </head>
   <body>
     <!-- Accessibility Live Regions -->
@@ -575,28 +575,48 @@
             window.faceSequencerApp = new FaceSequencerApp();
             console.log("Face Sequencer App initialized successfully");
             // Diagnostics panel (error instrumentation) toggle
-            (function(){
-              const panel = document.createElement('div');
-              panel.id = 'diagnosticsPanel';
-              panel.style.cssText = 'position:fixed;bottom:0;right:0;max-width:380px;width:380px;max-height:50vh;background:#111827;color:#e5e7eb;font:12px/1.4 Inter, sans-serif;border:1px solid #374151;border-bottom:0;border-right:0;border-top-left-radius:6px;display:none;flex-direction:column;z-index:6000;';
+            (function () {
+              const panel = document.createElement("div");
+              panel.id = "diagnosticsPanel";
+              panel.style.cssText =
+                "position:fixed;bottom:0;right:0;max-width:380px;width:380px;max-height:50vh;background:#111827;color:#e5e7eb;font:12px/1.4 Inter, sans-serif;border:1px solid #374151;border-bottom:0;border-right:0;border-top-left-radius:6px;display:none;flex-direction:column;z-index:6000;";
               panel.innerHTML = `\n                <div style="display:flex;align-items:center;gap:.5rem;padding:.4rem .6rem;background:#1f2937;border-top-left-radius:6px;">\n                  <strong style="flex:1;font-size:12px;">Diagnostics</strong>\n                  <button id="diagRefreshBtn" style="background:#2563eb;border:none;color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;cursor:pointer;">Refresh</button>\n                  <button id="diagCloseBtn" style="background:#374151;border:none;color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;cursor:pointer;">×</button>\n                </div>\n                <div id="diagContent" style="overflow:auto;padding:.5rem;font-family:monospace;font-size:11px;white-space:pre-wrap;">No events</div>`;
               document.body.appendChild(panel);
-              const toggleBtn = document.createElement('button');
-              toggleBtn.id = 'diagToggleBtn';
-              toggleBtn.textContent = 'Diagnostics';
-              toggleBtn.style.cssText = 'position:fixed;bottom:6px;right:6px;z-index:5999;background:#2563eb;color:#fff;border:none;padding:6px 10px;border-radius:4px;font-size:12px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,0.4);';
+              const toggleBtn = document.createElement("button");
+              toggleBtn.id = "diagToggleBtn";
+              toggleBtn.textContent = "Diagnostics";
+              toggleBtn.style.cssText =
+                "position:fixed;bottom:6px;right:6px;z-index:5999;background:#2563eb;color:#fff;border:none;padding:6px 10px;border-radius:4px;font-size:12px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,0.4);";
               document.body.appendChild(toggleBtn);
-              function renderDiagnostics(){
+              function renderDiagnostics() {
                 try {
                   const data = window.ErrorInstrumentation?.export() || [];
                   const recent = data.slice(-120);
-                  const lines = recent.map(e => `${new Date(e.t).toLocaleTimeString()} | ${e.event} | ${JSON.stringify(e.payload)}`);
-                  document.getElementById('diagContent').textContent = lines.join('\n') || 'No events';
-                } catch(err){ console.warn('Diag render failed', err); }
+                  const lines = recent.map(
+                    (e) =>
+                      `${new Date(e.t).toLocaleTimeString()} | ${
+                        e.event
+                      } | ${JSON.stringify(e.payload)}`
+                  );
+                  document.getElementById("diagContent").textContent =
+                    lines.join("\n") || "No events";
+                } catch (err) {
+                  console.warn("Diag render failed", err);
+                }
               }
-              toggleBtn.addEventListener('click', ()=>{ panel.style.display = panel.style.display==='none'?'flex':'none'; if(panel.style.display==='flex') renderDiagnostics(); });
-              panel.querySelector('#diagCloseBtn').addEventListener('click', ()=>{ panel.style.display='none'; });
-              panel.querySelector('#diagRefreshBtn').addEventListener('click', renderDiagnostics);
+              toggleBtn.addEventListener("click", () => {
+                panel.style.display =
+                  panel.style.display === "none" ? "flex" : "none";
+                if (panel.style.display === "flex") renderDiagnostics();
+              });
+              panel
+                .querySelector("#diagCloseBtn")
+                .addEventListener("click", () => {
+                  panel.style.display = "none";
+                });
+              panel
+                .querySelector("#diagRefreshBtn")
+                .addEventListener("click", renderDiagnostics);
               window.renderDiagnostics = renderDiagnostics;
             })();
           } catch (error) {

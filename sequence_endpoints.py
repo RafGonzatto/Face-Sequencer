@@ -17,13 +17,23 @@ def get_frame_image(frame_id):
     try:
         sequence = _state(current_app)['current_project']['sequence']
         if frame_id < 0 or frame_id >= len(sequence):
-            return jsonify(error_response('Invalid frame ID', error_type='validation_error', status=400)), 400
+            return jsonify(error_response('Frame not found', error_type='not_found', status=404)), 404
         frame = sequence[frame_id]
         if frame.get('img') is None:
             return jsonify(success_response('Pause frame', is_pause=True, char=frame.get('char'), duration=frame.get('ms')))
-        if not valid_img(frame.get('img')):
-            return jsonify(error_response('Invalid image path', error_type='not_found', status=400)), 400
-        with Image.open(frame['img']) as img:
+        # Resolve mapping entries that might be dicts
+        img_ref = frame.get('img')
+        if isinstance(img_ref, dict):
+            img_ref = img_ref.get('abs_path') or img_ref.get('path')
+        if not valid_img(img_ref):
+            # Try fallback_img if present
+            fb = frame.get('fallback_img')
+            if isinstance(fb, dict):
+                fb = fb.get('abs_path') or fb.get('path')
+            if not valid_img(fb):
+                return jsonify(error_response('Image not found', error_type='not_found', status=404)), 404
+            img_ref = fb
+        with Image.open(img_ref) as img:
             if max(img.size) > 800:
                 img.thumbnail((800, 800), Image.Resampling.LANCZOS)
             buffer = io.BytesIO(); img.save(buffer, format='PNG')
@@ -31,7 +41,7 @@ def get_frame_image(frame_id):
             dims = img.size
         return jsonify(success_response('Frame retrieved', is_pause=False, char=frame.get('char'), duration=frame.get('ms'), image=f"data:image/png;base64,{image_data}", dimensions=dims))
     except Exception as e:  # noqa: BLE001
-        return jsonify(error_response(str(e), error_type='unexpected_error', status=400)), 400
+        return jsonify(error_response(str(e), error_type='unexpected_error', status=500)), 500
 
 @sequence_bp.route('/api/sequence/update', methods=['POST'])
 def update_sequence():

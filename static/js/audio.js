@@ -73,7 +73,11 @@ class AudioManager {
     this.wavesurfer.on("audioprocess", () => {
       this.updateCurrentTime();
       // Dynamic playback line sync when audio-driven
-      if (this.isAudioMode && this.app?.timelineEnhancer && this.app?.frameStartTimes) {
+      if (
+        this.isAudioMode &&
+        this.app?.timelineEnhancer &&
+        this.app?.frameStartTimes
+      ) {
         const ms = this.wavesurfer.getCurrentTime() * 1000;
         this.app.timelineEnhancer.updatePlaybackLine(ms);
       }
@@ -158,7 +162,10 @@ class AudioManager {
   uploadAudio() {
     console.log("uploadAudio method called");
     if (!this.audioFile) {
-      this.app?.reportError("Please select an audio file first.", { level: 'warning', autoDismiss: true });
+      this.app?.reportError("Please select an audio file first.", {
+        level: "warning",
+        autoDismiss: true,
+      });
       return;
     }
 
@@ -173,13 +180,24 @@ class AudioManager {
     }
 
     console.log("Sending fetch request to /api/audio/upload");
-    const correlationId = `upl-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,7)}`;
-    window.ErrorInstrumentation?.record('audio.upload.start', { correlationId, filename: this.audioFile.name });
-    fetch("/api/audio/upload", { method: "POST", body: formData, _retryAttempts: 2 })
-      .then(resp => resp.json())
-      .then(data => {
+    const correlationId = `upl-${Date.now().toString(36)}-${Math.random()
+      .toString(36)
+      .slice(2, 7)}`;
+    window.ErrorInstrumentation?.record("audio.upload.start", {
+      correlationId,
+      filename: this.audioFile.name,
+    });
+    fetch("/api/audio/upload", {
+      method: "POST",
+      body: formData,
+      _retryAttempts: 2,
+    })
+      .then((resp) => resp.json())
+      .then((data) => {
         if (data.success) {
-          window.ErrorInstrumentation?.record('audio.upload.success', { correlationId });
+          window.ErrorInstrumentation?.record("audio.upload.success", {
+            correlationId,
+          });
           if (data.alignment && data.alignment.tokens) {
             this.createTimingMarkers(data.alignment.tokens);
             // Expose tokens to app for future timeline phoneme markers
@@ -192,20 +210,37 @@ class AudioManager {
             this.timingModeToggle.checked = true;
             this.toggleTimingMode(true);
           }
-          this.app?.errorToasts?.show('Audio uploaded successfully', { level: 'success', autoDismiss: true, timeout: 3000 });
+          this.app?.errorToasts?.show("Audio uploaded successfully", {
+            level: "success",
+            autoDismiss: true,
+            timeout: 3000,
+          });
         } else {
-          window.ErrorInstrumentation?.record('audio.upload.failure', { correlationId, error: data.error });
-          this.app?.reportError(`Audio upload failed: ${data.error || 'Unknown error'}`, { action: () => this.uploadAudio(), actionLabel: 'Retry Upload' });
+          window.ErrorInstrumentation?.record("audio.upload.failure", {
+            correlationId,
+            error: data.error,
+          });
+          this.app?.reportError(
+            `Audio upload failed: ${data.error || "Unknown error"}`,
+            { action: () => this.uploadAudio(), actionLabel: "Retry Upload" }
+          );
         }
       })
-      .catch(err => {
-        window.ErrorInstrumentation?.record('audio.upload.exception', { correlationId, message: err?.message });
-        this.app?.reportError(`Audio upload error: ${err.message}`, { action: () => this.uploadAudio(), actionLabel: 'Retry Upload' });
+      .catch((err) => {
+        window.ErrorInstrumentation?.record("audio.upload.exception", {
+          correlationId,
+          message: err?.message,
+        });
+        this.app?.reportError(`Audio upload error: ${err.message}`, {
+          action: () => this.uploadAudio(),
+          actionLabel: "Retry Upload",
+        });
       })
       .finally(() => {
         if (this.uploadAudioBtn) {
           this.uploadAudioBtn.disabled = false;
-          this.uploadAudioBtn.innerHTML = '<i class="fas fa-upload"></i> Upload Audio';
+          this.uploadAudioBtn.innerHTML =
+            '<i class="fas fa-upload"></i> Upload Audio';
         }
       });
   }

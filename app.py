@@ -150,6 +150,9 @@ def folder_scan():
     try:
         data = request.get_json(silent=True) or {}
         folder_path = data.get('path') or ''
+        # Expand to absolute if user supplied relative (e.g., 'images')
+        if folder_path and not os.path.isabs(folder_path):
+            folder_path = os.path.abspath(folder_path)
         if not folder_path or not os.path.isdir(folder_path):
             return jsonify(error_response('Invalid or missing folder path', error_type='invalid_input', status=400)), 400
 
@@ -164,9 +167,13 @@ def folder_scan():
         mapping_payload = {}
         for letter in string.ascii_uppercase:
             if letter in letter_map:
+                abs_path = letter_map[letter]
+                # Store relative filename (not duplicating folder) for cleaner JSON; fallback to basename
+                rel_name = os.path.basename(abs_path)
                 mapping_payload[letter] = {
                     'mapped': True,
-                    'path': letter_map[letter]
+                    'path': rel_name,
+                    'abs_path': abs_path  # keep absolute for backend convenience (not required by frontend)
                 }
             else:
                 mapping_payload[letter] = {
@@ -174,12 +181,119 @@ def folder_scan():
                     'path': None
                 }
 
+        # Store mapping in project state so thumbnail endpoint can reuse it
+        app_state['current_project']['letter_map'] = mapping_payload
+
         return jsonify(success_response('Folder scanned',
-                                         mapped_count=mapped_count,
-                                         total_letters=total_letters,
-                                         mappings=mapping_payload))
+                                        mapped_count=mapped_count,
+                                        total_letters=total_letters,
+                                        mappings=mapping_payload))
     except Exception as e:  # noqa: BLE001
         logger.exception('Folder scan failed')
+        return jsonify(error_response(str(e), error_type='unexpected_error', status=500)), 500
+
+# Log presence of folder scan route at import time for debugging
+try:
+    logger.info("/api/folder/scan route registered (app startup)")
+except Exception:
+    pass
+
+# ---------------------------------------------------------------------------
+# Mapping Thumbnails Endpoint - provides small previews for mapped letters
+# ---------------------------------------------------------------------------
+@app.route('/api/mapping/thumbnails', methods=['POST'])
+def mapping_thumbnails():
+    """Return base64 thumbnails for requested mapped letters.
+
+    Expects JSON: { "letters": ["A","B",...], "size": 64(optional) }
+    Uses current project's folder_path + stored mapping paths.
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        letters = data.get('letters') or []
+        max_letters = 52  # safety cap
+        if not isinstance(letters, list):
+            return jsonify(error_response('letters must be a list', error_type='invalid_input', status=400)), 400
+        if len(letters) > max_letters:
+            letters = letters[:max_letters]
+
+        size = int(data.get('size') or 64)
+        size = max(16, min(size, 256))  # clamp
+
+        project = app_state.get('current_project', {})
+        folder_path = project.get('folder_path') or ''
+        # Rebuild mapping quickly from stored mappings if present
+        existing_mappings = project.get('letter_map') or {}
+
+        # Fallback: if letter_map empty but folder exists, rebuild (user may not have built sequence yet)
+        if not existing_mappings and folder_path and os.path.isdir(folder_path):
+            try:
+                existing_mappings = load_letter_map_from_dir(folder_path)
+                project['letter_map'] = existing_mappings
+            except Exception:
+                existing_mappings = {}
+
+        thumbnails = {}
+        generated = 0
+        for letter in letters:
+            path_info = None
+            if isinstance(existing_mappings, dict) and letter in existing_mappings:
+                path_info = existing_mappings[letter]
+            # Support both dict and raw string mapping values
+            if isinstance(path_info, dict):
+                if not path_info.get('mapped'):
+                    continue
+                # Prefer absolute path if stored
+                candidate_path = path_info.get('abs_path') or path_info.get('path')
+            else:
+                candidate_path = path_info
+            if not candidate_path:
+                continue
+
+            original_candidate = candidate_path
+            if not os.path.isabs(candidate_path):
+                if folder_path:
+                    full_path = os.path.normpath(os.path.join(folder_path, candidate_path))
+                else:
+                    full_path = os.path.normpath(candidate_path)
+            else:
+                full_path = os.path.normpath(candidate_path)
+
+            # Fallback heuristic: if file missing and looks like duplicated folder (images/images/...), trim one
+            if not os.path.isfile(full_path) and folder_path:
+                norm_folder = os.path.normpath(folder_path)
+                double_prefix = norm_folder + os.sep + norm_folder + os.sep
+                if full_path.replace('/', os.sep).find(double_prefix) != -1:
+                    simplified = full_path.replace(double_prefix, norm_folder + os.sep, 1)
+                    if os.path.isfile(simplified):
+                        full_path = simplified
+
+            if not os.path.isfile(full_path):
+                logger.debug("Skipping thumbnail for %s (resolved path not found) orig=%s resolved=%s", letter, original_candidate, full_path)
+                continue
+            try:
+                with Image.open(full_path) as img:
+                    img = img.convert('RGBA')
+                    img.thumbnail((size, size))
+                    import io, base64
+                    buf = io.BytesIO()
+                    img.save(buf, format='PNG')
+                    b64 = base64.b64encode(buf.getvalue()).decode('ascii')
+                    thumbnails[letter] = f"data:image/png;base64,{b64}"
+                    generated += 1
+            except Exception as thumb_err:  # noqa: BLE001
+                logger.debug("Thumbnail generation failed for %s: %s", letter, thumb_err)
+                continue
+
+        return jsonify(success_response(
+            'Thumbnails generated',
+            thumbnails=thumbnails,
+            requested=len(letters),
+            generated=generated,
+            size=size
+        ))
+    except Exception as e:  # noqa: BLE001
+        logger.exception('Thumbnail generation failed')
         return jsonify(error_response(str(e), error_type='unexpected_error', status=500)), 500
 
 project_manager = ProjectManager(projects_dir=str(config.paths.projects_folder()))
@@ -215,6 +329,62 @@ app_state = {
 }
 
 app.config['app_state'] = app_state
+
+# ---------------------------------------------------------------------------
+# Manual sequence build endpoint (front-end expectation)
+# ---------------------------------------------------------------------------
+@app.route('/api/sequence/build', methods=['POST'])
+def build_sequence_manual():
+    """Build a manual timing sequence using current project text & settings.
+
+    The front-end invokes POST /api/sequence/build when not in audio-driven mode.
+    We iterate characters in project['text']; spaces become pause frames; other
+    characters map to letter_map entries (dict with abs_path or direct path). Missing
+    mappings fall back to the project's fallback_image.
+    """
+    try:
+        project = app_state['current_project']
+        text = project.get('text', '') or ''
+        settings = project.get('settings', {})
+        letter_map = project.get('letter_map', {})
+        fallback_image = project.get('fallback_image') or None
+        frame_duration = int(settings.get('frame_duration', 80))
+        pause_duration = int(settings.get('pause_duration', 120))
+
+        sequence = []
+        for ch in text:
+            if ch == ' ':
+                sequence.append({'char': ' ', 'img': None, 'ms': pause_duration, 'is_pause': True})
+                continue
+            upper = ch.upper()
+            entry = letter_map.get(upper)
+            img_path = None
+            if isinstance(entry, dict):
+                img_path = entry.get('abs_path') or entry.get('path')
+            elif isinstance(entry, str):
+                img_path = entry
+            if not img_path:
+                # Keep img_path None unless a fallback image exists
+                if fallback_image:
+                    img_path = fallback_image
+            frame = {'char': upper, 'img': img_path, 'ms': frame_duration}
+            if img_path is not None and img_path == fallback_image:
+                # Only mark fallback if an actual fallback image is present
+                frame['fallback_img'] = fallback_image
+                frame['is_symbol_fallback'] = True
+            sequence.append(frame)
+
+        project['sequence'] = sequence
+        project['timing_mode'] = 'manual'
+
+        stats = {
+            'total_frames': len(sequence),
+            'total_duration_ms': sum(f['ms'] for f in sequence),
+            'timing_mode': 'manual'
+        }
+        return jsonify(success_response('Sequence built successfully', sequence=sequence, stats=stats))
+    except Exception as e:  # noqa: BLE001
+        return jsonify(error_response(str(e), error_type='unexpected_error', status=400)), 400
 
 # ---------------------------------------------------------------------------
 # WP006: Request timing instrumentation (simple WSGI timing)
@@ -1471,6 +1641,19 @@ def build_sequence_from_audio():
             # Calculate timing based on alignment tokens
             sequence = []
             
+            # Helper to resolve letter_map entries that may be dicts (abs_path/path) or direct strings
+            def _resolve_img_for_char(ch: str) -> str | None:
+                entry = letter_map.get(ch)
+                img_path = None
+                if isinstance(entry, dict):
+                    img_path = entry.get('abs_path') or entry.get('path')
+                elif isinstance(entry, str):
+                    img_path = entry
+                # If still missing, try project-level fallback
+                if not img_path and fallback_image:
+                    return fallback_image
+                return img_path
+            
             # Process each token to create frame entries
             for token in alignment_tokens:
                 token_type = token.get('type')
@@ -1494,24 +1677,30 @@ def build_sequence_from_audio():
                             # Find the character that corresponds to the viseme
                             char_to_use = next((k for k, v in viseme_to_char.items() if token_viseme == v), 'A')
                             
+                            resolved = _resolve_img_for_char(char_to_use)
                             sequence.append({
                                 'char': char_to_use,
-                                'img': letter_map.get(char_to_use, fallback_image),
+                                'img': resolved,
+                                'fallback_img': fallback_image,
                                 'ms': duration_ms,
                                 'audio_start': start_ms,
                                 'audio_end': end_ms,
-                                'source': 'audio_alignment_viseme'
+                                'source': 'audio_alignment_viseme',
+                                'is_symbol_fallback': (resolved == fallback_image)
                             })
                         else:
                             # If we have neither text nor viseme, add a neutral frame
                             if 'A' in letter_map:
+                                resolved_a = _resolve_img_for_char('A')
                                 sequence.append({
                                     'char': 'A',  # Default to 'A' viseme as fallback
-                                    'img': letter_map.get('A'),
+                                    'img': resolved_a,
+                                    'fallback_img': fallback_image,
                                     'ms': duration_ms,
                                     'audio_start': start_ms,
                                     'audio_end': end_ms,
-                                    'source': 'audio_alignment_fallback'
+                                    'source': 'audio_alignment_fallback',
+                                    'is_symbol_fallback': (resolved_a == fallback_image)
                                 })
                             else:
                                 # No 'A' in letter map, use global fallback
@@ -1533,27 +1722,17 @@ def build_sequence_from_audio():
                                 char_duration = max(40, duration_ms // max(1, len(token_text)))
                                 
                                 # Check if character is in letter map
-                                if char in letter_map:
-                                    sequence.append({
-                                        'char': char,
-                                        'img': letter_map.get(char),
-                                        'ms': char_duration,
-                                        'audio_start': start_ms,
-                                        'audio_end': end_ms,
-                                        'source': 'audio_alignment'
-                                    })
-                                else:
-                                    # Character not in letter map, use fallback
-                                    sequence.append({
-                                        'char': char,
-                                        'img': fallback_image,
-                                        'fallback_img': fallback_image,
-                                        'ms': char_duration,
-                                        'audio_start': start_ms,
-                                        'audio_end': end_ms,
-                                        'source': 'audio_alignment',
-                                        'is_symbol_fallback': True
-                                    })
+                                resolved = _resolve_img_for_char(char)
+                                sequence.append({
+                                    'char': char,
+                                    'img': resolved,
+                                    'fallback_img': fallback_image,
+                                    'ms': char_duration,
+                                    'audio_start': start_ms,
+                                    'audio_end': end_ms,
+                                    'source': 'audio_alignment',
+                                    'is_symbol_fallback': (resolved == fallback_image and resolved is not None)
+                                })
                 
                 elif token_type == 'gap':
                     # Add pause frame with fallback image
