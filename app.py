@@ -1541,6 +1541,13 @@ def util_error_demo() -> Response:
     body = success_response('OK', mode=mode)
     return jsonify(body)
 
+# Ensure Flask route map references this latest implementation (in case of prior decoration earlier in file lifecycle)
+try:  # pragma: no cover - defensive
+    if 'util_error_demo' in app.view_functions:
+        app.view_functions['util_error_demo'] = util_error_demo
+except Exception:
+    pass
+
 @app.route('/api/audio/upload', methods=['POST'])
 def upload_audio():
     """Upload and validate audio file"""
