@@ -8,6 +8,9 @@
       this.defaultTimeout = 6000;
       this.maxVisible = 3;
       this.idCounter = 0;
+      this.lastMessages = new Map(); // message -> timestamp for debounce
+      this.debounceWindowMs = 4000;
+      this.instrumentation = window.ErrorInstrumentation || null;
       this.ensureContainer();
     }
 
@@ -31,6 +34,21 @@
         onDismiss,
         id = `toast-${++this.idCounter}`
       } = options;
+
+      // Debounce duplicate messages
+      const now = Date.now();
+      const last = this.lastMessages.get(message);
+      if (last && (now - last) < this.debounceWindowMs) {
+        // Instead of ignoring entirely, gently pulse existing toast
+        const existing = this.container.querySelector('.error-toast .toast-message')?.closest('.error-toast');
+        if (existing) {
+          existing.classList.remove('pulse-dup');
+          void existing.offsetWidth; // force reflow
+          existing.classList.add('pulse-dup');
+        }
+        return null;
+      }
+      this.lastMessages.set(message, now);
 
       const toastEl = document.createElement('div');
       toastEl.className = `error-toast level-${level}`;
@@ -76,6 +94,9 @@
       this.container.appendChild(toastEl);
       requestAnimationFrame(() => toastEl.classList.add('visible'));
 
+  // Instrumentation hook
+  try { this.instrumentation?.record?.('toast.shown', { id, level, message }); } catch(_) {}
+
       // Trim excess visible toasts
       this.trimVisible();
       return id;
@@ -96,6 +117,7 @@
       if (!el) return;
       el.classList.remove('visible');
       el.addEventListener('transitionend', () => el.remove(), { once: true });
+      try { this.instrumentation?.record?.('toast.dismissed', { id }); } catch(_) {}
       if (onDismiss) try { onDismiss(); } catch(_) {}
     }
 
@@ -145,4 +167,17 @@
   }
 
   global.ErrorToastManager = ErrorToastManager;
+
+  // Basic instrumentation stub (can be replaced by real analytics)
+  if (!global.ErrorInstrumentation) {
+    global.ErrorInstrumentation = {
+      buffer: [],
+      record(event, payload) {
+        this.buffer.push({ event, payload, t: Date.now() });
+        if (this.buffer.length > 200) this.buffer.shift();
+        if (console && console.debug) console.debug('[ErrorInstrumentation]', event, payload);
+      },
+      export() { return [...this.buffer]; }
+    };
+  }
 })(window);

@@ -390,6 +390,7 @@ class FaceSequencerApp {
       headers: {
         "Content-Type": "application/json",
       },
+      _retryAttempts: 2
     };
 
     if (data && method !== "GET") {
@@ -397,18 +398,13 @@ class FaceSequencerApp {
     }
 
     try {
-      // Remove duplicate /api if endpoint already starts with /api
-      const url = endpoint.startsWith("/api") ? endpoint : `/api${endpoint}`;
+      const url = endpoint.startsWith('/api') ? endpoint : `/api${endpoint}`;
       const response = await fetch(url, config);
       const result = await response.json();
-
-      if (!result.success) {
-        throw new Error(result.error || "API call failed");
-      }
-
+      if (!result.success) throw new Error(result.error || 'API call failed');
       return result;
     } catch (error) {
-      this.showError(`API Error: ${error.message}`);
+      this.reportError(`API Error: ${error.message}`, { level: 'error', action: () => this.apiCall(endpoint, method, data), actionLabel: 'Retry' });
       throw error;
     }
   }
@@ -1608,43 +1604,33 @@ class FaceSequencerApp {
   }
 
   updateTimeline() {
-    this.timelineFrames.innerHTML = "";
-
-    this.state.sequence.forEach((frame, index) => {
-      const frameElement = document.createElement("div");
-      frameElement.className = `timeline-frame ${
-        frame.is_pause ? "pause" : ""
-      }`;
-      frameElement.setAttribute("data-frame", index);
-
-      const thumbnail = frame.is_pause
-        ? '<div class="frame-thumbnail pause-frame">⏸</div>'
-        : frame.thumbnail
-        ? `<div class="frame-thumbnail"><img src="${frame.thumbnail}" alt="${frame.char}"></div>`
-        : '<div class="frame-thumbnail"><i class="fas fa-image"></i></div>';
-
-      frameElement.innerHTML = `
-                ${thumbnail}
-                <div class="frame-info">
-                    <div class="frame-char">${
-                      frame.char === " " ? "Space" : frame.char
-                    }</div>
-                    <div class="frame-duration">${
-                      frame.ms || frame.duration
-                    }ms</div>
-                </div>
-                <div class="frame-index">${index + 1}</div>
-            `;
-
-      frameElement.addEventListener("click", () => {
-        this.selectFrame(index);
+    try {
+      this.timelineFrames.innerHTML = "";
+      this.state.sequence.forEach((frame, index) => {
+        const frameElement = document.createElement("div");
+        frameElement.className = `timeline-frame ${frame.is_pause ? "pause" : ""}`;
+        frameElement.setAttribute("data-frame", index);
+        const thumbnail = frame.is_pause
+          ? '<div class="frame-thumbnail pause-frame">⏸</div>'
+          : frame.thumbnail
+            ? `<div class="frame-thumbnail"><img src="${frame.thumbnail}" alt="${frame.char}"></div>`
+            : '<div class="frame-thumbnail"><i class="fas fa-image"></i></div>';
+        frameElement.innerHTML = `
+          ${thumbnail}
+          <div class="frame-info">
+            <div class="frame-char">${frame.char === " " ? "Space" : frame.char}</div>
+            <div class="frame-duration">${frame.ms || frame.duration}ms</div>
+          </div>
+          <div class="frame-index">${index + 1}</div>`;
+        frameElement.addEventListener("click", () => this.selectFrame(index));
+        this.timelineFrames.appendChild(frameElement);
       });
-
-      this.timelineFrames.appendChild(frameElement);
-    });
-    // Notify enhancer
-    if (this.timelineEnhancer) {
-      this.timelineEnhancer.refresh();
+      if (this.timelineEnhancer) this.timelineEnhancer.refresh();
+    } catch (err) {
+      console.error('Timeline render failed', err);
+      this.timelineFrames.innerHTML = `<div class="timeline-error">Timeline failed to render. <button class="btn btn-outline btn-sm" id="retryTimelineBtn">Retry</button></div>`;
+      document.getElementById('retryTimelineBtn')?.addEventListener('click', () => this.updateTimeline());
+      this.reportError('Timeline rendering error', { action: () => this.updateTimeline(), actionLabel: 'Retry Timeline' });
     }
   }
 
