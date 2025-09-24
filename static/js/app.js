@@ -168,17 +168,15 @@ class FaceSequencerApp {
     this.folderInput.addEventListener("change", (e) => {
       if (e.target.files.length > 0) {
         // Get the folder path from the first file
-        const fullPath = e.target.files[0].webkitRelativePath;
-        const folderName = fullPath.split("/")[0];
-
-        console.log("Selected folder:", folderName);
-        console.log("Full path:", fullPath);
-
-        this.folderPath.value = folderName;
-        this.state.project.folder_path = folderName;
+        const fullRelPath = e.target.files[0].webkitRelativePath; // e.g. ImagesSet/A.png
+        const topFolder = fullRelPath.split("/")[0];
+        console.log("Selected folder (top-level):", topFolder);
+        console.log("First file relative path:", fullRelPath);
+        this.folderPath.value = topFolder;
+        this.state.project.folder_path = topFolder; // store logical folder token
 
         // Show success message
-        this.showStatus(`Folder selected: ${folderName}`);
+        this.showStatus(`Folder selected: ${topFolder}`);
       }
     });
 
@@ -476,9 +474,13 @@ class FaceSequencerApp {
       }
 
       this.showStatus("Scanning folder...");
-      const result = await this.apiCall("/folder/scan", "POST", {
-        path: this.state.project.folder_path,
-      });
+      // Allow user to type full absolute path manually; if only a simple name given, backend will treat as relative
+      let scanPath = this.state.project.folder_path.trim();
+      if (!scanPath) {
+        this.showError("Folder path is empty");
+        return;
+      }
+      const result = await this.apiCall("/folder/scan", "POST", { path: scanPath });
 
       this.state.mappings = result.mappings;
       this.updateMappingGrid();
@@ -3096,7 +3098,7 @@ Isso vai servir pra rodar nosso projeto.`;
 
 // Expose class globally so extension scripts (export_progress.js, timeline_enhancements.js, etc.)
 // can safely patch prototype even se executados antes da instância ser criada.
-if (typeof window !== 'undefined' && !window.FaceSequencerApp) {
+if (typeof window !== "undefined" && !window.FaceSequencerApp) {
   window.FaceSequencerApp = FaceSequencerApp;
 }
 
