@@ -1670,6 +1670,17 @@ class FaceSequencerApp {
     if (this.timelineEnhancer) this.timelineEnhancer.updatePlaybackPositionByFrame(index);
   }
 
+  // Map millisecond offset to frame index using frameStartTimes (binary search)
+  getFrameIndexForMs(ms) {
+    if (!this.frameStartTimes) return 0;
+    let lo = 0, hi = this.frameStartTimes.length - 1, ans = 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (this.frameStartTimes[mid] <= ms) { ans = mid; lo = mid + 1; } else { hi = mid - 1; }
+    }
+    return ans;
+  }
+
   async loadFramePreview(index) {
     try {
       const result = await this.apiCall(`/sequence/frame/${index}`);
