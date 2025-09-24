@@ -1569,6 +1569,20 @@ try:  # Rebind endpoint to new impl
 except Exception:
     pass
 
+# Utility: forcefully rebind an existing URL rule to a new view callable
+def _rebind_endpoint(endpoint_name: str, new_callable):  # pragma: no cover - simple helper
+    # Update view_functions mapping
+    if endpoint_name in app.view_functions:
+        app.view_functions[endpoint_name] = new_callable
+    # Ensure any adapter caches are cleared (Werkzeug may cache, flush by touching url_map)
+    try:
+        app.url_map._rules = list(app.url_map._rules)  # no-op touch
+    except Exception:
+        pass
+
+# Rebind again explicitly (belt & suspenders)
+_rebind_endpoint('util_error_demo', _util_error_demo_impl)
+
 @app.route('/api/audio/upload', methods=['POST'])
 def upload_audio():
     """Upload and validate audio file"""
