@@ -261,9 +261,13 @@ def enforce_response_schema(response):
                         data['error'] = data.pop('error_message')
                     else:
                         data['error'] = 'Unknown error'
-                # Re-serialize updated structure
-                from flask import jsonify
-                response = jsonify(data)
+                # Re-serialize updated structure WITHOUT creating a new Response
+                try:
+                    from flask import json as _flask_json
+                    response.set_data(_flask_json.dumps(data))
+                    response.mimetype = 'application/json'
+                except Exception:  # pragma: no cover
+                    pass
     except Exception as hook_err:  # noqa: BLE001
         print(f"Response schema enforcement skipped: {hook_err}")
     return response
