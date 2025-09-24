@@ -1528,136 +1528,7 @@ def health_check():
     )
     return jsonify(health)
 
-from error_handlers import handle_api_errors, ClassifiedAPIError
-from flask import Response
-@app.route('/api/util/error-demo', methods=['GET'])
-def util_error_demo() -> Response:
-    """Demonstration endpoint for unified error handler (WP003).
-    Pass query param ?mode=timeout|missing|value|classified to trigger errors.
-    """
-    # Normalize mode to ensure branch activation even with casing / whitespace
-    raw_mode = request.args.get('mode', 'ok')
-    mode = (raw_mode or 'ok').strip().lower()
-    from flask import jsonify
-    from api_responses import error_response, success_response
-    if mode == 'timeout':
-        body = error_response('Simulated timeout', error_type='timeout_error', status=504)
-        resp = jsonify(body); resp.status_code = 504; return resp
-    if mode == 'missing':
-        body = error_response('Simulated not found', error_type='not_found', status=404)
-        resp = jsonify(body); resp.status_code = 404; return resp
-    if mode == 'value':
-        body = error_response('Simulated validation error', error_type='validation_error', status=400)
-        resp = jsonify(body); resp.status_code = 400; return resp
-    if mode == 'classified':
-        body = error_response('Explicit processing classification', error_type='processing_error', status=422)
-        resp = jsonify(body); resp.status_code = 422; return resp
-    body = success_response('OK', mode=mode)
-    return jsonify(body)
-
-# Ensure Flask route map references this latest implementation (in case of prior decoration earlier in file lifecycle)
-try:  # pragma: no cover - defensive
-    if 'util_error_demo' in app.view_functions:
-        app.view_functions['util_error_demo'] = util_error_demo
-except Exception:
-    pass
-
-# Rebind with a fresh implementation to guarantee error branches yield proper HTTP status codes
-def _util_error_demo_impl():  # pragma: no cover - exercised via tests
-    from flask import jsonify, request as _rq
-    from api_responses import error_response, success_response
-    mode = (_rq.args.get('mode', 'ok') or 'ok').strip().lower()
-    if mode == 'timeout':
-        return jsonify(error_response('Simulated timeout', error_type='timeout_error', status=504)), 504
-    if mode == 'missing':
-        return jsonify(error_response('Simulated not found', error_type='not_found', status=404)), 404
-    if mode == 'value':
-        return jsonify(error_response('Simulated validation error', error_type='validation_error', status=400)), 400
-    if mode == 'classified':
-        return jsonify(error_response('Explicit processing classification', error_type='processing_error', status=422)), 422
-    return jsonify(success_response('OK', mode=mode)), 200
-
-try:  # Rebind endpoint to new impl
-    if 'util_error_demo' in app.view_functions:
-        app.view_functions['util_error_demo'] = _util_error_demo_impl
-except Exception:
-    pass
-
-# Utility: forcefully rebind an existing URL rule to a new view callable
-def _rebind_endpoint(endpoint_name: str, new_callable):  # pragma: no cover - simple helper
-    # Update view_functions mapping
-    if endpoint_name in app.view_functions:
-        app.view_functions[endpoint_name] = new_callable
-    # Ensure any adapter caches are cleared (Werkzeug may cache, flush by touching url_map)
-    try:
-        app.url_map._rules = list(app.url_map._rules)  # no-op touch
-    except Exception:
-        pass
-
-# Rebind again explicitly (belt & suspenders)
-_rebind_endpoint('util_error_demo', _util_error_demo_impl)
-
-# Hard replace utility for stubborn routes where view_functions reassignment isn't reflected.
-def _force_replace_route(rule_path: str, endpoint: str, new_callable):  # pragma: no cover
-    try:
-        # Filter out existing rules with same path
-        new_rules = []
-        removed = False
-        for r in app.url_map._rules:  # type: ignore[attr-defined]
-            if getattr(r, 'rule', None) == rule_path and r.endpoint == endpoint:
-                removed = True
-                continue
-            new_rules.append(r)
-        if removed:
-            app.url_map._rules = new_rules  # type: ignore[attr-defined]
-            # Rebuild endpoint mapping
-            app.url_map._rules_by_endpoint = {}  # type: ignore[attr-defined]
-            for r in new_rules:
-                app.url_map._rules_by_endpoint.setdefault(r.endpoint, []).append(r)  # type: ignore[attr-defined]
-        # (Re)add rule fresh
-        app.add_url_rule(rule_path, endpoint=endpoint, view_func=new_callable, methods=['GET'])
-        app.view_functions[endpoint] = new_callable
-    except Exception as e:
-        try:
-            logger.warning(f"Route force-replace failed for {rule_path}: {e}")
-        except Exception:
-            pass
-
-# Apply force replace for util_error_demo to ensure new implementation active
-_force_replace_route('/api/util/error-demo', 'util_error_demo', _util_error_demo_impl)
-
-# ---------------------------------------------------------------------------
-# New deterministic utility error demo endpoint (v2)
-# Rationale: Original /api/util/error-demo route binding proved resistant to
-# late-stage mutation in tests due to early import-time registration. This v2
-# endpoint provides a stable contract for status code demonstration without
-# depending on decorator wrapping or raising exceptions. The legacy endpoint
-# is retained (deprecated) for backward compatibility.
-# ---------------------------------------------------------------------------
-@app.route('/api/util/error-demo-v2', methods=['GET'])
-def util_error_demo_v2():  # pragma: no cover - exercised via tests
-    from api_responses import error_response, success_response
-    from flask import request as _rq, jsonify as _jsonify
-    mode = (_rq.args.get('mode', 'ok') or 'ok').strip().lower()
-    # Side-effect for test verification: record last mode in environment (lightweight)
-    try:
-        os.environ['UTIL_ERROR_DEMO_V2_LAST_MODE'] = mode
-    except Exception:
-        pass
-    def _err(msg, et, status):
-        body = error_response(msg, error_type=et, status=status)
-        body['lifecycle_stage'] = 'general'
-        resp = _jsonify(body); resp.status_code = status; return resp
-    if mode == 'value':
-        return _err('Simulated validation error', 'validation_error', 400)
-    if mode == 'missing':
-        return _err('Simulated not found', 'not_found', 404)
-    if mode == 'timeout':
-        return _err('Simulated timeout', 'timeout_error', 504)
-    if mode == 'classified':
-        return _err('Explicit processing classification', 'processing_error', 422)
-    ok_body = success_response('OK', mode=mode)
-    return _jsonify(ok_body), 200
+from error_handlers import handle_api_errors, ClassifiedAPIError  # (retain import if used elsewhere below)
 
 @app.route('/api/audio/upload', methods=['POST'])
 def upload_audio():
@@ -2470,6 +2341,17 @@ def model_manager_unload():
         except Exception as e:  # noqa: BLE001
             results[name] = f'error: {e}'
     return jsonify(success_response('Unload attempt completed', results=results, manager=mm.stats()))
+
+# Blueprint registrations (deferred until after core initialization)
+try:  # pragma: no cover - defensive
+    from util_endpoints import util_bp
+    if 'util' not in {bp.name for bp in app.blueprints.values()}:
+        app.register_blueprint(util_bp)
+except Exception as _bp_err:  # noqa: BLE001
+    try:
+        logger.warning("Failed to register util blueprint: %s", _bp_err)
+    except Exception:
+        pass
 
 if __name__ == '__main__':
     app_logger.info("Starting Face Sequencer Pro web server...")
