@@ -1517,30 +1517,27 @@ def health_check():
 from error_handlers import handle_api_errors, ClassifiedAPIError
 from flask import Response
 @app.route('/api/util/error-demo', methods=['GET'])
-@handle_api_errors()
 def util_error_demo() -> Response:
     """Demonstration endpoint for unified error handler (WP003).
     Pass query param ?mode=timeout|missing|value|classified to trigger errors.
     """
     mode = request.args.get('mode', 'ok')
+    from flask import jsonify
+    from api_responses import error_response, success_response
     if mode == 'timeout':
-        from api_responses import error_response
         body = error_response('Simulated timeout', error_type='timeout_error', status=504)
-        return body, 504
+        resp = jsonify(body); resp.status_code = 504; return resp
     if mode == 'missing':
-        from api_responses import error_response
         body = error_response('Simulated not found', error_type='not_found', status=404)
-        return body, 404
+        resp = jsonify(body); resp.status_code = 404; return resp
     if mode == 'value':
-        from api_responses import error_response
         body = error_response('Simulated validation error', error_type='validation_error', status=400)
-        return body, 400
+        resp = jsonify(body); resp.status_code = 400; return resp
     if mode == 'classified':
-        from api_responses import error_response
         body = error_response('Explicit processing classification', error_type='processing_error', status=422)
-        return body, 422
-    from api_responses import success_response
-    return success_response('OK', mode=mode)
+        resp = jsonify(body); resp.status_code = 422; return resp
+    body = success_response('OK', mode=mode)
+    return jsonify(body)
 
 @app.route('/api/audio/upload', methods=['POST'])
 def upload_audio():
