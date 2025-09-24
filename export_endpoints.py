@@ -82,16 +82,16 @@ def export_sequence_video():
                 state['export_tasks'][task_id]['encode_duration_ms'] = (time.perf_counter()-_t0)*1000.0
                 try: record_timing('export_time_ms', (time.perf_counter()-_t0)*1000.0)
                 except Exception: pass
-                sse_manager.publish_event(task_id,'export_progress',{'status':'completed','progress':100,'message':'Export completed successfully','error':None})
+                sse_manager.publish_event(task_id,'export_progress',{'status':'completed','progress':100,'message':'Export completed successfully','error':None,'encode_duration_ms': state['export_tasks'][task_id]['encode_duration_ms']})
             else:
                 if state['export_tasks'][task_id]['status'] != 'error':
                     state['export_tasks'][task_id]['status'] = 'error'
                     state['export_tasks'][task_id]['error'] = 'Export failed'
-                    sse_manager.publish_event(task_id,'export_progress',{'status':'error','progress':100,'message':'Export failed','error':'Export failed'})
+                    sse_manager.publish_event(task_id,'export_progress',{'status':'error','progress':100,'message':'Export failed','error':'Export failed','encode_duration_ms': state['export_tasks'][task_id]['encode_duration_ms']})
         except Exception as e:  # noqa: BLE001
             state['export_tasks'][task_id]['status'] = 'error'
             state['export_tasks'][task_id]['error'] = str(e)
-            sse_manager.publish_event(task_id,'export_progress',{'status':'error','progress':100,'message':f'Export error: {e}','error':str(e)})
+            sse_manager.publish_event(task_id,'export_progress',{'status':'error','progress':100,'message':f'Export error: {e}','error':str(e),'encode_duration_ms': state['export_tasks'][task_id]['encode_duration_ms']})
     threading.Thread(target=export_worker, daemon=False).start()
     return jsonify(success_response('Export started', task_id=task_id))
 
@@ -153,16 +153,16 @@ def retry_export(task_id):
                 state['export_tasks'][new_task_id]['encode_duration_ms'] = (time.perf_counter()-_t0)*1000.0
                 try: record_timing('export_time_ms', (time.perf_counter()-_t0)*1000.0)
                 except Exception: pass
-                sse_manager.publish_event(new_task_id,'export_progress',{'status':'completed','progress':100,'message':'Export retry completed successfully','error':None})
+                sse_manager.publish_event(new_task_id,'export_progress',{'status':'completed','progress':100,'message':'Export retry completed successfully','error':None,'encode_duration_ms': state['export_tasks'][new_task_id]['encode_duration_ms']})
             else:
                 if state['export_tasks'][new_task_id]['status'] != 'error':
                     state['export_tasks'][new_task_id]['status'] = 'error'
                     state['export_tasks'][new_task_id]['error'] = 'Export retry failed'
-                    sse_manager.publish_event(new_task_id,'export_progress',{'status':'error','progress':100,'message':'Export retry failed','error':'Export retry failed'})
+                    sse_manager.publish_event(new_task_id,'export_progress',{'status':'error','progress':100,'message':'Export retry failed','error':'Export retry failed','encode_duration_ms': state['export_tasks'][new_task_id]['encode_duration_ms']})
         except Exception as e:  # noqa: BLE001
             state['export_tasks'][new_task_id]['status'] = 'error'
             state['export_tasks'][new_task_id]['error'] = str(e)
-            sse_manager.publish_event(new_task_id,'export_progress',{'status':'error','progress':100,'message':f'Export retry error: {e}','error':str(e)})
+            sse_manager.publish_event(new_task_id,'export_progress',{'status':'error','progress':100,'message':f'Export retry error: {e}','error':str(e),'encode_duration_ms': state['export_tasks'][new_task_id]['encode_duration_ms']})
     threading.Thread(target=retry_worker, daemon=False).start()
     return jsonify(success_response('Retry started', original_task_id=task_id, new_task_id=new_task_id))
 

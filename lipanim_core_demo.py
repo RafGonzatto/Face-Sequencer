@@ -449,7 +449,13 @@ def export_mp4(seq, path, fps, crf, preset, bg=(0, 0, 0, 0), progress_callback=N
             
         return True
     except Exception as e:
-        print(f"Error exporting video: {str(e)}")
+        # Quiet optional MoviePy dependency warnings unless explicitly requested
+        msg = str(e)
+        if "No module named 'moviepy'" in msg and not os.environ.get('MOVIEPY_VERBOSE',''):
+            # Soft notice for developers if debug flag set later, otherwise suppress
+            pass
+        else:
+            print(f"Error exporting video: {msg}")
         import traceback
         traceback.print_exc()
         
@@ -461,6 +467,6 @@ def export_mp4(seq, path, fps, crf, preset, bg=(0, 0, 0, 0), progress_callback=N
             pass
             
         if progress_callback:
-            progress_callback(-1, f"Error: {str(e)}")
+            progress_callback(-1, f"Error: {msg}")
             
         return False

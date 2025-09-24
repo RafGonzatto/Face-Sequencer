@@ -5,3 +5,14 @@
     summary: List templates
     responses:
       "200": { description: Templates list }
+"/api/templates/{template_name}/apply":
+  post:
+    tags: [templates]
+    summary: Apply template to current project
+    parameters:
+      - in: path
+        name: template_name
+        schema: { type: string }
+        required: true
+    responses:
+      "200": { description: Template applied }

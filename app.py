@@ -465,135 +465,7 @@ def download_export(task_id):
         app.logger.error(error_msg)
         return jsonify(error_response(error_msg, error_type='unexpected_error', status=400)), 400
 
-@app.route('/api/project/save', methods=['POST'])
-def save_project():
-    """Save project to JSON file"""
-    try:
-        data = request.get_json()
-        filename = data.get('filename', 'project.json')
-        
-        project_data = {
-            'name': app_state['current_project']['name'],
-            'folder_path': app_state['current_project']['folder_path'],
-            'fallback_image': app_state['current_project']['fallback_image'],
-            'text': app_state['current_project']['text'],
-            'settings': app_state['current_project']['settings'],
-            'created_at': datetime.now().isoformat(),
-            'version': '1.0'
-        }
-        
-        project_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(filename))
-        
-        with open(project_path, 'w', encoding='utf-8') as f:
-            json.dump(project_data, f, ensure_ascii=False, indent=2)
-        
-        return send_file(project_path, as_attachment=True, download_name=filename)
-    
-    except Exception as e:
-        return jsonify(error_response(str(e), error_type='unexpected_error', status=400)), 400
-
-@app.route('/api/project/load', methods=['POST'])
-def load_project():
-    """Load project from JSON file"""
-    try:
-        if 'file' not in request.files:
-            return jsonify(error_response('No file provided', error_type='upload_error', status=400)), 400
-        
-        file = request.files['file']
-        
-        if file.filename == '':
-            return jsonify(error_response('No file selected', error_type='upload_error', status=400)), 400
-        
-        # Read and parse project file
-        project_data = json.load(file.stream)
-        
-        # Update app state
-        app_state['current_project']['name'] = project_data.get('name', 'Loaded Project')
-        app_state['current_project']['folder_path'] = project_data.get('folder_path', '')
-        app_state['current_project']['fallback_image'] = project_data.get('fallback_image', '')
-        app_state['current_project']['text'] = project_data.get('text', '')
-        app_state['current_project']['settings'].update(project_data.get('settings', {}))
-        
-        # Clear existing sequence and mappings
-        app_state['current_project']['sequence'] = []
-        app_state['current_project']['letter_map'] = {}
-        
-        return jsonify(success_response('Project loaded', project=app_state['current_project']))
-    
-    except Exception as e:
-        return jsonify(error_response(str(e), error_type='unexpected_error', status=400)), 400
-
-@app.route('/api/templates', methods=['GET'])
-def get_templates():
-    """Get available project templates"""
-    try:
-        templates = ProjectTemplates.list_templates()
-        return jsonify(success_response('Templates list', templates=templates))
-    except Exception as e:
-        return jsonify(error_response(str(e), error_type='unexpected_error', status=400)), 400
-
-@app.route('/api/templates/<template_name>/apply', methods=['POST'])
-def apply_template(template_name):
-    """Apply template to current project"""
-    try:
-        # Apply template settings to current project
-        ProjectTemplates.apply_template(template_name, app_state['current_project'])
-        
-        return jsonify(success_response('Template applied', project=app_state['current_project']))
-    except Exception as e:
-        return jsonify(error_response(str(e), error_type='unexpected_error', status=400)), 400
-
-@app.route('/api/projects/recent', methods=['GET'])
-def get_recent_projects():
-    """Get recent projects list"""
-    try:
-        recent_projects = project_manager.get_recent_projects()
-        return jsonify(success_response('Recent projects', projects=recent_projects))
-    except Exception as e:
-        return jsonify(error_response(str(e), error_type='unexpected_error', status=400)), 400
-
-@app.route('/api/projects/<path:project_path>/load', methods=['POST'])
-def load_project_by_path(project_path):
-    """Load project by file path"""
-    try:
-        project_data = project_manager.load_project(project_path)
-        
-        # Update app state
-        app_state['current_project']['name'] = project_data.get('name', 'Loaded Project')
-        app_state['current_project']['folder_path'] = project_data.get('folder_path', '')
-        app_state['current_project']['fallback_image'] = project_data.get('fallback_image', '')
-        app_state['current_project']['text'] = project_data.get('text', '')
-        app_state['current_project']['settings'].update(project_data.get('settings', {}))
-        
-        # Clear existing sequence and mappings
-        app_state['current_project']['sequence'] = []
-        app_state['current_project']['letter_map'] = {}
-        
-        return jsonify(success_response('Project loaded', project=app_state['current_project']))
-    except Exception as e:
-        return jsonify(error_response(str(e), error_type='unexpected_error', status=400)), 400
-
-@app.route('/api/projects/save-managed', methods=['POST'])
-def save_managed_project():
-    """Save project using project manager"""
-    try:
-        data = request.get_json()
-        filename = data.get('filename')
-        
-        project_data = {
-            'name': app_state['current_project']['name'],
-            'folder_path': app_state['current_project']['folder_path'],
-            'fallback_image': app_state['current_project']['fallback_image'],
-            'text': app_state['current_project']['text'],
-            'settings': app_state['current_project']['settings'],
-            'sequence': app_state['current_project']['sequence']
-        }
-        
-        project_path = project_manager.save_project(project_data, filename)
-        
-        return jsonify(success_response('Project saved successfully', project_path=project_path))
-    except Exception as e:
-        return jsonify(error_response(str(e), error_type='unexpected_error', status=400)), 400
+## Project & template endpoints moved to project_endpoints.project_bp and templates_endpoints.templates_bp
 
 # ============================================================================
 # AUDIO ALIGNMENT SYSTEM
@@ -1770,6 +1642,8 @@ try:  # pragma: no cover - defensive
     from model_endpoints import model_bp
     from sequence_endpoints import sequence_bp
     from system_endpoints import system_bp
+    from project_endpoints import project_bp
+    from templates_endpoints import templates_bp
     # Register if not already present
     existing = {bp.name for bp in app.blueprints.values()}
     if 'util' not in existing:
@@ -1784,6 +1658,10 @@ try:  # pragma: no cover - defensive
         app.register_blueprint(sequence_bp)
     if 'system' not in existing:
         app.register_blueprint(system_bp)
+    if 'project' not in existing:
+        app.register_blueprint(project_bp)
+    if 'templates' not in existing:
+        app.register_blueprint(templates_bp)
 except Exception as _bp_err:  # noqa: BLE001
     try:
         logger.warning("Failed to register util blueprint: %s", _bp_err)

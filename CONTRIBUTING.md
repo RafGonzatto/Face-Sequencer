@@ -45,16 +45,16 @@ stable and tests green.
 
 ## Current Blueprints
 
-| Domain    | File                   | Tag       | Purpose                                     |
-|-----------|------------------------|-----------|---------------------------------------------|
-| util      | `util_endpoints.py`    | util      | Diagnostic & error demo endpoints           |
-| audio     | `audio_endpoints.py`   | audio     | Upload, markers (alignment wrappers coming) |
-| export    | `export_endpoints.py`  | export    | Video/JSON export + retry + SSE             |
-| models    | `model_endpoints.py`   | models    | Model lifecycle & dynamic aliasing          |
-| sequence  | `sequence_endpoints.py`| sequence  | Frame CRUD & preview                        |
-| system    | `system_endpoints.py`  | system    | Health & cache stats                        |
-| project   | (in `app.py`)          | project   | Project save/load (to be extracted)         |
-| templates | (in `app.py`)          | templates | Template listing/apply (to be extracted)    |
+| Domain    | File                    | Tag       | Purpose                                     |
+| --------- | ----------------------- | --------- | ------------------------------------------- |
+| util      | `util_endpoints.py`     | util      | Diagnostic & error demo endpoints           |
+| audio     | `audio_endpoints.py`    | audio     | Upload, markers (alignment wrappers coming) |
+| export    | `export_endpoints.py`   | export    | Video/JSON export + retry + SSE             |
+| models    | `model_endpoints.py`    | models    | Model lifecycle & dynamic aliasing          |
+| sequence  | `sequence_endpoints.py` | sequence  | Frame CRUD & preview                        |
+| system    | `system_endpoints.py`   | system    | Health & cache stats                        |
+| project   | (in `app.py`)           | project   | Project save/load (to be extracted)         |
+| templates | (in `app.py`)           | templates | Template listing/apply (to be extracted)    |
 
 When adding a new blueprint, append it here and add an OpenAPI fragment under `openapi/paths/` with a matching `tags: [...]` entry.
 

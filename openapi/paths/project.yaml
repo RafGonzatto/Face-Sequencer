@@ -11,3 +11,26 @@
     summary: Load project from uploaded file
     responses:
       "200": { description: Project loaded }
+"/api/projects/recent":
+  get:
+    tags: [project]
+    summary: List recent managed projects
+    responses:
+      "200": { description: Recent projects list }
+"/api/projects/{project_path}/load":
+  post:
+    tags: [project]
+    summary: Load a managed project by path
+    parameters:
+      - in: path
+        name: project_path
+        schema: { type: string }
+        required: true
+    responses:
+      "200": { description: Project loaded }
+"/api/projects/save-managed":
+  post:
+    tags: [project]
+    summary: Save current project using manager
+    responses:
+      "200": { description: Project saved }
