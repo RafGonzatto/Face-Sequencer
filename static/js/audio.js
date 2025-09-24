@@ -153,7 +153,7 @@ class AudioManager {
   uploadAudio() {
     console.log("uploadAudio method called");
     if (!this.audioFile) {
-      alert("Please select an audio file first.");
+      this.app?.reportError("Please select an audio file first.", { level: 'warning', autoDismiss: true });
       return;
     }
 
@@ -168,56 +168,39 @@ class AudioManager {
     }
 
     console.log("Sending fetch request to /api/audio/upload");
-    // Upload audio file to server
-    fetch("/api/audio/upload", {
-      method: "POST",
-      body: formData,
-    })
-      .then((response) => {
-        console.log("Response received:", response);
-        return response.json();
-      })
-      .then((data) => {
-        console.log("Data received:", data);
+    const correlationId = `upl-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,7)}`;
+    window.ErrorInstrumentation?.record('audio.upload.start', { correlationId, filename: this.audioFile.name });
+    fetch("/api/audio/upload", { method: "POST", body: formData, _retryAttempts: 2 })
+      .then(resp => resp.json())
+      .then(data => {
         if (data.success) {
-          console.log("Audio uploaded successfully:", data);
-
-          // If we have alignment data, display markers
+          window.ErrorInstrumentation?.record('audio.upload.success', { correlationId });
           if (data.alignment && data.alignment.tokens) {
             this.createTimingMarkers(data.alignment.tokens);
+            // Expose tokens to app for future timeline phoneme markers
+            if (this.app) this.app.alignmentTokens = data.alignment.tokens;
           }
-
-          // Store the audio file ID in the main app state if available
-          if (data.audio && data.audio.filename) {
-            if (this.app && this.app.state) {
-              this.app.state.audioFileId = data.audio.filename;
-              console.log("Audio file ID saved:", data.audio.filename);
-            }
+          if (data.audio?.filename && this.app?.state) {
+            this.app.state.audioFileId = data.audio.filename;
           }
-
-          // Enable audio-driven timing mode
           if (this.timingModeToggle) {
             this.timingModeToggle.checked = true;
             this.toggleTimingMode(true);
           }
-
-          // Show success message
-          alert("Audio uploaded and processed successfully!");
+          this.app?.errorToasts?.show('Audio uploaded successfully', { level: 'success', autoDismiss: true, timeout: 3000 });
         } else {
-          console.error("Error uploading audio:", data.error);
-          alert("Error uploading audio: " + data.error);
+          window.ErrorInstrumentation?.record('audio.upload.failure', { correlationId, error: data.error });
+          this.app?.reportError(`Audio upload failed: ${data.error || 'Unknown error'}`, { action: () => this.uploadAudio(), actionLabel: 'Retry Upload' });
         }
       })
-      .catch((error) => {
-        console.error("Error uploading audio:", error);
-        alert("Error uploading audio. Please try again.");
+      .catch(err => {
+        window.ErrorInstrumentation?.record('audio.upload.exception', { correlationId, message: err?.message });
+        this.app?.reportError(`Audio upload error: ${err.message}`, { action: () => this.uploadAudio(), actionLabel: 'Retry Upload' });
       })
       .finally(() => {
-        // Reset button state
         if (this.uploadAudioBtn) {
           this.uploadAudioBtn.disabled = false;
-          this.uploadAudioBtn.innerHTML =
-            '<i class="fas fa-upload"></i> Upload Audio';
+          this.uploadAudioBtn.innerHTML = '<i class="fas fa-upload"></i> Upload Audio';
         }
       });
   }

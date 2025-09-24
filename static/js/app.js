@@ -1862,6 +1862,29 @@ class FaceSequencerApp {
     }
   }
 
+  // Generic FormData upload helper with retry & correlation (returns JSON)
+  async uploadFormData(endpoint, formData, { attempts = 2, onProgress, actionLabel = 'Retry Upload' } = {}) {
+    const correlationId = `fd-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`;
+    window.ErrorInstrumentation?.record('upload.start', { endpoint, correlationId });
+    let lastErr;
+    for (let i=0;i<attempts;i++) {
+      try {
+        const resp = await fetch(endpoint, { method: 'POST', body: formData, _retryAttempts: 1 });
+        const json = await resp.json();
+        if (!json.success) throw new Error(json.error || `Upload failed (${resp.status})`);
+        window.ErrorInstrumentation?.record('upload.success', { endpoint, correlationId, attempt: i+1 });
+        return json;
+      } catch (err) {
+        lastErr = err;
+        window.ErrorInstrumentation?.record('upload.retry', { endpoint, correlationId, attempt: i+1, error: err.message });
+        if (i < attempts - 1) await new Promise(r=>setTimeout(r, 400 * (i+1)));
+      }
+    }
+    this.reportError(`Upload error: ${lastErr.message}`, { action: () => this.uploadFormData(endpoint, formData, { attempts, onProgress, actionLabel }), actionLabel });
+    window.ErrorInstrumentation?.record('upload.failure', { endpoint, correlationId, error: lastErr?.message });
+    throw lastErr;
+  }
+
   hideProgress() {
     this.progressContainer.style.display = "none";
   }
