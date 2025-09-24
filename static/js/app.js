@@ -58,6 +58,10 @@ class FaceSequencerApp {
 
     // Initialize enhanced alignment features
     this.initEnhancedAlignment();
+    // Timeline enhancer (after DOM present)
+    if (window.TimelineEnhancer) {
+      this.timelineEnhancer = new TimelineEnhancer(this);
+    }
   }
 
   initializeElements() {
@@ -279,14 +283,20 @@ class FaceSequencerApp {
     this.bulkImportInput = document.getElementById("bulkImportInput");
     this.showDragHelpBtn = document.getElementById("showDragHelpBtn");
     if (this.bulkImportBtn && this.bulkImportInput) {
-      this.bulkImportBtn.addEventListener("click", () => this.bulkImportInput.click());
+      this.bulkImportBtn.addEventListener("click", () =>
+        this.bulkImportInput.click()
+      );
       this.bulkImportInput.addEventListener("change", (e) => {
         if (e.target.files?.length) {
-          const files = Array.from(e.target.files).filter(f => this.isImageFile(f));
+          const files = Array.from(e.target.files).filter((f) =>
+            this.isImageFile(f)
+          );
           if (files.length) {
             this.processBatchMapping(files).then(() => {
               this.showSuccess(`${files.length} images imported.`);
-              this.announceStatus(`${files.length} images imported successfully.`);
+              this.announceStatus(
+                `${files.length} images imported successfully.`
+              );
             });
           } else {
             this.showError("No supported image files selected");
@@ -298,13 +308,13 @@ class FaceSequencerApp {
     }
     if (this.showDragHelpBtn) {
       this.showDragHelpBtn.addEventListener("click", () => {
-        localStorage.removeItem('dragOnboardingShown');
-        const banner = document.getElementById('dragOnboardingBanner');
+        localStorage.removeItem("dragOnboardingShown");
+        const banner = document.getElementById("dragOnboardingBanner");
         if (banner) {
-          banner.style.display = 'flex';
-          banner.setAttribute('aria-hidden','false');
+          banner.style.display = "flex";
+          banner.setAttribute("aria-hidden", "false");
         }
-        this.showDragHelpBtn.style.display = 'none';
+        this.showDragHelpBtn.style.display = "none";
       });
     }
 
@@ -756,59 +766,63 @@ class FaceSequencerApp {
 
     // Show the modal
     this.exportProgressModal.style.display = "flex";
-    
+
     // Close any existing SSE connections for this task
     if (window.sseClient) {
-      window.sseClient.unsubscribe(this.state.exportTask, 'export_progress');
+      window.sseClient.unsubscribe(this.state.exportTask, "export_progress");
     }
-    
+
     // Handler for SSE updates
     const handleProgressUpdate = (data) => {
       // Update progress bar and message
-      const progressFill = this.exportProgressModal.querySelector(".progress-fill");
-      const progressText = this.exportProgressModal.querySelector(".progress-text");
-      const progressMessage = this.exportProgressModal.querySelector(".progress-message");
-      
+      const progressFill =
+        this.exportProgressModal.querySelector(".progress-fill");
+      const progressText =
+        this.exportProgressModal.querySelector(".progress-text");
+      const progressMessage =
+        this.exportProgressModal.querySelector(".progress-message");
+
       if (progressFill && progressText) {
         const progress = data.progress || 0;
         progressFill.style.width = `${progress}%`;
         progressText.textContent = `${progress}%`;
-        
+
         if (progressMessage && data.message) {
           progressMessage.textContent = data.message;
         }
-        
+
         // Update visual state based on status
-        if (data.status === 'error') {
-          progressFill.classList.add('error');
-          progressMessage.classList.add('error');
+        if (data.status === "error") {
+          progressFill.classList.add("error");
+          progressMessage.classList.add("error");
         } else {
-          progressFill.classList.remove('error');
-          progressMessage.classList.remove('error');
+          progressFill.classList.remove("error");
+          progressMessage.classList.remove("error");
         }
       }
-      
+
       // Handle completed or error states
-      if (data.status === 'completed') {
+      if (data.status === "completed") {
         // Handle completion just like before
         this.handleExportCompletion();
-      } else if (data.status === 'error') {
+      } else if (data.status === "error") {
         // Handle error state
-        this.showError(`Export failed: ${data.error || 'Unknown error'}`);
-        
+        this.showError(`Export failed: ${data.error || "Unknown error"}`);
+
         // Change the cancel button to close
-        const cancelBtn = this.exportProgressModal.querySelector(".cancel-export-btn");
+        const cancelBtn =
+          this.exportProgressModal.querySelector(".cancel-export-btn");
         if (cancelBtn) {
           cancelBtn.textContent = "Close";
         }
       }
     };
-    
+
     // Subscribe to SSE updates for this task
     if (window.sseClient) {
       window.sseClient.subscribe(
         this.state.exportTask,
-        'export_progress',
+        "export_progress",
         handleProgressUpdate
       );
     } else {
@@ -816,7 +830,7 @@ class FaceSequencerApp {
       this.pollExportProgress();
     }
   }
-  
+
   // Fallback method using polling (called if SSE is not available)
   pollExportProgress() {
     const checkProgress = async () => {
@@ -881,14 +895,14 @@ class FaceSequencerApp {
   hideExportProgressModal() {
     if (this.exportProgressModal) {
       this.exportProgressModal.style.display = "none";
-      
+
       // Unsubscribe from SSE updates when hiding the modal
       if (window.sseClient && this.state.exportTask) {
-        window.sseClient.unsubscribe(this.state.exportTask, 'export_progress');
+        window.sseClient.unsubscribe(this.state.exportTask, "export_progress");
       }
     }
   }
-  
+
   handleExportCompletion() {
     // Update modal to show validation
     const progressMessage =
@@ -900,11 +914,11 @@ class FaceSequencerApp {
     // Validate the file before downloading
     this.validateAndDownloadExport();
   }
-  
+
   async validateAndDownloadExport() {
     const progressMessage =
       this.exportProgressModal.querySelector(".progress-message");
-    
+
     try {
       // First verify the export is valid
       const validateResponse = await this.apiCall(
@@ -951,9 +965,10 @@ class FaceSequencerApp {
       }, 1000);
     }
   }
-  
+
   addRetryExportButton() {
-    const actionsDiv = this.exportProgressModal.querySelector(".progress-actions");
+    const actionsDiv =
+      this.exportProgressModal.querySelector(".progress-actions");
     if (actionsDiv && !actionsDiv.querySelector(".retry-export-btn")) {
       const retryBtn = document.createElement("button");
       retryBtn.className = "btn btn-primary retry-export-btn";
@@ -1223,25 +1238,32 @@ class FaceSequencerApp {
 
       const files = e.dataTransfer.files;
       if (files.length > 0) {
-        const imageFiles = Array.from(files).filter(f => this.isImageFile(f));
+        const imageFiles = Array.from(files).filter((f) => this.isImageFile(f));
         if (imageFiles.length === 0) {
-          this.triggerDropError(item, "Unsupported file type. Use JPG, PNG, WEBP, BMP.");
+          this.triggerDropError(
+            item,
+            "Unsupported file type. Use JPG, PNG, WEBP, BMP."
+          );
         } else {
           // First image goes to the explicit letter
-            this.assignImageToLetter(letter, imageFiles[0], item);
+          this.assignImageToLetter(letter, imageFiles[0], item);
           // Remaining images auto-map to next unmapped letters
           if (imageFiles.length > 1) {
             const remaining = imageFiles.slice(1);
             const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
             let startIndex = letters.indexOf(letter) + 1;
-            remaining.forEach(f => {
-              const targetLetter = letters.slice(startIndex).find(L => !this.state.mappings[L]?.mapped);
+            remaining.forEach((f) => {
+              const targetLetter = letters
+                .slice(startIndex)
+                .find((L) => !this.state.mappings[L]?.mapped);
               if (targetLetter) {
                 this.assignImageToLetter(targetLetter, f);
                 startIndex = letters.indexOf(targetLetter) + 1;
               }
             });
-            this.announceStatus(`${imageFiles.length} images mapped starting at ${letter}.`);
+            this.announceStatus(
+              `${imageFiles.length} images mapped starting at ${letter}.`
+            );
           } else {
             this.announceStatus(`Image mapped to letter ${letter}.`);
           }
@@ -1272,14 +1294,15 @@ class FaceSequencerApp {
       try {
         const reader = new FileReader();
         reader.onload = (e) => {
-          const item = targetItem || document.querySelector(`[data-letter="${letter}"]`);
+          const item =
+            targetItem || document.querySelector(`[data-letter="${letter}"]`);
           if (item) {
-            const preview = item.querySelector('.mapping-preview');
+            const preview = item.querySelector(".mapping-preview");
             preview.innerHTML = `<img src="${e.target.result}" alt="${letter}">`;
-            item.classList.add('mapped');
-            item.classList.remove('missing');
-            const statusIcon = item.querySelector('.mapping-status-icon');
-            if (statusIcon) statusIcon.style.display = 'none';
+            item.classList.add("mapped");
+            item.classList.remove("missing");
+            const statusIcon = item.querySelector(".mapping-status-icon");
+            if (statusIcon) statusIcon.style.display = "none";
             this.triggerDropSuccess(item);
           }
           if (!this.state.mappings[letter]) this.state.mappings[letter] = {};
@@ -1343,7 +1366,10 @@ class FaceSequencerApp {
   }
 
   _isFileDrag(e) {
-    return e?.dataTransfer?.types && Array.from(e.dataTransfer.types).includes("Files");
+    return (
+      e?.dataTransfer?.types &&
+      Array.from(e.dataTransfer.types).includes("Files")
+    );
   }
 
   positionDragGhost(e) {
@@ -1370,7 +1396,9 @@ class FaceSequencerApp {
     this._dragCounter = 0;
     this.hideDragGhost();
     // Clean any active highlight still lingering
-    document.querySelectorAll('.mapping-item.drop-zone-active').forEach(el => el.classList.remove('drop-zone-active'));
+    document
+      .querySelectorAll(".mapping-item.drop-zone-active")
+      .forEach((el) => el.classList.remove("drop-zone-active"));
   }
 
   triggerDropSuccess(item) {
@@ -1398,12 +1426,12 @@ class FaceSequencerApp {
     item.classList.remove("drop-success");
     item.classList.add("drop-error");
     // Inline hint
-    if (!item.querySelector('.drop-error-hint')) {
-      const hint = document.createElement('div');
-      hint.className = 'drop-error-hint';
+    if (!item.querySelector(".drop-error-hint")) {
+      const hint = document.createElement("div");
+      hint.className = "drop-error-hint";
       hint.innerHTML = `<i class=\"fas fa-exclamation-triangle\"></i><span>${message}</span>`;
       item.appendChild(hint);
-      setTimeout(()=> hint.remove(), 3600);
+      setTimeout(() => hint.remove(), 3600);
     }
     this.announceAlert(message);
     const cleanup = () => {
@@ -1419,14 +1447,16 @@ class FaceSequencerApp {
     if (startAfterLetter && letters.includes(startAfterLetter)) {
       pointer = letters.indexOf(startAfterLetter) + 1;
     }
-    const imageFiles = files.filter(f => this.isImageFile(f));
+    const imageFiles = files.filter((f) => this.isImageFile(f));
     if (!imageFiles.length) return;
     const total = imageFiles.length;
     this.showStatus(`Starting bulk import of ${total} images...`);
     this.announceStatus(`Bulk import started with ${total} images`);
     let mapped = 0;
     for (const file of imageFiles) {
-      const targetLetter = letters.slice(pointer).find(L => !this.state.mappings[L]?.mapped) || letters.find(L => L);
+      const targetLetter =
+        letters.slice(pointer).find((L) => !this.state.mappings[L]?.mapped) ||
+        letters.find((L) => L);
       if (!targetLetter) break;
       await this.assignImageToLetter(targetLetter, file);
       mapped++;
@@ -1442,72 +1472,85 @@ class FaceSequencerApp {
   /* ---------------- Localization ---------------- */
   initLocalization() {
     this.translations = {
-      "en": {
-        drag_banner_text: "Drag one or multiple image files from your computer and drop them onto the character tiles to map them. The first file goes to the tile you drop on; the rest will auto-fill the next unmapped letters.",
+      en: {
+        drag_banner_text:
+          "Drag one or multiple image files from your computer and drop them onto the character tiles to map them. The first file goes to the tile you drop on; the rest will auto-fill the next unmapped letters.",
         drag_help_btn: "Drag Help",
         bulk_import_btn: "Bulk Import",
         auto_map_btn: "Auto Map",
         clear_all_btn: "Clear All",
-        ui_language_heading: "Interface Language"
+        ui_language_heading: "Interface Language",
       },
       "pt-BR": {
-        drag_banner_text: "Arraste um ou vários arquivos de imagem do seu computador e solte sobre os blocos de caracteres para mapeá-los. O primeiro arquivo vai para o bloco onde você soltar; os demais preencherão automaticamente as próximas letras não mapeadas.",
+        drag_banner_text:
+          "Arraste um ou vários arquivos de imagem do seu computador e solte sobre os blocos de caracteres para mapeá-los. O primeiro arquivo vai para o bloco onde você soltar; os demais preencherão automaticamente as próximas letras não mapeadas.",
         drag_help_btn: "Ajuda de Arrastar",
         bulk_import_btn: "Importar em Lote",
         auto_map_btn: "Mapear Auto",
         clear_all_btn: "Limpar Tudo",
-        ui_language_heading: "Idioma da Interface"
-      }
+        ui_language_heading: "Idioma da Interface",
+      },
     };
-    this.uiLanguageSelect = document.getElementById('uiLanguageSelect');
-    const stored = localStorage.getItem('uiLanguage') || 'en';
+    this.uiLanguageSelect = document.getElementById("uiLanguageSelect");
+    const stored = localStorage.getItem("uiLanguage") || "en";
     if (this.uiLanguageSelect) {
       this.uiLanguageSelect.value = stored;
-      this.uiLanguageSelect.addEventListener('change', () => {
-        localStorage.setItem('uiLanguage', this.uiLanguageSelect.value);
+      this.uiLanguageSelect.addEventListener("change", () => {
+        localStorage.setItem("uiLanguage", this.uiLanguageSelect.value);
         this.applyTranslations();
       });
     }
     this.applyTranslations();
-    if (localStorage.getItem('dragOnboardingShown') === '1' && this.showDragHelpBtn) {
-      this.showDragHelpBtn.style.display = 'inline-flex';
+    if (
+      localStorage.getItem("dragOnboardingShown") === "1" &&
+      this.showDragHelpBtn
+    ) {
+      this.showDragHelpBtn.style.display = "inline-flex";
     }
   }
 
   applyTranslations() {
-    const lang = (this.uiLanguageSelect?.value) || 'en';
-    const dict = this.translations[lang] || this.translations['en'];
-    document.querySelectorAll('[data-i18n-key]').forEach(el => {
-      const key = el.getAttribute('data-i18n-key');
+    const lang = this.uiLanguageSelect?.value || "en";
+    const dict = this.translations[lang] || this.translations["en"];
+    document.querySelectorAll("[data-i18n-key]").forEach((el) => {
+      const key = el.getAttribute("data-i18n-key");
       if (dict[key]) el.textContent = dict[key];
     });
   }
 
   /* ---------------- Accessibility & Onboarding ---------------- */
   initAriaRegions() {
-    this.ariaStatusRegion = document.getElementById('ariaStatusRegion');
-    this.ariaAlertRegion = document.getElementById('ariaAlertRegion');
+    this.ariaStatusRegion = document.getElementById("ariaStatusRegion");
+    this.ariaAlertRegion = document.getElementById("ariaAlertRegion");
   }
-  announceStatus(msg) { if (this.ariaStatusRegion) { this.ariaStatusRegion.textContent = msg; } }
-  announceAlert(msg) { if (this.ariaAlertRegion) { this.ariaAlertRegion.textContent = msg; } }
+  announceStatus(msg) {
+    if (this.ariaStatusRegion) {
+      this.ariaStatusRegion.textContent = msg;
+    }
+  }
+  announceAlert(msg) {
+    if (this.ariaAlertRegion) {
+      this.ariaAlertRegion.textContent = msg;
+    }
+  }
 
   maybeShowDragOnboardingBanner() {
     try {
-      if (localStorage.getItem('dragOnboardingShown') === '1') return;
-      const banner = document.getElementById('dragOnboardingBanner');
+      if (localStorage.getItem("dragOnboardingShown") === "1") return;
+      const banner = document.getElementById("dragOnboardingBanner");
       if (!banner) return;
-      if (banner.style.display === 'none') {
-        banner.style.display = 'flex';
-        banner.setAttribute('aria-hidden','false');
-        setTimeout(()=>{
-          if (banner.getAttribute('aria-hidden') !== 'true') {
-            banner.style.display = 'none';
-            banner.setAttribute('aria-hidden','true');
-            localStorage.setItem('dragOnboardingShown','1');
+      if (banner.style.display === "none") {
+        banner.style.display = "flex";
+        banner.setAttribute("aria-hidden", "false");
+        setTimeout(() => {
+          if (banner.getAttribute("aria-hidden") !== "true") {
+            banner.style.display = "none";
+            banner.setAttribute("aria-hidden", "true");
+            localStorage.setItem("dragOnboardingShown", "1");
           }
         }, 8000);
       }
-    } catch(e) {}
+    } catch (e) {}
   }
 
   isImageFile(file) {
@@ -1599,6 +1642,10 @@ class FaceSequencerApp {
 
       this.timelineFrames.appendChild(frameElement);
     });
+    // Notify enhancer
+    if (this.timelineEnhancer) {
+      this.timelineEnhancer.refresh();
+    }
   }
 
   selectFrame(index) {

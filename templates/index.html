@@ -29,6 +29,10 @@
       href="{{ url_for('static', filename='css/animations.css') }}"
     />
     <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/timeline.css') }}"
+    />
+    <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
@@ -42,17 +46,45 @@
     <script src="{{ url_for('static', filename='js/sse_client.js') }}"></script>
     <!-- Real-time export progress -->
     <script src="{{ url_for('static', filename='js/export_progress.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/timeline_enhancements.js') }}"></script>
   </head>
   <body>
     <!-- Accessibility Live Regions -->
-    <div id="ariaStatusRegion" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
-    <div id="ariaAlertRegion" class="visually-hidden" aria-live="assertive" aria-atomic="true"></div>
+    <div
+      id="ariaStatusRegion"
+      class="visually-hidden"
+      aria-live="polite"
+      aria-atomic="true"
+    ></div>
+    <div
+      id="ariaAlertRegion"
+      class="visually-hidden"
+      aria-live="assertive"
+      aria-atomic="true"
+    ></div>
 
     <!-- Drag & Drop Onboarding Banner -->
-    <div id="dragOnboardingBanner" class="drag-onboarding-banner" role="status" aria-hidden="true" style="display:none;">
+    <div
+      id="dragOnboardingBanner"
+      class="drag-onboarding-banner"
+      role="status"
+      aria-hidden="true"
+      style="display: none"
+    >
       <i class="fas fa-hand-pointer" aria-hidden="true"></i>
-      <span data-i18n-key="drag_banner_text">Drag one or multiple image files from your computer and drop them onto the character tiles to map them. The first file goes to the tile you drop on; the rest will auto-fill the next unmapped letters.</span>
-      <button type="button" class="close-banner" aria-label="Dismiss" onclick="(function(){const b=document.getElementById('dragOnboardingBanner');if(b){b.style.display='none';b.setAttribute('aria-hidden','true'); localStorage.setItem('dragOnboardingShown','1'); const btn=document.getElementById('showDragHelpBtn'); if(btn) btn.style.display='inline-flex';}})()">×</button>
+      <span data-i18n-key="drag_banner_text"
+        >Drag one or multiple image files from your computer and drop them onto
+        the character tiles to map them. The first file goes to the tile you
+        drop on; the rest will auto-fill the next unmapped letters.</span
+      >
+      <button
+        type="button"
+        class="close-banner"
+        aria-label="Dismiss"
+        onclick="(function(){const b=document.getElementById('dragOnboardingBanner');if(b){b.style.display='none';b.setAttribute('aria-hidden','true'); localStorage.setItem('dragOnboardingShown','1'); const btn=document.getElementById('showDragHelpBtn'); if(btn) btn.style.display='inline-flex';}})()"
+      >
+        ×
+      </button>
     </div>
     <div class="app-container">
       <!-- Header -->
@@ -103,7 +135,11 @@
 
           <!-- UI Language Selection -->
           <div class="section">
-            <h3><span data-i18n-key="ui_language_heading">Interface Language</span></h3>
+            <h3>
+              <span data-i18n-key="ui_language_heading"
+                >Interface Language</span
+              >
+            </h3>
             <div class="input-group">
               <select id="uiLanguageSelect" aria-label="Interface Language">
                 <option value="en">English</option>
@@ -319,18 +355,33 @@
             <h2><i class="fas fa-grip"></i> Character Mapping</h2>
             <div class="mapping-controls">
               <button class="btn btn-outline btn-sm" id="autoMapBtn">
-                <i class="fas fa-magic"></i> <span data-i18n-key="auto_map_btn">Auto Map</span>
+                <i class="fas fa-magic"></i>
+                <span data-i18n-key="auto_map_btn">Auto Map</span>
               </button>
               <button class="btn btn-outline btn-sm" id="clearMappingBtn">
-                <i class="fas fa-trash"></i> <span data-i18n-key="clear_all_btn">Clear All</span>
+                <i class="fas fa-trash"></i>
+                <span data-i18n-key="clear_all_btn">Clear All</span>
               </button>
               <button class="btn btn-outline btn-sm" id="bulkImportBtn">
-                <i class="fas fa-images"></i> <span data-i18n-key="bulk_import_btn">Bulk Import</span>
+                <i class="fas fa-images"></i>
+                <span data-i18n-key="bulk_import_btn">Bulk Import</span>
               </button>
-              <button class="btn btn-outline btn-sm" id="showDragHelpBtn" style="display:none;">
-                <i class="fas fa-question-circle"></i> <span data-i18n-key="drag_help_btn">Drag Help</span>
+              <button
+                class="btn btn-outline btn-sm"
+                id="showDragHelpBtn"
+                style="display: none"
+              >
+                <i class="fas fa-question-circle"></i>
+                <span data-i18n-key="drag_help_btn">Drag Help</span>
               </button>
-              <input type="file" id="bulkImportInput" accept="image/*" multiple style="display:none;" aria-hidden="true" />
+              <input
+                type="file"
+                id="bulkImportInput"
+                accept="image/*"
+                multiple
+                style="display: none"
+                aria-hidden="true"
+              />
             </div>
           </div>
 
