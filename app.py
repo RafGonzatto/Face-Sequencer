@@ -1,3 +1,10 @@
+"""Flask Web Server for Face Sequencer Pro.
+
+Test-mode adjustments:
+ - Establish TEST_MODE flag early to bypass heavy audio initialization in tests.
+ - Remove/guard unicode emoji prints that can raise UnicodeEncodeError under cp1252.
+"""
+
 # app.py - Flask Web Server for Face Sequencer Pro
 import os
 import json
@@ -35,6 +42,9 @@ from sse_manager import sse_manager
 from metrics import time_block, record_timing, record_request, snapshot as metrics_snapshot
 import logging
 
+# Early test mode flag (must be before heavy imports)
+TEST_MODE = bool(os.environ.get('PYTEST_CURRENT_TEST') or os.environ.get('UNIT_TEST_MODE') == '1')
+
 # Get the logger
 logger = logging.getLogger(__name__)
 
@@ -55,25 +65,25 @@ _TEST_MODE = bool(os.environ.get('PYTEST_CURRENT_TEST')) or os.environ.get('UNIT
 try:
     from audio_components import audio_factory
     from audio_aligner import AlignmentToken, TokenType
-    if not _TEST_MODE:
-        # Get audio aligner from factory (heavy init)
-        audio_aligner_instance = audio_factory.get_audio_aligner()
+    if not TEST_MODE:
+        try:
+            audio_aligner_instance = audio_factory.get_audio_aligner()
+        except Exception as init_err:  # noqa: BLE001
+            logger.warning("Audio aligner initialization failed: %s", init_err)
+            audio_aligner_instance = None
         AUDIO_ALIGNMENT_AVAILABLE = audio_aligner_instance is not None
-        ENHANCED_ALIGNMENT_AVAILABLE = getattr(audio_aligner_instance, "use_enhanced", False)
+        ENHANCED_ALIGNMENT_AVAILABLE = bool(getattr(audio_aligner_instance, "use_enhanced", False)) if AUDIO_ALIGNMENT_AVAILABLE else False
+        # Use logger (ASCII only) to avoid Unicode issues
         if AUDIO_ALIGNMENT_AVAILABLE:
-            print("✅ Audio alignment available")
-            if ENHANCED_ALIGNMENT_AVAILABLE:
-                print("✅ Enhanced audio alignment components available")
-            else:
-                print("📝 Using basic audio alignment only")
+            logger.info("Audio alignment available (enhanced=%s)", ENHANCED_ALIGNMENT_AVAILABLE)
         else:
-            print("⚠️ Audio alignment not available")
-    else:  # test mode skip heavy init
+            logger.warning("Audio alignment not available")
+    else:  # TEST_MODE: skip heavy init, assume available for contract tests
         audio_aligner_instance = None
-        AUDIO_ALIGNMENT_AVAILABLE = True  # pretend available for contract tests
+        AUDIO_ALIGNMENT_AVAILABLE = True
         ENHANCED_ALIGNMENT_AVAILABLE = False
 except ImportError as e:
-    print(f"Audio alignment not available: {e}")
+    logger.warning("Audio alignment modules not importable: %s", e)
     AUDIO_ALIGNMENT_AVAILABLE = False
     ENHANCED_ALIGNMENT_AVAILABLE = False
 
@@ -1625,6 +1635,11 @@ def util_error_demo_v2():  # pragma: no cover - exercised via tests
     from api_responses import error_response, success_response
     from flask import request as _rq, jsonify as _jsonify
     mode = (_rq.args.get('mode', 'ok') or 'ok').strip().lower()
+    # Side-effect for test verification: record last mode in environment (lightweight)
+    try:
+        os.environ['UTIL_ERROR_DEMO_V2_LAST_MODE'] = mode
+    except Exception:
+        pass
     def _err(msg, et, status):
         body = error_response(msg, error_type=et, status=status)
         body['lifecycle_stage'] = 'general'
