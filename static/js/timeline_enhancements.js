@@ -236,9 +236,14 @@ class TimelineEnhancer {
     const tokens = this.app.alignmentTokens || this.app.audioManager?.alignmentTokens;
     const pxPerMs = this.pxPerMsBase * this.zoom;
     if (Array.isArray(tokens) && tokens.length) {
+      // Density management: if zoomed out, skip some phoneme markers
+      let phonemeSkip = 0;
+      if (this.zoom < 0.5) phonemeSkip = 3; else if (this.zoom < 0.8) phonemeSkip = 1;
+      let phonemeIndex = 0;
       tokens.forEach(tok => {
         const start = tok.start_ms ?? tok.start ?? null;
         if (start == null) return;
+        if (tok.type === 'phoneme' && phonemeSkip && (phonemeIndex++ % (phonemeSkip+1) !== 0)) return;
         const marker = document.createElement('div');
         marker.className = `timeline-token-marker ${tok.type || 'token'}`;
         marker.style.left = `${start * pxPerMs}px`;

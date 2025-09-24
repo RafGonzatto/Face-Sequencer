@@ -1905,50 +1905,70 @@ class FaceSequencerApp {
 
     const updateScrubberPosition = (clientX) => {
       const rect = scrubber.getBoundingClientRect();
-      const percentage = Math.max(
-        0,
-        Math.min(1, (clientX - rect.left) / rect.width)
-      );
-
-      // Calculate frame index based on percentage
+      let percentage = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
       let frameIndex = 0;
-      if (this.state.sequence && this.state.sequence.length > 0) {
-        frameIndex = Math.min(
-          Math.floor(percentage * this.state.sequence.length),
-          this.state.sequence.length - 1
-        );
+      const seqLen = this.state.sequence?.length || 0;
+      if (seqLen > 0) {
+        if (this.timelineEnhancer?.snapEnabled) {
+          // Convert percentage to ms using total duration
+            if (!this.frameStartTimes) this.buildFrameStartTimes?.();
+            const totalMs = (this.frameStartTimes?.[seqLen-1] || 0) + (this.state.sequence[seqLen-1].ms || this.state.sequence[seqLen-1].duration || this.state.project.settings.frame_duration);
+            let ms = percentage * totalMs;
+            // Snap to nearest alignment token boundary if available
+            const snapped = this.getNearestSnapMs(ms);
+            ms = snapped;
+            percentage = totalMs ? (ms / totalMs) : percentage;
+            frameIndex = this.getFrameIndexForMs(ms);
+        } else {
+          frameIndex = Math.min(Math.floor(percentage * seqLen), seqLen - 1);
+        }
       }
-
-      // Update visual scrubber position with smooth animation
       this.scrubberHandle.style.left = `${percentage * 100}%`;
-
-      // Only update frame if different from current
-      if (
-        frameIndex !== this.state.currentFrame &&
-        frameIndex >= 0 &&
-        frameIndex < this.state.sequence.length
-      ) {
+      if (frameIndex !== this.state.currentFrame && frameIndex >=0 && frameIndex < seqLen) {
         this.selectFrame(frameIndex);
-
-        // Add loading indicator to preview
-        this.previewFrame.classList.add("loading");
-
-        // Load the preview image
+        this.previewFrame.classList.add('loading');
         this.loadFramePreview(frameIndex);
-
-        // Update timeline info
         this.updateTimelineInfo(frameIndex);
-
-        // Highlight the current frame in timeline
         this.highlightTimelineFrame(frameIndex);
-
-        // Remove loading state after a short delay
-        setTimeout(() => {
-          this.previewFrame.classList.remove("loading");
-        }, 100);
+        setTimeout(()=> this.previewFrame.classList.remove('loading'), 100);
       }
-
       return frameIndex;
+    };
+
+    // Helper: build frameStartTimes if missing
+    this.buildFrameStartTimes = () => {
+      this.frameStartTimes = [];
+      let c=0;
+      (this.state.sequence||[]).forEach((f,i)=>{ this.frameStartTimes[i]=c; c+= (f.ms||f.duration|| this.state.project.settings.frame_duration); });
+    };
+
+    this.getFrameIndexForMs = (ms) => {
+      if (!this.frameStartTimes) this.buildFrameStartTimes();
+      const starts = this.frameStartTimes;
+      let lo=0, hi=starts.length-1; let ans=0;
+      while (lo<=hi) { const mid=(lo+hi)>>1; if (starts[mid]<=ms){ans=mid; lo=mid+1;} else hi=mid-1; }
+      return ans;
+    };
+
+    this.getNearestSnapMs = (ms) => {
+      const tokens = this.alignmentTokens || this.audioManager?.alignmentTokens || this.app?.alignmentTokens || [];
+      if (Array.isArray(tokens) && tokens.length) {
+        // Collect candidate boundaries (start_ms)
+        let best = ms; let bestDiff = Infinity;
+        // Binary search by assuming tokens sorted by start
+        // Build array of starts lazily
+        if (!this._tokenStartsCache) {
+          this._tokenStartsCache = tokens.map(t => t.start_ms ?? t.start ?? 0).sort((a,b)=>a-b);
+        }
+        const arr = this._tokenStartsCache;
+        // Binary search nearest
+        let lo=0, hi=arr.length-1;
+        while (lo<=hi) { const mid=(lo+hi)>>1; const v=arr[mid]; if (v===ms){best=v; bestDiff=0; break;} if (v<ms){ if (ms-v<bestDiff){best=v; bestDiff=ms-v;} lo=mid+1; } else { if (v-ms<bestDiff){best=v; bestDiff=v-ms;} hi=mid-1; } }
+        return best;
+      }
+      // Fallback numeric snapping
+      const interval = this.timelineEnhancer?.snapIntervalMs || 40;
+      return Math.round(ms / interval) * interval;
     };
 
     scrubber.addEventListener("mousedown", (e) => {

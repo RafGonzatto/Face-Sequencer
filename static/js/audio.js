@@ -72,6 +72,11 @@ class AudioManager {
 
     this.wavesurfer.on("audioprocess", () => {
       this.updateCurrentTime();
+      // Dynamic playback line sync when audio-driven
+      if (this.isAudioMode && this.app?.timelineEnhancer && this.app?.frameStartTimes) {
+        const ms = this.wavesurfer.getCurrentTime() * 1000;
+        this.app.timelineEnhancer.updatePlaybackLine(ms);
+      }
     });
 
     this.wavesurfer.on("seek", () => {
