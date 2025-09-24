@@ -95,6 +95,57 @@
   opacity: 0.9;
 }
 
+/* Playback position line */
+.timeline-playback-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--danger-color, #ef4444);
+  box-shadow: 0 0 4px rgba(239,68,68,0.6);
+  pointer-events: none;
+  z-index: 30;
+}
+
+/* Region selection */
+.timeline-region-selection {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(59,130,246,0.25);
+  border: 1px solid rgba(59,130,246,0.9);
+  pointer-events: none;
+  z-index: 20;
+  display: none;
+  backdrop-filter: brightness(1.1);
+}
+
+/* Token / phoneme markers */
+.timeline-token-marker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--primary-color, #2563eb);
+  opacity: 0.65;
+  z-index: 18;
+}
+.timeline-token-marker.word { background: var(--success-color, #16a34a); width:2px; }
+.timeline-token-marker.phoneme { background: var(--primary-color, #2563eb); }
+.timeline-token-label {
+  position: absolute;
+  top: 2px;
+  transform: translateX(-50%);
+  font-size: 9px;
+  background: rgba(0,0,0,0.55);
+  color: #fff;
+  padding: 1px 3px;
+  border-radius: 3px;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 26;
+}
+
 .frame-thumbnail {
   transition: transform 0.2s ease;
 }

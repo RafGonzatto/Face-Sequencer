@@ -11,6 +11,10 @@ class TimelineEnhancer {
     this.rulerEl = null;
     this.toolbar = null;
     this.beatMarkers = [];
+    this.playbackLine = null;
+    this.regionSelection = null;
+    this.selection = null; // {startMs, endMs}
+    this.pxPerMsBase = 0.12;
     this.init();
   }
 
@@ -57,6 +61,42 @@ class TimelineEnhancer {
     overlay.appendChild(this.waveformCanvas);
     container.appendChild(overlay);
 
+    // Restore persisted preferences
+    try {
+      const storedZoom = parseFloat(localStorage.getItem('timelineZoom')); if(!isNaN(storedZoom)) this.zoom = storedZoom;
+      const storedSnap = localStorage.getItem('timelineSnap'); if(storedSnap !== null) this.snapEnabled = storedSnap === '1';
+      document.body.classList.toggle('snap-enabled', this.snapEnabled);
+    } catch(_) {}
+
+    // Playback line
+    this.playbackLine = document.createElement('div');
+    this.playbackLine.className = 'timeline-playback-line';
+    container.appendChild(this.playbackLine);
+
+    // Region selection overlay
+    this.regionSelection = document.createElement('div');
+    this.regionSelection.className = 'timeline-region-selection';
+    container.appendChild(this.regionSelection);
+
+    // Region selection interaction (on ruler)
+    let selecting = false; let startX = 0; let startMs = 0;
+  const rulerWrapperEl = container.querySelector('.time-ruler-wrapper');
+  rulerWrapperEl.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return; // left only
+      const total = this.getTotalDurationMs(); if(!total) return;
+  selecting = true; startX = e.clientX; startMs = this.pxToMs(this.getRelativeX(e, rulerWrapperEl));
+      this.selection = { startMs, endMs: startMs };
+      this.updateRegionSelection();
+      e.preventDefault();
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (!selecting) return;
+  const currentMs = this.pxToMs(this.getRelativeX(e, rulerWrapperEl));
+      this.selection.endMs = Math.max(0, Math.min(this.getTotalDurationMs(), currentMs));
+      this.updateRegionSelection();
+    });
+    window.addEventListener('mouseup', () => { if (selecting){ selecting = false; this.normalizeSelection(); } });
+
     this.refresh();
   }
 
@@ -70,6 +110,9 @@ class TimelineEnhancer {
     if (badge) badge.textContent = `${Math.round(this.zoom * 100)}%`;
     this.applyZoom();
     this.renderRuler();
+    try { localStorage.setItem('timelineZoom', this.zoom.toString()); } catch(_) {}
+    this.updatePlaybackLine();
+    this.updateRegionSelection();
   }
 
   applyZoom() {
@@ -83,6 +126,7 @@ class TimelineEnhancer {
   toggleSnap() {
     this.snapEnabled = !this.snapEnabled;
     document.body.classList.toggle("snap-enabled", this.snapEnabled);
+    try { localStorage.setItem('timelineSnap', this.snapEnabled ? '1':'0'); } catch(_) {}
   }
 
   getTotalDurationMs() {
@@ -97,7 +141,9 @@ class TimelineEnhancer {
   refresh() {
     this.renderRuler();
     this.drawWaveform();
-    this.renderBeatMarkers();
+    this.renderTokenMarkers();
+    this.updatePlaybackLine();
+    this.updateRegionSelection();
   }
 
   renderRuler() {
@@ -182,23 +228,83 @@ class TimelineEnhancer {
     }
   }
 
-  renderBeatMarkers() {
-    // Placeholder: could use alignment tokens to show phoneme boundaries
-    // For now we derive pseudo-beats every 500ms
-    const container = document.querySelector(".timeline-container");
+  renderTokenMarkers() {
+    const container = document.querySelector('.timeline-container');
     if (!container) return;
-    container
-      .querySelectorAll(".timeline-beat-marker")
-      .forEach((e) => e.remove());
-    const total = this.getTotalDurationMs();
-    if (!total) return;
-    const pxPerMsBase = 0.12 * this.zoom;
-    for (let t = 0; t <= total; t += 500) {
-      const marker = document.createElement("div");
-      marker.className = "timeline-beat-marker";
-      marker.style.left = `${t * pxPerMsBase}px`;
-      container.appendChild(marker);
+    container.querySelectorAll('.timeline-beat-marker, .timeline-token-marker').forEach(e=>e.remove());
+    const total = this.getTotalDurationMs(); if(!total) return;
+    const tokens = this.app.alignmentTokens || this.app.audioManager?.alignmentTokens;
+    const pxPerMs = this.pxPerMsBase * this.zoom;
+    if (Array.isArray(tokens) && tokens.length) {
+      tokens.forEach(tok => {
+        const start = tok.start_ms ?? tok.start ?? null;
+        if (start == null) return;
+        const marker = document.createElement('div');
+        marker.className = `timeline-token-marker ${tok.type || 'token'}`;
+        marker.style.left = `${start * pxPerMs}px`;
+        marker.title = tok.text || tok.type;
+        container.appendChild(marker);
+        if (tok.type === 'word') {
+          const label = document.createElement('div');
+            label.className = 'timeline-token-label';
+            label.textContent = tok.text;
+            label.style.left = `${start * pxPerMs}px`;
+            container.appendChild(label);
+        }
+      });
+    } else {
+      // fallback pseudo markers every 500ms
+      for (let t=0; t<= total; t+=500) {
+        const marker = document.createElement('div');
+        marker.className = 'timeline-beat-marker';
+        marker.style.left = `${t * pxPerMs}px`;
+        container.appendChild(marker);
+      }
     }
+  }
+
+  updatePlaybackPositionByFrame(frameIndex) {
+    // derive ms using cumulative frame durations if available on app
+    if (!this.app.frameStartTimes || frameIndex < 0) return;
+    const ms = this.app.frameStartTimes[frameIndex] || 0;
+    this.updatePlaybackLine(ms);
+  }
+
+  updatePlaybackLine(ms) {
+    if (!this.playbackLine) return;
+    const total = this.getTotalDurationMs(); if(!total) { this.playbackLine.style.display='none'; return; }
+    if (typeof ms !== 'number') {
+      // attempt current frame start
+      if (this.app.frameStartTimes) ms = this.app.frameStartTimes[this.app.state.currentFrame] || 0;
+      else ms = 0;
+    }
+    const pxPerMs = this.pxPerMsBase * this.zoom;
+    this.playbackLine.style.display = 'block';
+    this.playbackLine.style.left = `${ms * pxPerMs}px`;
+  }
+
+  getRelativeX(e, el) {
+    const rect = el.getBoundingClientRect();
+    return e.clientX - rect.left;
+  }
+
+  pxToMs(px) { return px / (this.pxPerMsBase * this.zoom); }
+
+  normalizeSelection() {
+    if (!this.selection) return;
+    const { startMs, endMs } = this.selection;
+    if (endMs < startMs) { this.selection = { startMs: endMs, endMs: startMs }; }
+  }
+
+  updateRegionSelection() {
+    if (!this.regionSelection || !this.selection) { if (this.regionSelection) this.regionSelection.style.display='none'; return; }
+    const { startMs, endMs } = this.selection;
+    const pxPerMs = this.pxPerMsBase * this.zoom;
+    const left = Math.min(startMs, endMs) * pxPerMs;
+    const width = Math.abs(endMs - startMs) * pxPerMs;
+    this.regionSelection.style.display='block';
+    this.regionSelection.style.left = `${left}px`;
+    this.regionSelection.style.width = `${width}px`;
   }
 }
 

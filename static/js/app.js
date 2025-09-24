@@ -1606,6 +1606,9 @@ class FaceSequencerApp {
   updateTimeline() {
     try {
       this.timelineFrames.innerHTML = "";
+      // Precompute frame start times for ms -> frame mapping / playback line
+      this.frameStartTimes = [];
+      let cumulative = 0;
       this.state.sequence.forEach((frame, index) => {
         const frameElement = document.createElement("div");
         frameElement.className = `timeline-frame ${frame.is_pause ? "pause" : ""}`;
@@ -1624,6 +1627,8 @@ class FaceSequencerApp {
           <div class="frame-index">${index + 1}</div>`;
         frameElement.addEventListener("click", () => this.selectFrame(index));
         this.timelineFrames.appendChild(frameElement);
+        this.frameStartTimes[index] = cumulative;
+        cumulative += (frame.ms || frame.duration || this.state.project.settings.frame_duration);
       });
       if (this.timelineEnhancer) this.timelineEnhancer.refresh();
     } catch (err) {
@@ -1661,6 +1666,8 @@ class FaceSequencerApp {
 
     // Load frame preview
     this.loadFramePreview(index);
+    // Update playback line
+    if (this.timelineEnhancer) this.timelineEnhancer.updatePlaybackPositionByFrame(index);
   }
 
   async loadFramePreview(index) {
