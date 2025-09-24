@@ -432,9 +432,9 @@ class FaceSequencerApp {
           this.showSuccess("Project loaded successfully");
         }
       } else {
-          // No GET /api/project endpoint exists; skip silent fetch.
-          // Optionally we could implement a backend endpoint to return current project state.
-          console.warn("No direct /api/project fetch implemented (skipping)");
+        // No GET /api/project endpoint exists; skip silent fetch.
+        // Optionally we could implement a backend endpoint to return current project state.
+        console.warn("No direct /api/project fetch implemented (skipping)");
       }
     } catch (error) {
       this.showError("Failed to load project");
@@ -3092,6 +3092,12 @@ Isso vai servir pra rodar nosso projeto.`;
         }
       });
   }
+}
+
+// Expose class globally so extension scripts (export_progress.js, timeline_enhancements.js, etc.)
+// can safely patch prototype even se executados antes da instância ser criada.
+if (typeof window !== 'undefined' && !window.FaceSequencerApp) {
+  window.FaceSequencerApp = FaceSequencerApp;
 }
 
 // Initialize the application when DOM is loaded
