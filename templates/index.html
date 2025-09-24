@@ -44,6 +44,16 @@
     <script src="{{ url_for('static', filename='js/export_progress.js') }}"></script>
   </head>
   <body>
+    <!-- Accessibility Live Regions -->
+    <div id="ariaStatusRegion" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
+    <div id="ariaAlertRegion" class="visually-hidden" aria-live="assertive" aria-atomic="true"></div>
+
+    <!-- Drag & Drop Onboarding Banner -->
+    <div id="dragOnboardingBanner" class="drag-onboarding-banner" role="status" aria-hidden="true" style="display:none;">
+      <i class="fas fa-hand-pointer"></i>
+      <span>Drag one or multiple image files from your computer and drop them onto the character tiles to map them. The first file goes to the tile you drop on; the rest will auto-fill the next unmapped letters.</span>
+      <button type="button" class="close-banner" aria-label="Dismiss" onclick="(function(){const b=document.getElementById('dragOnboardingBanner');if(b){b.style.display='none';b.setAttribute('aria-hidden','true'); localStorage.setItem('dragOnboardingShown','1');}})()">×</button>
+    </div>
     <div class="app-container">
       <!-- Header -->
       <header class="app-header">

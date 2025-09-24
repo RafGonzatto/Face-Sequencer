@@ -32,6 +32,8 @@ class FaceSequencerApp {
     this._dragFileActive = false;
     this._dragCounter = 0; // helps manage nested dragenter/dragleave
     this.dragGhostEl = null;
+    this.ariaStatusRegion = null;
+    this.ariaAlertRegion = null;
     this.init();
   }
 
@@ -42,6 +44,7 @@ class FaceSequencerApp {
     this.generateMappingGrid();
     this.updateUI();
     this.initDragVisualFeedback();
+  this.initAriaRegions();
 
     // Make sure sequences are in sync
     this.syncSequenceState();
@@ -1185,11 +1188,28 @@ class FaceSequencerApp {
 
       const files = e.dataTransfer.files;
       if (files.length > 0) {
-        const file = files[0];
-        if (this.isImageFile(file)) {
-          this.assignImageToLetter(letter, file, item);
+        const imageFiles = Array.from(files).filter(f => this.isImageFile(f));
+        if (imageFiles.length === 0) {
+          this.triggerDropError(item, "Unsupported file type. Use JPG, PNG, WEBP, BMP.");
         } else {
-          this.triggerDropError(item, "Please drop an image file");
+          // First image goes to the explicit letter
+            this.assignImageToLetter(letter, imageFiles[0], item);
+          // Remaining images auto-map to next unmapped letters
+          if (imageFiles.length > 1) {
+            const remaining = imageFiles.slice(1);
+            const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+            let startIndex = letters.indexOf(letter) + 1;
+            remaining.forEach(f => {
+              const targetLetter = letters.slice(startIndex).find(L => !this.state.mappings[L]?.mapped);
+              if (targetLetter) {
+                this.assignImageToLetter(targetLetter, f);
+                startIndex = letters.indexOf(targetLetter) + 1;
+              }
+            });
+            this.announceStatus(`${imageFiles.length} images mapped starting at ${letter}.`);
+          } else {
+            this.announceStatus(`Image mapped to letter ${letter}.`);
+          }
         }
       }
       this.hideDragGhost();
@@ -1242,8 +1262,10 @@ class FaceSequencerApp {
 
       this.validateMappings();
       this.showSuccess(`Assigned image to letter ${letter}`);
+      this.announceStatus(`Assigned image to letter ${letter}`);
     } catch (error) {
       this.showError(`Failed to assign image: ${error.message}`);
+      this.announceAlert(`Failed to assign image for letter ${letter}`);
     }
   }
 
@@ -1299,6 +1321,7 @@ class FaceSequencerApp {
     if (this.dragGhostEl) {
       this.dragGhostEl.classList.add("visible");
     }
+    this.maybeShowDragOnboardingBanner();
   }
 
   hideDragGhost() {
@@ -1339,11 +1362,47 @@ class FaceSequencerApp {
     if (!item) return;
     item.classList.remove("drop-success");
     item.classList.add("drop-error");
+    // Inline hint
+    if (!item.querySelector('.drop-error-hint')) {
+      const hint = document.createElement('div');
+      hint.className = 'drop-error-hint';
+      hint.innerHTML = `<i class=\"fas fa-exclamation-triangle\"></i><span>${message}</span>`;
+      item.appendChild(hint);
+      setTimeout(()=> hint.remove(), 3600);
+    }
+    this.announceAlert(message);
     const cleanup = () => {
       item.classList.remove("drop-error");
       item.removeEventListener("animationend", cleanup);
     };
     item.addEventListener("animationend", cleanup);
+  }
+
+  /* ---------------- Accessibility & Onboarding ---------------- */
+  initAriaRegions() {
+    this.ariaStatusRegion = document.getElementById('ariaStatusRegion');
+    this.ariaAlertRegion = document.getElementById('ariaAlertRegion');
+  }
+  announceStatus(msg) { if (this.ariaStatusRegion) { this.ariaStatusRegion.textContent = msg; } }
+  announceAlert(msg) { if (this.ariaAlertRegion) { this.ariaAlertRegion.textContent = msg; } }
+
+  maybeShowDragOnboardingBanner() {
+    try {
+      if (localStorage.getItem('dragOnboardingShown') === '1') return;
+      const banner = document.getElementById('dragOnboardingBanner');
+      if (!banner) return;
+      if (banner.style.display === 'none') {
+        banner.style.display = 'flex';
+        banner.setAttribute('aria-hidden','false');
+        setTimeout(()=>{
+          if (banner.getAttribute('aria-hidden') !== 'true') {
+            banner.style.display = 'none';
+            banner.setAttribute('aria-hidden','true');
+            localStorage.setItem('dragOnboardingShown','1');
+          }
+        }, 8000);
+      }
+    } catch(e) {}
   }
 
   isImageFile(file) {
