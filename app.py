@@ -1525,16 +1525,20 @@ def util_error_demo() -> Response:
     mode = request.args.get('mode', 'ok')
     if mode == 'timeout':
         from api_responses import error_response
-        return error_response('Simulated timeout', error_type='timeout_error', status=504)
+        body = error_response('Simulated timeout', error_type='timeout_error', status=504)
+        return body, 504
     if mode == 'missing':
         from api_responses import error_response
-        return error_response('Simulated not found', error_type='not_found', status=404)
+        body = error_response('Simulated not found', error_type='not_found', status=404)
+        return body, 404
     if mode == 'value':
         from api_responses import error_response
-        return error_response('Simulated validation error', error_type='validation_error', status=400)
+        body = error_response('Simulated validation error', error_type='validation_error', status=400)
+        return body, 400
     if mode == 'classified':
         from api_responses import error_response
-        return error_response('Explicit processing classification', error_type='processing_error', status=422)
+        body = error_response('Explicit processing classification', error_type='processing_error', status=422)
+        return body, 422
     from api_responses import success_response
     return success_response('OK', mode=mode)
 
