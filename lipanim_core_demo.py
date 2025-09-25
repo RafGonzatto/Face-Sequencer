@@ -11,16 +11,57 @@ LETTERS = list(string.ascii_uppercase)
 
 def load_letter_map_from_dir(folder):
     """Load letter to image mappings from directory"""
-    m = {}
-    if folder and os.path.isdir(folder):
-        for fn in os.listdir(folder):
-            path = os.path.join(folder, fn)
-            name, ext = os.path.splitext(fn)
-            if ext.lower() not in (".png", ".jpg", ".jpeg", ".webp", ".bmp"):
-                continue
-            for ch in name.upper():
-                if ch in LETTERS:
-                    m[ch] = path
+    # New rules:
+    # - Single-letter files like "A.png" map directly to that letter.
+    # - Group files like "A-E-I.png" map to each listed single-letter token (A, E, I).
+    # - Multi-letter tokens (e.g., "CH" or variants like "Aa") are NOT expanded per character here.
+    #   They will be handled by higher-level logic (digraphs, vowel-initial variants) during sequence build.
+    # - Special files "fallback.png" and "pause.png" are skipped here.
+    m: dict[str, str] = {}
+    if not (folder and os.path.isdir(folder)):
+        return m
+
+    # Track priority so that explicit single-letter files override group assignments
+    priority: dict[str, int] = {}  # lower number = higher priority
+
+    def assign(letter: str, path: str, p: int):
+        if letter not in LETTERS:
+            return
+        prev_p = priority.get(letter, 10_000)
+        if p <= prev_p:
+            m[letter] = path
+            priority[letter] = p
+
+    for fn in os.listdir(folder):
+        path = os.path.join(folder, fn)
+        name, ext = os.path.splitext(fn)
+        if ext.lower() not in (".png", ".jpg", ".jpeg", ".webp", ".bmp"):
+            continue
+        base = name.strip()
+        base_lower = base.lower()
+        # Ignore special placeholders here; they are handled by the app layer
+        if base_lower in ("fallback", "pause"):
+            continue
+
+        # Direct single-letter filename (highest priority)
+        if len(base) == 1 and base.upper() in LETTERS:
+            assign(base.upper(), path, p=0)
+            continue
+
+        # Group tokens separated by '-': map only single-letter tokens
+        if "-" in base:
+            tokens = [t.strip() for t in base.replace(" ", "").split("-") if t.strip()]
+            for t in tokens:
+                tu = t.upper()
+                # Only map true single-letter tokens (A..Z)
+                if len(tu) == 1 and tu in LETTERS:
+                    # Group files have lower priority than direct single-letter files
+                    assign(tu, path, p=5)
+            continue
+
+        # Any other multi-letter names (e.g., "Aa", "CH") are variants/digraphs -> not assigned here
+        # They will be interpreted later during sequence building.
+
     return m
 
 def valid_img(p):
@@ -217,11 +258,13 @@ def export_mp4(seq, path, fps, crf, preset, bg=(0, 0, 0, 0), progress_callback=N
                     img = np.zeros((max_height, max_width, 4), dtype=np.uint8)
                     img[:, :, 0] = 255
                     img[:, :, 2] = 255
+                # We don't need to calculate frame_count anymore
+                # Just return the frame duration for reference but use a fixed frame count of 1
                 frame_duration = frame.get('ms', 100) / 1000.0
                 if frame_duration <= 0:
                     frame_duration = 0.1
-                frame_count = max(1, int(round(frame_duration * fps)))
-                return i, img, frame_count
+                # Always use 1 frame - frame timing will be handled during video assembly
+                return i, img, 1
             except Exception as e:
                 blank = np.zeros((max_height, max_width, 4), dtype=np.uint8)
                 return i, blank, 1
@@ -234,12 +277,11 @@ def export_mp4(seq, path, fps, crf, preset, bg=(0, 0, 0, 0), progress_callback=N
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {executor.submit(_prepare_single, item): item[0] for item in enumerate(seq)}
             for idx, fut in enumerate(as_completed(futures)):
-                i, img, frame_count = fut.result()
+                i, img, _ = fut.result()  # Ignoramos frame_count pois não vamos duplicar frames
                 frame_path = os.path.join(temp_dir, f"frame_{i:05d}.png")
                 Image.fromarray(img).save(frame_path)
                 frame_files.append(frame_path)
-                if frame_count > 1:
-                    frame_files.extend([frame_path] * (frame_count - 1))
+                # Removemos a duplicação de frames - vamos usar as durações originais
                 
                 # More frequent progress updates with more detailed information
                 current_time = time.time()
@@ -298,11 +340,16 @@ def export_mp4(seq, path, fps, crf, preset, bg=(0, 0, 0, 0), progress_callback=N
             # Report progress with more detailed information
             if progress_callback:
                 total_frames = len(frame_files)
-                estimated_duration = total_frames / fps
-                progress_callback(
-                    48, 
-                    f"Starting video encoding with FFmpeg: {total_frames} frames at {fps} FPS (~{estimated_duration:.1f}s)"
-                )
+                # Compute duration from sequence ms if provided
+                total_ms = 0
+                try:
+                    for fr in seq:
+                        total_ms += max(1, int(fr.get('ms') or fr.get('duration') or 0))
+                except Exception:
+                    total_ms = int((total_frames / fps) * 1000)
+                video_duration = total_ms / 1000.0 if total_ms else (total_frames / fps)
+                print(f"📊 Total frames: {total_frames}, Aggregated duration: {video_duration:.2f}s (reported fps={fps})")
+                progress_callback(48, f"Starting video encoding: {total_frames} frames, {video_duration:.2f}s")
             
             # Ensure the directory exists
             os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
@@ -312,19 +359,21 @@ def export_mp4(seq, path, fps, crf, preset, bg=(0, 0, 0, 0), progress_callback=N
             import tempfile
             import subprocess
             
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
                 image_list_path = f.name
-                # Use a fixed duration for each frame based on FPS
-                frame_duration = 1.0 / fps
-                
-                for frame_path in frame_files:
-                    # Normalize Windows paths for FFmpeg
+                # Use per-frame durations from seq (ms) with concat demuxer
+                # FFmpeg rule: duration line applies to previously listed file (except last which repeats)
+                for i, frame_path in enumerate(frame_files):
                     normalized_path = frame_path.replace('\\', '/')
-                    # Write the frame and its duration
                     f.write(f"file '{normalized_path}'\n")
-                    f.write(f"duration {frame_duration}\n")
-                
-                # The last frame doesn't need a duration
+                    if i < len(frame_files):
+                        # Map index i to seq[i] duration
+                        try:
+                            fr_ms = max(1, int(seq[i].get('ms') or seq[i].get('duration') or 0))
+                        except Exception:
+                            fr_ms = int(1000 / fps)
+                        f.write(f"duration {fr_ms/1000.0}\n")
+                # Duplicate last file without duration for concat correctness
                 if frame_files:
                     normalized_path = frame_files[-1].replace('\\', '/')
                     f.write(f"file '{normalized_path}'\n")

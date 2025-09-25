@@ -92,6 +92,11 @@ class FaceSequencerApp {
     );
     this.targetFpsContainer = document.getElementById("targetFpsContainer");
 
+    // Audio text-driven toggle
+    this.audioTextDrivenToggle = document.getElementById(
+      "audioTextDrivenToggle"
+    );
+
     // Fallback elements
     this.fallbackPreview = document.getElementById("fallbackPreview");
     this.chooseFallbackBtn = document.getElementById("chooseFallbackBtn");
@@ -188,6 +193,16 @@ class FaceSequencerApp {
     this.scanFolderBtn.addEventListener("click", () => {
       this.scanFolder();
     });
+
+    if (this.audioTextDrivenToggle) {
+      this.audioTextDrivenToggle.addEventListener("change", () => {
+        this.state.project.audio_text_driven =
+          this.audioTextDrivenToggle.checked;
+      });
+      // default ON
+      this.audioTextDrivenToggle.checked = true;
+      this.state.project.audio_text_driven = true;
+    }
 
     // Settings events
     this.frameDuration.addEventListener("change", () => {
@@ -492,7 +507,33 @@ class FaceSequencerApp {
         path: scanPath,
       });
 
+      // Persist mappings
       this.state.mappings = result.mappings;
+
+      // Capture fallback/space images discovered on the backend
+      if (result.fallback_image_abs || result.fallback_image) {
+        this.state.project.fallback_image =
+          result.fallback_image_abs || result.fallback_image;
+        if (result.fallback_thumb && this.fallbackPreview) {
+          this.fallbackPreview.innerHTML = `<img src="${result.fallback_thumb}" alt="Fallback">`;
+          this.fallbackPreview.classList.add("has-image");
+        }
+      }
+
+      if (result.space_image_abs || result.space_image) {
+        const spacePath = result.space_image_abs || result.space_image;
+        this.state.project.space_image = spacePath;
+        // Use the provided thumbnail for the space tile preview
+        if (result.space_thumb) {
+          this.state.project.letter_map[" "] = result.space_thumb;
+        }
+      } else {
+        // Clear space mapping if none found
+        delete this.state.project.letter_map[" "];
+        this.state.project.space_image = null;
+      }
+
+      // Update grid and thumbnails after enhancing state
       this.updateMappingGrid();
       this.loadMappingThumbnails();
       this.validateMappings();
@@ -2736,6 +2777,9 @@ Isso vai servir pra rodar nosso projeto.`;
           audio_filename: audioFileId,
           text: this.state.project.text,
           alignment_tokens: alignmentResult.alignment.tokens,
+          text_driven: this.audioTextDrivenToggle
+            ? !!this.audioTextDrivenToggle.checked
+            : true,
         };
 
         console.log("Sending request data:", requestData);

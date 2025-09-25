@@ -9,16 +9,41 @@ LETTERS = list(string.ascii_uppercase)
 
 def load_letter_map_from_dir(folder):
     """Load letter to image mappings from directory"""
-    m = {}
-    if folder and os.path.isdir(folder):
-        for fn in os.listdir(folder):
-            path = os.path.join(folder, fn)
-            name, ext = os.path.splitext(fn)
-            if ext.lower() not in (".png", ".jpg", ".jpeg", ".webp", ".bmp"):
-                continue
-            for ch in name.upper():
-                if ch in LETTERS:
-                    m[ch] = path
+    # See lipanim_core_demo.load_letter_map_from_dir for rules
+    m: dict[str, str] = {}
+    if not (folder and os.path.isdir(folder)):
+        return m
+
+    priority: dict[str, int] = {}
+
+    def assign(letter: str, path: str, p: int):
+        if letter not in LETTERS:
+            return
+        prev_p = priority.get(letter, 10_000)
+        if p <= prev_p:
+            m[letter] = path
+            priority[letter] = p
+
+    for fn in os.listdir(folder):
+        path = os.path.join(folder, fn)
+        name, ext = os.path.splitext(fn)
+        if ext.lower() not in (".png", ".jpg", ".jpeg", ".webp", ".bmp"):
+            continue
+        base = name.strip()
+        base_lower = base.lower()
+        if base_lower in ("fallback", "pause"):
+            continue
+        if len(base) == 1 and base.upper() in LETTERS:
+            assign(base.upper(), path, p=0)
+            continue
+        if "-" in base:
+            tokens = [t.strip() for t in base.replace(" ", "").split("-") if t.strip()]
+            for t in tokens:
+                tu = t.upper()
+                if len(tu) == 1 and tu in LETTERS:
+                    assign(tu, path, p=5)
+            continue
+        # multi-letter tokens are ignored at scan time
     return m
 
 def valid_img(p):

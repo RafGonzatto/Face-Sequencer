@@ -158,11 +158,61 @@ def folder_scan():
 
         # Load mapping using existing helper
         letter_map = load_letter_map_from_dir(folder_path)
+        
+        # Local helper to build small base64 PNG thumbnail
+        def _thumb_data_url(img_path: str, size: int = 64) -> str | None:
+            try:
+                if not img_path:
+                    return None
+                from PIL import Image
+                import io, base64
+                with Image.open(img_path) as im:
+                    im = im.convert('RGBA')
+                    im.thumbnail((size, size))
+                    buf = io.BytesIO()
+                    im.save(buf, format='PNG')
+                    b64 = base64.b64encode(buf.getvalue()).decode('ascii')
+                    return f"data:image/png;base64,{b64}"
+            except Exception:
+                return None
+        # Detect special images/tokens in folder
+        pause_image = ''
+        fallback_image = ''
+        special_tokens: dict[str, str] = {}
+        try:
+            for fn in os.listdir(folder_path):
+                path = os.path.join(folder_path, fn)
+                if not os.path.isfile(path):
+                    continue
+                name, ext = os.path.splitext(fn)
+                if ext.lower() not in ('.png', '.jpg', '.jpeg', '.webp', '.bmp'):
+                    continue
+                base = name.strip()
+                lower = base.lower()
+                if lower == 'fallback':
+                    fallback_image = path
+                    continue
+                if lower == 'pause':
+                    pause_image = path
+                    continue
+                # Consider tokens within hyphen-separated lists as candidates for multi-letter tokens
+                tokens = [t for t in base.replace(' ', '').split('-') if t]
+                for t in tokens:
+                    # We keep only tokens with length > 1 (digraphs like CH, SH or vowel-variants like Aa)
+                    if len(t) > 1:
+                        special_tokens[t] = path
+        except Exception:
+            # Non-fatal
+            pass
         total_letters = len(string.ascii_uppercase)
         mapped_count = len(letter_map)
 
         # Persist basic mapping paths into app_state for future sequence build
         app_state['current_project']['folder_path'] = folder_path
+        if fallback_image:
+            app_state['current_project']['fallback_image'] = fallback_image
+        app_state['current_project']['pause_image'] = pause_image
+        app_state['current_project']['special_tokens'] = special_tokens
         # Convert to internal structure expected by frontend (with mapped flag)
         mapping_payload = {}
         for letter in string.ascii_uppercase:
@@ -184,10 +234,22 @@ def folder_scan():
         # Store mapping in project state so thumbnail endpoint can reuse it
         app_state['current_project']['letter_map'] = mapping_payload
 
-        return jsonify(success_response('Folder scanned',
-                                        mapped_count=mapped_count,
-                                        total_letters=total_letters,
-                                        mappings=mapping_payload))
+        # Build response including special images so frontend can reflect state
+        resp_payload = success_response(
+            'Folder scanned',
+            mapped_count=mapped_count,
+            total_letters=total_letters,
+            mappings=mapping_payload,
+            fallback_image=os.path.basename(app_state['current_project'].get('fallback_image') or '') if app_state['current_project'].get('fallback_image') else '',
+            fallback_image_abs=app_state['current_project'].get('fallback_image') or '',
+            fallback_thumb=_thumb_data_url(app_state['current_project'].get('fallback_image') or '') if app_state['current_project'].get('fallback_image') else None,
+            space_image=os.path.basename(app_state['current_project'].get('pause_image') or '') if app_state['current_project'].get('pause_image') else '',
+            space_image_abs=app_state['current_project'].get('pause_image') or '',
+            space_thumb=_thumb_data_url(app_state['current_project'].get('pause_image') or '') if app_state['current_project'].get('pause_image') else None,
+            special_tokens=list((app_state['current_project'].get('special_tokens') or {}).keys()),
+        )
+
+        return jsonify(resp_payload)
     except Exception as e:  # noqa: BLE001
         logger.exception('Folder scan failed')
         return jsonify(error_response(str(e), error_type='unexpected_error', status=500)), 500
@@ -313,12 +375,17 @@ def _create_default_project_state():
         'name': 'New Project',
         'folder_path': '',
         'fallback_image': '',
+        'pause_image': '',
         'text': '',
         'sequence': [],
         'letter_map': {},
+        'special_tokens': {},  # e.g., 'CH', 'SH', 'Aa', 'Ee', ...
         'audio_alignment': None,
         'audio_file': None,
         'timing_mode': 'manual',
+        'frame_states': [],  # Enhanced alignment frame timeline
+        'last_alignment': None,  # Full enhanced alignment payload
+        'fps': config.project_defaults.fps(),
         'settings': DEFAULT_PROJECT_SETTINGS.copy(),
     }
 
@@ -352,27 +419,81 @@ def build_sequence_manual():
         pause_duration = int(settings.get('pause_duration', 120))
 
         sequence = []
-        for ch in text:
+        pause_image = project.get('pause_image') or None
+        special_tokens = project.get('special_tokens') or {}
+
+        # Helper to resolve path from mapping payload or direct string
+        def _resolve_from_map(val):
+            if isinstance(val, dict):
+                return val.get('abs_path') or val.get('path')
+            return val if isinstance(val, str) else None
+
+        i = 0
+        n = len(text)
+        while i < n:
+            ch = text[i]
+            # Space / pause handling
             if ch == ' ':
-                sequence.append({'char': ' ', 'img': None, 'ms': pause_duration, 'is_pause': True})
+                img_for_pause = pause_image or None
+                frame = {'char': ' ', 'img': img_for_pause, 'ms': pause_duration, 'is_pause': True}
+                if img_for_pause is None and fallback_image:
+                    frame['img'] = fallback_image
+                    frame['fallback_img'] = fallback_image
+                sequence.append(frame)
+                i += 1
                 continue
-            upper = ch.upper()
-            entry = letter_map.get(upper)
+
+            # Try digraphs and multi-letter tokens first (e.g., CH, SH)
+            consumed = 1
             img_path = None
-            if isinstance(entry, dict):
-                img_path = entry.get('abs_path') or entry.get('path')
-            elif isinstance(entry, str):
-                img_path = entry
-            if not img_path:
-                # Keep img_path None unless a fallback image exists
-                if fallback_image:
-                    img_path = fallback_image
-            frame = {'char': upper, 'img': img_path, 'ms': frame_duration}
-            if img_path is not None and img_path == fallback_image:
-                # Only mark fallback if an actual fallback image is present
+            token_used = None
+            if i + 1 < n:
+                two = text[i:i+2]
+                # Keep original case token (e.g., 'ch' or 'Ch'); our map stores original filename token keys
+                # Try upper-case digraph like 'CH' as well
+                candidates = [two, two.upper(), two.title()]
+                for cand in candidates:
+                    if cand in special_tokens:
+                        img_path = special_tokens.get(cand)
+                        token_used = cand
+                        consumed = 2
+                        break
+
+            # Vowel-initial variant like 'Aa' when vowel appears with no preceding consonant
+            if img_path is None:
+                upper = ch.upper()
+                prev_char = text[i-1] if i > 0 else ' '
+                is_word_start = not prev_char.isalpha()
+                if upper in 'AEIOUÁÉÍÓÚÃÕ' and is_word_start:
+                    # Normalize accented vowels to base latin vowel for variant lookup
+                    base_map = {
+                        'A': 'A', 'Á': 'A', 'Â': 'A', 'Ã': 'A', 'À': 'A',
+                        'E': 'E', 'É': 'E', 'Ê': 'E',
+                        'I': 'I', 'Í': 'I', 'Î': 'I',
+                        'O': 'O', 'Ó': 'O', 'Ô': 'O', 'Õ': 'O',
+                        'U': 'U', 'Ú': 'U', 'Û': 'U',
+                    }
+                    base = base_map.get(upper, upper)
+                    variant_key = base + base.lower()  # 'A' -> 'Aa', 'E' -> 'Ee', ...
+                    if variant_key in special_tokens:
+                        img_path = special_tokens.get(variant_key)
+                        token_used = variant_key
+
+            # Fallback to single-letter mapping
+            if img_path is None:
+                entry = letter_map.get(ch.upper())
+                img_path = _resolve_from_map(entry)
+
+            # Fallback handling
+            if not img_path and fallback_image:
+                img_path = fallback_image
+                frame = {'char': ch.upper(), 'img': img_path, 'ms': frame_duration, 'is_symbol_fallback': True}
                 frame['fallback_img'] = fallback_image
-                frame['is_symbol_fallback'] = True
+            else:
+                frame = {'char': ch.upper() if token_used is None else token_used, 'img': img_path, 'ms': frame_duration}
+
             sequence.append(frame)
+            i += consumed
 
         project['sequence'] = sequence
         project['timing_mode'] = 'manual'
@@ -1057,6 +1178,17 @@ def compute_enhanced_alignment(
     tokens = _normalize_alignment_tokens(alignment_dict.get('tokens', []))
     frame_states = alignment_dict.get('frame_states', [])
 
+    # Persist the latest enhanced alignment details for downstream consumers
+    # (e.g., sequence building/export) so the client doesn't need to resend them.
+    try:
+        app_state['current_project']['last_alignment'] = alignment_dict
+        app_state['current_project']['frame_states'] = frame_states
+        # Prefer FPS from alignment dict, fallback to requested fps
+        app_state['current_project']['fps'] = alignment_dict.get('fps') or fps
+    except Exception:
+        # Non-fatal: keep going even if state persistence fails
+        pass
+
     response_payload = {
         'success': True,
         'alignment': alignment_dict,
@@ -1571,6 +1703,15 @@ def align_audio_enhanced():
         tokens = alignment_result.get('tokens', [])
         sequence = tokens  # Enhanced tokens are already in the right format
         
+        # Persist enhanced alignment artifacts for downstream steps
+        try:
+            app_state['current_project']['last_alignment'] = alignment_result
+            app_state['current_project']['frame_states'] = alignment_result.get('frame_states', [])
+            app_state['current_project']['fps'] = alignment_result.get('fps', fps)
+        except Exception:
+            # Non-fatal persistence error; continue
+            pass
+
         app_state['current_project']['text'] = text
         app_state['current_project']['audio_file'] = audio_filename
         app_state['current_project']['timing_mode'] = 'audio_driven'
@@ -1610,21 +1751,22 @@ def build_sequence_from_audio():
         data = request.get_json()
         if not data:
             return jsonify(error_response('No JSON data provided', error_type='upload_error', status=400)), 400
-            
+        
         # Extract required parameters
         audio_filename = data.get('audio_filename')
         text = data.get('text', '')
         alignment_tokens = data.get('alignment_tokens', [])
+        frame_states = data.get('frame_states', [])  # NEW: Check for frame_states
         
         # Validate parameters
         if not audio_filename:
             return jsonify(error_response('No audio filename provided', error_type='upload_error', status=400, details={'parameter': 'audio_filename'})), 400
-            
+        
         if not text.strip():
             return jsonify(error_response('No text provided for alignment', error_type='alignment_failed', status=400, details={'parameter': 'text'})), 400
-            
-        if not alignment_tokens:
-            return jsonify(error_response('No alignment tokens provided', error_type='alignment_failed', status=400, details={'parameter': 'alignment_tokens'})), 400
+        
+        if not alignment_tokens and not frame_states:
+            return jsonify(error_response('No alignment tokens or frame states provided', error_type='alignment_failed', status=400, details={'parameter': 'alignment_tokens'})), 400
         
         # Check if audio file exists
         audio_path = os.path.join(app.config['AUDIO_FOLDER'], audio_filename)
@@ -1638,7 +1780,7 @@ def build_sequence_from_audio():
         fallback_image = project['fallback_image'] or None
         
         try:
-            # Calculate timing based on alignment tokens
+            # Calculate timing based on frame_states or alignment tokens
             sequence = []
             
             # Helper to resolve letter_map entries that may be dicts (abs_path/path) or direct strings
@@ -1654,99 +1796,351 @@ def build_sequence_from_audio():
                     return fallback_image
                 return img_path
             
-            # Process each token to create frame entries
-            for token in alignment_tokens:
-                token_type = token.get('type')
-                token_text = token.get('text', '')
-                token_viseme = token.get('viseme', '')
-                start_ms = token.get('start_ms', 0)
-                end_ms = token.get('end_ms', 0)
-                duration_ms = end_ms - start_ms if end_ms > start_ms else settings['frame_duration']
-                
-                if token_type == 'word':
-                    # Check if token has text content
-                    if not token_text:
-                        # If no text is available in the token but we have a viseme, use that for animation
-                        if token_viseme and token_viseme != 'neutral':
-                            # Map the viseme back to a character
-                            viseme_to_char = {
-                                'A': 'A', 'E': 'E', 'I': 'I', 'O': 'O', 'U': 'U',
-                                'BMP': 'M', 'FV': 'F', 'L': 'L', 'TH': 'T',
-                                'R': 'R', 'CDGKNSTXYZ': 'T', 'QW': 'Q'
-                            }
-                            # Find the character that corresponds to the viseme
-                            char_to_use = next((k for k, v in viseme_to_char.items() if token_viseme == v), 'A')
-                            
-                            resolved = _resolve_img_for_char(char_to_use)
-                            sequence.append({
-                                'char': char_to_use,
-                                'img': resolved,
-                                'fallback_img': fallback_image,
-                                'ms': duration_ms,
-                                'audio_start': start_ms,
-                                'audio_end': end_ms,
-                                'source': 'audio_alignment_viseme',
-                                'is_symbol_fallback': (resolved == fallback_image)
-                            })
+            # NEW: Use frame_states if available (enhanced alignment)
+            # Prefer request-level frame_states, then alignment.frame_states, then server state
+            request_alignment = data.get('alignment', {}) if isinstance(data, dict) else {}
+            # Diagnostics to understand where frame_states might come from
+            try:
+                fs_req_len = len(data.get('frame_states', []) or [])
+            except Exception:
+                fs_req_len = 0
+            try:
+                fs_align_len = len((request_alignment or {}).get('frame_states', []) or [])
+            except Exception:
+                fs_align_len = 0
+            try:
+                fs_state_len = len(app_state['current_project'].get('frame_states', []) or [])
+            except Exception:
+                fs_state_len = 0
+            try:
+                fs_last_align_len = len((app_state['current_project'].get('last_alignment', {}) or {}).get('frame_states', []) or [])
+            except Exception:
+                fs_last_align_len = 0
+            print(f"🔎 build-from-audio: frame_states candidates -> request:{fs_req_len}, alignment:{fs_align_len}, state:{fs_state_len}, last_alignment:{fs_last_align_len}")
+
+            frame_states = (
+                data.get('frame_states', [])
+                or request_alignment.get('frame_states', [])
+                or app_state['current_project'].get('frame_states', [])
+                or (app_state['current_project'].get('last_alignment', {}) or {}).get('frame_states', [])
+            )
+            if frame_states and (data.get('text_driven', True)):
+                print(f"🎬 Building aggregated letter sequence from {len(frame_states)} frame states (text-driven, audio-timed)")
+                # Determine frame timestamps to recover word segment timing
+                # We'll build word segments on active_word transitions, then proportionally
+                # distribute each word's duration across its letters/digraph tokens.
+                pause_image = app_state['current_project'].get('pause_image') or None
+                special_tokens = app_state['current_project'].get('special_tokens') or {}
+
+                # Collect timestamps (ms)
+                timestamps_ms: list[float] = []
+                # Attempt to infer nominal fps from average delta for diagnostics only
+                for i, fs in enumerate(frame_states):
+                    ts = fs.get('timestamp')
+                    if ts is None:
+                        # Fallback: synthetic sequential timing (assume 30fps)
+                        ts = i / 30.0
+                    timestamps_ms.append(float(ts) * 1000.0)
+                if not timestamps_ms:
+                    return jsonify(error_response('Frame states missing timestamps', error_type='alignment_failed', status=400)), 400
+                avg_delta = 0.0
+                if len(timestamps_ms) > 1:
+                    deltas = [timestamps_ms[i+1]-timestamps_ms[i] for i in range(len(timestamps_ms)-1)]
+                    avg_delta = sum(deltas)/len(deltas)
+                last_frame_end = timestamps_ms[-1] + (avg_delta if avg_delta > 0 else 33.333)
+
+                # Segment by active_word transitions
+                segments = []  # {'start','end','word'}
+                cur_word = None
+                seg_start = None
+                for i, fs in enumerate(frame_states):
+                    aw = (fs.get('active_word') or '').strip()
+                    if aw != cur_word:
+                        if cur_word and seg_start is not None:
+                            end_val = timestamps_ms[i]
+                            if end_val > seg_start:
+                                segments.append({'start': seg_start, 'end': end_val, 'word': cur_word})
+                        if aw:
+                            seg_start = timestamps_ms[i]
                         else:
-                            # If we have neither text nor viseme, add a neutral frame
-                            if 'A' in letter_map:
-                                resolved_a = _resolve_img_for_char('A')
+                            seg_start = None
+                        cur_word = aw
+                if cur_word and seg_start is not None:
+                    segments.append({'start': seg_start, 'end': last_frame_end, 'word': cur_word})
+
+                print(f"🧩 Segments detected: {len(segments)}")
+
+                # Tokenization helpers
+                def _tokenize_word(w: str) -> list[str]:
+                    i = 0; out = []; n = len(w)
+                    while i < n:
+                        consumed = 1
+                        tok = w[i]
+                        if i+1 < n:
+                            cand2 = w[i:i+2]
+                            for cand in (cand2, cand2.upper(), cand2.title()):
+                                if cand in special_tokens:
+                                    tok = cand; consumed = 2; break
+                        out.append(tok); i += consumed
+                    return out
+
+                def _resolve_variant(token: str, is_start: bool) -> tuple[str, str|None, bool]:
+                    # Multi-letter token image direct
+                    if len(token) > 1 and token in special_tokens:
+                        return token, special_tokens[token], False
+                    upper = token.upper()
+                    # Word-start vowel variant (Aa / Ee ...)
+                    if is_start and len(token) == 1:
+                        if upper in 'AEIOUÁÉÍÓÚÃÕÂÊÎÔÛÀ':
+                            base_map = {
+                                'A': 'A', 'Á': 'A', 'Â': 'A', 'Ã': 'A', 'À': 'A',
+                                'E': 'E', 'É': 'E', 'Ê': 'E',
+                                'I': 'I', 'Í': 'I', 'Î': 'I',
+                                'O': 'O', 'Ó': 'O', 'Ô': 'O', 'Õ': 'O',
+                                'U': 'U', 'Ú': 'U', 'Û': 'U'
+                            }
+                            base = base_map.get(upper, upper)
+                            variant_key = base + base.lower()
+                            if variant_key in special_tokens:
+                                return variant_key, special_tokens[variant_key], False
+                    # Single letter mapping
+                    entry = letter_map.get(upper)
+                    img_path = None
+                    if isinstance(entry, dict):
+                        img_path = entry.get('abs_path') or entry.get('path')
+                    elif isinstance(entry, str):
+                        img_path = entry
+                    symbol_fallback = False
+                    if not img_path and fallback_image:
+                        img_path = fallback_image
+                        symbol_fallback = True
+                    return upper, img_path, symbol_fallback
+
+                total_assigned = 0.0
+                # Build gap tokens from alignment_tokens (if provided) for better silence fidelity
+                gap_tokens = []
+                try:
+                    for t in alignment_tokens or []:
+                        if t.get('type') == 'gap':
+                            s = t.get('start_ms'); e = t.get('end_ms')
+                            if isinstance(s,(int,float)) and isinstance(e,(int,float)) and e > s:
+                                gap_tokens.append({'start': float(s), 'end': float(e), 'duration': float(e - s)})
+                except Exception:
+                    pass
+
+                # Minimum gap to insert (avoid micro-gaps that look like stutter)
+                min_gap_ms = 30.0
+                inserted_gaps = 0
+                last_seg_end = None
+                for idx, seg in enumerate(segments):
+                    start_ms = seg['start']; end_ms = seg['end']; word = seg['word']
+                    # Try to insert real audio gap BEFORE this segment (between last_seg_end and start_ms)
+                    if last_seg_end is not None:
+                        gap_inserted = False
+                        if start_ms > last_seg_end + 1.0:  # potential real gap
+                            # Look for a gap token overlapping this interval (tolerance 5ms)
+                            candidate = None
+                            for g in gap_tokens:
+                                if g['start'] >= last_seg_end - 5 and g['end'] <= start_ms + 5:
+                                    candidate = g; break
+                            if candidate and candidate['duration'] >= min_gap_ms:
                                 sequence.append({
-                                    'char': 'A',  # Default to 'A' viseme as fallback
-                                    'img': resolved_a,
-                                    'fallback_img': fallback_image,
-                                    'ms': duration_ms,
-                                    'audio_start': start_ms,
-                                    'audio_end': end_ms,
-                                    'source': 'audio_alignment_fallback',
-                                    'is_symbol_fallback': (resolved_a == fallback_image)
+                                    'char': ' ', 'img': pause_image or (fallback_image if fallback_image else None),
+                                    'fallback_img': fallback_image, 'ms': candidate['duration'], 'is_pause': True, 'source': 'gap_token'
                                 })
+                                total_assigned += candidate['duration']
+                                gap_inserted = True
+                                inserted_gaps += 1
                             else:
-                                # No 'A' in letter map, use global fallback
-                                sequence.append({
-                                    'char': 'A',
-                                    'img': fallback_image,
-                                    'fallback_img': fallback_image,
-                                    'ms': duration_ms,
-                                    'audio_start': start_ms,
-                                    'audio_end': end_ms,
-                                    'source': 'audio_alignment_fallback',
-                                    'is_symbol_fallback': True
-                                })
-                    else:
-                        # Process each character in the word normally when text is available
-                        for char in token_text.upper():
-                            if char in letter_map or char.isalpha():
-                                # Calculate proportional duration
-                                char_duration = max(40, duration_ms // max(1, len(token_text)))
+                                # Fallback to raw time difference
+                                raw_gap = start_ms - last_seg_end
+                                if raw_gap >= min_gap_ms:
+                                    sequence.append({
+                                        'char': ' ', 'img': pause_image or (fallback_image if fallback_image else None),
+                                        'fallback_img': fallback_image, 'ms': raw_gap, 'is_pause': True, 'source': 'gap_delta'
+                                    })
+                                    total_assigned += raw_gap
+                                    gap_inserted = True
+                                    inserted_gaps += 1
+                        # else no gap (continuous speech)
+                    if not word:
+                        last_seg_end = end_ms
+                        continue
+                    tokens = _tokenize_word(word)
+                    word_dur = max(1.0, end_ms - start_ms)
+                    # Distribute with integer rounding that preserves sum exactly
+                    n_tok = len(tokens)
+                    base = int(word_dur // n_tok)
+                    remainder = int(word_dur - base * n_tok)
+                    # Guarantee at least 1ms per token
+                    per_durations = [base] * n_tok
+                    for r in range(remainder):
+                        per_durations[r] += 1
+                    # If base was 0 (very small word), bump all to 1 and adjust last
+                    if base == 0:
+                        per_durations = [1]*n_tok
+                        extra = int(word_dur - n_tok)
+                        for r in range(extra):
+                            per_durations[r % n_tok] += 1
+                    # Emit tokens
+                    for i_tok, tok in enumerate(tokens):
+                        label, img_path, is_symbol = _resolve_variant(tok, i_tok == 0)
+                        frame_entry = {
+                            'char': label,
+                            'img': img_path,
+                            'fallback_img': fallback_image,
+                            'ms': per_durations[i_tok],
+                            'source': 'aggregated_text'
+                        }
+                        if is_symbol:
+                            frame_entry['is_symbol_fallback'] = True
+                        sequence.append(frame_entry)
+                        total_assigned += per_durations[i_tok]
+                    last_seg_end = end_ms
+                # Tail silence
+                if last_seg_end is not None and last_seg_end < last_frame_end:
+                    tail_ms = last_frame_end - last_seg_end
+                    sequence.append({
+                        'char': ' ', 'img': pause_image or (fallback_image if fallback_image else None),
+                        'fallback_img': fallback_image, 'ms': tail_ms, 'is_pause': True, 'source': 'tail_gap'
+                    })
+                    total_assigned += tail_ms
+
+                print(f"✅ Aggregated letter frames: {len(sequence)} total, assigned_ms={total_assigned:.1f} vs audio_ms≈{last_frame_end:.1f}, gaps_inserted={inserted_gaps}")
+                # Store nominal fps (keep existing) for export duplication logic if needed
+                if avg_delta > 0:
+                    try:
+                        inferred_fps = 1000.0 / avg_delta
+                        app_state['current_project']['fps'] = inferred_fps
+                    except Exception:
+                        pass
+
+            # FALLBACK: Process alignment tokens (legacy mode)
+            else:
+                print(f"🔄 Building sequence from {len(alignment_tokens)} alignment tokens (legacy mode)")
+                
+                # Process each token to create frame entries
+                for token in alignment_tokens:
+                    token_type = token.get('type')
+                    token_text = token.get('text', '')
+                    token_viseme = token.get('viseme', '')
+                    start_ms = token.get('start_ms', 0)
+                    end_ms = token.get('end_ms', 0)
+                    duration_ms = end_ms - start_ms if end_ms > start_ms else settings['frame_duration']
+                    
+                    if token_type == 'word':
+                        # Check if token has text content
+                        if not token_text:
+                            # If no text is available in the token but we have a viseme, use that for animation
+                            if token_viseme and token_viseme != 'neutral':
+                                # Map the viseme back to a character
+                                viseme_to_char = {
+                                    'A': 'A', 'E': 'E', 'I': 'I', 'O': 'O', 'U': 'U',
+                                    'BMP': 'M', 'FV': 'F', 'L': 'L', 'TH': 'T',
+                                    'R': 'R', 'CDGKNSTXYZ': 'T', 'QW': 'Q'
+                                }
+                                # Find the character that corresponds to the viseme
+                                char_to_use = next((k for k, v in viseme_to_char.items() if token_viseme == v), 'A')
                                 
-                                # Check if character is in letter map
-                                resolved = _resolve_img_for_char(char)
+                                resolved = _resolve_img_for_char(char_to_use)
                                 sequence.append({
-                                    'char': char,
+                                    'char': char_to_use,
                                     'img': resolved,
                                     'fallback_img': fallback_image,
-                                    'ms': char_duration,
+                                    'ms': duration_ms,
                                     'audio_start': start_ms,
                                     'audio_end': end_ms,
-                                    'source': 'audio_alignment',
+                                    'source': 'audio_alignment_viseme',
+                                    'is_symbol_fallback': (resolved == fallback_image)
+                                })
+                            else:
+                                # If we have neither text nor viseme, add a neutral frame
+                                if 'A' in letter_map:
+                                    resolved_a = _resolve_img_for_char('A')
+                                    sequence.append({
+                                        'char': 'A',  # Default to 'A' viseme as fallback
+                                        'img': resolved_a,
+                                        'fallback_img': fallback_image,
+                                        'ms': duration_ms,
+                                        'audio_start': start_ms,
+                                        'audio_end': end_ms,
+                                        'source': 'audio_alignment_fallback',
+                                        'is_symbol_fallback': (resolved_a == fallback_image)
+                                    })
+                                else:
+                                    # No 'A' in letter map, use global fallback
+                                    sequence.append({
+                                        'char': 'A',
+                                        'img': fallback_image,
+                                        'fallback_img': fallback_image,
+                                        'ms': duration_ms,
+                                        'audio_start': start_ms,
+                                        'audio_end': end_ms,
+                                        'source': 'audio_alignment_fallback',
+                                        'is_symbol_fallback': True
+                                    })
+                        else:
+                            # Process each character in the word normally when text is available
+                            # Calculate character count for proportional duration distribution
+                            valid_char_count = sum(1 for c in token_text.upper() if c in letter_map or c.isalpha())
+                            
+                            if valid_char_count > 0:
+                                # Distribute the total duration among all valid characters
+                                char_duration_base = max(40, duration_ms // max(1, valid_char_count))
+                                remaining_duration = duration_ms
+                                chars_processed = 0
+                                
+                                for char in token_text.upper():
+                                    if char in letter_map or char.isalpha():
+                                        chars_processed += 1
+                                        
+                                        # For the last character, use all remaining duration to prevent rounding errors
+                                        if chars_processed == valid_char_count:
+                                            char_duration = remaining_duration
+                                        else:
+                                            char_duration = char_duration_base
+                                        
+                                        remaining_duration -= char_duration
+                                        
+                                        # Check if character is in letter map
+                                        resolved = _resolve_img_for_char(char)
+                                        sequence.append({
+                                            'char': char,
+                                            'img': resolved,
+                                            'fallback_img': fallback_image,
+                                            'ms': char_duration,
+                                            'audio_start': start_ms,
+                                            'audio_end': end_ms,
+                                            'source': 'audio_alignment',
+                                            'is_symbol_fallback': (resolved == fallback_image and resolved is not None)
+                                        })
+                            else:
+                                # Fallback for words with no valid characters
+                                resolved = _resolve_img_for_char('A')  # Default to 'A'
+                                sequence.append({
+                                    'char': 'A',
+                                    'img': resolved,
+                                    'fallback_img': fallback_image,
+                                    'ms': duration_ms,
+                                    'audio_start': start_ms,
+                                    'audio_end': end_ms,
+                                    'source': 'audio_alignment_fallback',
                                     'is_symbol_fallback': (resolved == fallback_image and resolved is not None)
                                 })
-                
-                elif token_type == 'gap':
-                    # Add pause frame with fallback image
-                    gap_duration = max(settings['pause_duration'], duration_ms)
-                    sequence.append({
-                        'char': ' ',
-                        'img': None,  # Keep as None for UI purposes
-                        'fallback_img': fallback_image,  # Add fallback image for export
-                        'ms': gap_duration,
-                        'audio_start': start_ms,
-                        'audio_end': end_ms,
-                        'is_pause': True,
-                        'source': 'audio_gap'
-                    })
+                    
+                    elif token_type == 'gap':
+                        # Add pause frame with fallback image
+                        gap_duration = max(settings['pause_duration'], duration_ms)
+                        sequence.append({
+                            'char': ' ',
+                            'img': None,  # Keep as None for UI purposes
+                            'fallback_img': fallback_image,  # Add fallback image for export
+                            'ms': gap_duration,
+                            'audio_start': start_ms,
+                            'audio_end': end_ms,
+                            'is_pause': True,
+                            'source': 'audio_gap'
+                        })
             
             # Update app state
             app_state['current_project']['sequence'] = sequence

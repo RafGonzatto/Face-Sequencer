@@ -8,12 +8,27 @@ LETTERS = list(string.ascii_uppercase)
 
 def load_letter_map_from_dir(folder):
     m={}
-    if folder and os.path.isdir(folder):
-        for fn in os.listdir(folder):
-            path=os.path.join(folder,fn); name,ext=os.path.splitext(fn)
-            if ext.lower() not in (".png",".jpg",".jpeg",".webp",".bmp"): continue
-            for ch in name.upper():
-                if ch in LETTERS: m[ch]=path
+    if not (folder and os.path.isdir(folder)): return m
+    priority={}
+    def assign(letter,path,p):
+        if letter not in LETTERS: return
+        prev=priority.get(letter,10_000)
+        if p<=prev:
+            m[letter]=path; priority[letter]=p
+    for fn in os.listdir(folder):
+        path=os.path.join(folder,fn); name,ext=os.path.splitext(fn)
+        if ext.lower() not in (".png",".jpg",".jpeg",".webp",".bmp"): continue
+        base=name.strip(); lower=base.lower()
+        if lower in ("fallback","pause"): continue
+        if len(base)==1 and base.upper() in LETTERS:
+            assign(base.upper(),path,0); continue
+        if "-" in base:
+            tokens=[t.strip() for t in base.replace(" ","").split("-") if t.strip()]
+            for t in tokens:
+                tu=t.upper();
+                if len(tu)==1 and tu in LETTERS: assign(tu,path,5)
+            continue
+        # multi-letter tokens ignored here
     return m
 
 def valid_img(p): return bool(p) and os.path.isfile(p)
