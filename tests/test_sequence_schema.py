@@ -127,3 +127,50 @@ def test_sequence_build_from_audio_schema(client, seed_audio_file):
     if data.get('success'):
         assert isinstance(data.get('sequence'), list)
         assert data.get('stats', {}).get('total_frames') == len(data.get('sequence'))
+
+
+def test_sequence_build_from_audio_enhanced_schema(client, seed_audio_file):
+    """Test enhanced text-driven sequence building with frame_states"""
+    # Enhanced alignment using frame_states (new implementation)
+    frame_states = [
+        {"active_word": "", "ms": 33.33, "is_pause": True},      # Pause
+        {"active_word": "HI", "ms": 33.33, "is_pause": False},   # Word 1
+        {"active_word": "HI", "ms": 33.33, "is_pause": False},   
+        {"active_word": "", "ms": 33.33, "is_pause": True},      # Gap
+        {"active_word": "WORLD", "ms": 33.33, "is_pause": False}, # Word 2
+        {"active_word": "WORLD", "ms": 33.33, "is_pause": False},
+        {"active_word": "WORLD", "ms": 33.33, "is_pause": False}
+    ]
+    
+    payload = {
+        "text": "HI WORLD",
+        "text_driven": True,
+        "frame_states": frame_states
+    }
+    
+    resp = client.post('/api/sequence/build-from-audio', json=payload)
+    data = resp.get_json()
+    
+    # Should return success with enhanced alignment
+    assert data.get('success') == True
+    assert isinstance(data.get('sequence'), list)
+    
+    sequence = data.get('sequence')
+    
+    # Check that we have both letter and pause frames
+    letter_frames = [f for f in sequence if not f.get('is_pause')]
+    pause_frames = [f for f in sequence if f.get('is_pause')]
+    
+    assert len(letter_frames) > 0, "Should have letter frames"
+    assert len(pause_frames) > 0, "Should have pause frames"
+    
+    # Check that letter frames have proper metadata from enhanced alignment
+    for frame in letter_frames:
+        assert 'char' in frame
+        assert 'ms' in frame
+        # Enhanced frames should have additional metadata
+        if 'word' in frame:  # Enhanced frame
+            assert 'word_progress' in frame
+            assert isinstance(frame['word_progress'], (int, float))
+    
+    print(f"✅ Enhanced alignment test passed: {len(sequence)} frames generated")
