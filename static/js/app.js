@@ -60,7 +60,12 @@ class FaceSequencerApp {
     this.initEnhancedAlignment();
     // Timeline enhancer (after DOM present)
     if (window.TimelineEnhancer) {
-      this.timelineEnhancer = new TimelineEnhancer(this);
+      try {
+        this.timelineEnhancer = new TimelineEnhancer(this);
+      } catch (error) {
+        console.error("Error initializing TimelineEnhancer:", error);
+        // Continue without timeline enhancer
+      }
     }
   }
 

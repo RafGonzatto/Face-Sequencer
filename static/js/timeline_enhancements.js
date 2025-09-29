@@ -20,7 +20,11 @@ class TimelineEnhancer {
 
   init() {
     const container = document.querySelector(".timeline-container");
-    if (!container) return;
+    if (!container) {
+      console.log("Timeline container not found, retrying...");
+      setTimeout(() => this.init(), 500);
+      return;
+    }
 
     // Insert toolbar
     this.toolbar = document.createElement("div");
@@ -43,16 +47,24 @@ class TimelineEnhancer {
       else if (action === "toggle-snap") this.toggleSnap();
     });
 
-    // Time ruler wrapper
+    // Time ruler wrapper - with safety check
     const rulerWrapper = document.createElement("div");
     rulerWrapper.className = "time-ruler-wrapper";
     this.rulerEl = document.createElement("div");
     this.rulerEl.className = "time-ruler";
     rulerWrapper.appendChild(this.rulerEl);
-    container.insertBefore(
-      rulerWrapper,
-      container.querySelector(".timeline-frames")
-    );
+
+    // Safe insertion - check if timeline-frames exists
+    const timelineFrames =
+      container.querySelector(".timeline-frames") ||
+      container.querySelector(".timeline-frames-wrapper");
+    if (timelineFrames) {
+      container.insertBefore(rulerWrapper, timelineFrames);
+    } else {
+      // Fallback: append to container
+      container.appendChild(rulerWrapper);
+      console.log("Timeline frames not found, appending ruler to container");
+    }
 
     // Waveform overlay
     const overlay = document.createElement("div");

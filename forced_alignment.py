@@ -255,9 +255,17 @@ class ForcedAligner:
         
         # Whisper expects audio at 16kHz
         if sample_rate != 16000:
-            import librosa
-            audio = librosa.resample(audio, orig_sr=sample_rate, target_sr=16000)
-            sample_rate = 16000
+            try:
+                from audio_utils_safe import import_librosa
+                librosa, _ = import_librosa()
+                audio = librosa.resample(audio, orig_sr=sample_rate, target_sr=16000)
+                sample_rate = 16000
+            except ImportError:
+                # Fallback: use scipy for basic resampling
+                from scipy import signal
+                num_samples = int(len(audio) * 16000 / sample_rate)
+                audio = signal.resample(audio, num_samples)
+                sample_rate = 16000
         
         # Transcribe with word-level timestamps
         result = model.transcribe(
@@ -381,8 +389,15 @@ class ForcedAligner:
         
         # Resample to 16kHz if needed
         if sample_rate != 16000:
-            import librosa
-            audio = librosa.resample(audio, orig_sr=sample_rate, target_sr=16000)
+            try:
+                from audio_utils_safe import import_librosa
+                librosa, _ = import_librosa()
+                audio = librosa.resample(audio, orig_sr=sample_rate, target_sr=16000)
+            except ImportError:
+                # Fallback: use scipy for basic resampling
+                from scipy import signal
+                num_samples = int(len(audio) * 16000 / sample_rate)
+                audio = signal.resample(audio, num_samples)
         
         return audio
     
@@ -449,7 +464,12 @@ class ForcedAligner:
 
 # Example usage for testing
 if __name__ == "__main__":
-    import librosa
+    try:
+        from audio_utils_safe import import_librosa
+        librosa, _ = import_librosa()
+    except ImportError:
+        print("❌ librosa not available for testing")
+        exit(1)
     
     # Test with sample audio
     aligner = ForcedAligner(language="pt")

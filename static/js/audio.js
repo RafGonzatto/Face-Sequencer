@@ -557,13 +557,22 @@ document.addEventListener("DOMContentLoaded", function () {
   console.log("DOM loaded, checking for app instance");
   // Wait for app to be initialized
   const initAudioManager = function () {
-    if (window.faceSequencerApp) {
-      console.log("App found, initializing AudioManager");
-      window.faceSequencerApp.audioManager = new AudioManager(
-        window.faceSequencerApp
-      );
+    if (
+      window.faceSequencerApp &&
+      window.faceSequencerApp.init &&
+      typeof window.faceSequencerApp.updateTimeline === "function"
+    ) {
+      console.log("App found and fully initialized, initializing AudioManager");
+      try {
+        window.faceSequencerApp.audioManager = new AudioManager(
+          window.faceSequencerApp
+        );
+      } catch (error) {
+        console.error("Error initializing AudioManager:", error);
+        setTimeout(initAudioManager, 1000); // Retry after 1 second
+      }
     } else {
-      console.log("App not found yet, waiting...");
+      console.log("App not found or not fully initialized yet, waiting...");
       setTimeout(initAudioManager, 500);
     }
   };

@@ -137,7 +137,7 @@ def export_json(seq, path):
         json.dump({"frames": seq}, f, ensure_ascii=False, indent=2)
 
 def export_mp4(seq, path, fps, crf, preset, bg=(0, 0, 0, 0), progress_callback=None):
-    """Export sequence to MP4 video using MoviePy
+    """Export sequence to MP4 video using optimized high-performance exporter
     
     Args:
         seq: List of frame dictionaries
@@ -151,371 +151,187 @@ def export_mp4(seq, path, fps, crf, preset, bg=(0, 0, 0, 0), progress_callback=N
     Returns:
         bool: Success or failure
     """
+    
+    # Try optimized export first
     try:
-        from moviepy.editor import ImageSequenceClip
-        import numpy as np
+        from high_performance_export import export_mp4_optimized
+        
+        print("Using optimized high-performance exporter")
+        print("Frames: {}, FPS: {}, CRF: {}, Preset: {}".format(len(seq), fps, crf, preset))
+        
+        return export_mp4_optimized(
+            seq=seq,
+            path=path,
+            fps=fps,
+            crf=crf,
+            preset=preset,
+            progress_callback=progress_callback
+        )
+        
+    except ImportError as e:
+        print("High-performance exporter not available: {}".format(e))
+        print("Falling back to standard MoviePy export...")
+        
+        # Fallback to original implementation
+        return _export_mp4_fallback(seq, path, fps, crf, preset, bg, progress_callback)
+    
+    except Exception as e:
+        print("Optimized export failed: {}".format(e))
+        print("Falling back to standard export...")
+        
+        # Fallback to original implementation  
+        return _export_mp4_fallback(seq, path, fps, crf, preset, bg, progress_callback)
+
+def _export_mp4_fallback(seq, path, fps, crf, preset, bg=(0, 0, 0, 0), progress_callback=None):
+    """Fallback export using original MoviePy implementation"""
+    try:
         import tempfile
         import os
-        import time
-        from PIL import Image, ImageDraw
+        import subprocess
+        from PIL import Image, ImageDraw, ImageFont
         
-        # Import our compatibility layer
-        try:
-            from moviepy_compat import get_compatible_write_params
-            has_compat = True
-            print("Using MoviePy compatibility helpers")
-        except ImportError:
-            has_compat = False
-            print("MoviePy compatibility helpers not available")
-        
-        print(f"Exporting {len(seq)} frames to {path}")
-        print(f"Settings: FPS={fps}, CRF={crf}, Preset={preset}")
+        print("Fallback export: {} frames to {}".format(len(seq), path))
+        print("Settings: FPS={}, CRF={}, Preset={}".format(fps, crf, preset))
         
         # Create temporary directory for frames
         temp_dir = tempfile.mkdtemp()
         frame_files = []
         
-        # Define standard dimensions for all frames
-        # Default to 640x480 if not specified elsewhere
+        # Standard dimensions
         STANDARD_WIDTH = 640
         STANDARD_HEIGHT = 480
         
-        # Report initial progress
         if progress_callback:
-            progress_callback(0, "Starting export process")
+            progress_callback(0, "Starting fallback export process")
         
-        # Generate frames from sequence
         total_frames = len(seq)
         
-        # First scan to determine optimal dimensions
-        if progress_callback:
-            progress_callback(2, f"Scanning {total_frames} images for dimensions")
-        
-        # Initialize with default dimensions
-        max_width = STANDARD_WIDTH
-        max_height = STANDARD_HEIGHT
-        
-        # First pass - determine the largest dimensions needed
+        # Process frames sequentially  
         for i, frame in enumerate(seq):
-            if not frame.get('is_pause', False):
-                img_path = frame.get('img')
-                if isinstance(img_path, str) and img_path and os.path.exists(img_path):
-                    try:
-                        with Image.open(img_path) as img:
-                            width, height = img.size
-                            max_width = max(max_width, width)
-                            max_height = max(max_height, height)
-                    except Exception as e:
-                        print(f"Error checking dimensions for {img_path}: {e}")
-        
-        print(f"Using standard dimensions: {max_width}x{max_height}")
-        
-        # ---------------- Parallel frame generation (WP004) ----------------
-        def _prepare_single(i_frame):
-            i, frame = i_frame
-            try:
-                img_path = frame.get('img')
-                fallback_needed = False
-                if frame.get('is_pause', False) and not img_path:
-                    fallback_needed = True
-                if frame.get('is_symbol_fallback', False):
-                    fallback_needed = True
-                if (not isinstance(img_path, str)) or (not img_path) or (not os.path.exists(img_path)):
-                    fallback_needed = True
-                if fallback_needed:
-                    fallback_img_path = frame.get('fallback_img')
-                    if isinstance(fallback_img_path, str) and fallback_img_path and os.path.exists(fallback_img_path):
-                        img_path = fallback_img_path
-                if (not isinstance(img_path, str)) or (not img_path) or (not os.path.exists(img_path)):
-                    default_fallback = None
-                    potential_folders = [
-                        os.path.join(os.path.dirname(os.path.abspath(__file__)), 'images'),
-                        os.path.join(os.path.dirname(os.path.abspath(__file__)), 'debug_export'),
-                        os.path.join(os.path.dirname(os.path.abspath(__file__)), 'outros')
-                    ]
-                    for folder in potential_folders:
-                        if os.path.exists(folder):
-                            image_files = [f for f in os.listdir(folder) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
-                            if image_files:
-                                default_fallback = os.path.join(folder, image_files[0])
-                                break
-                    if default_fallback and os.path.exists(default_fallback):
-                        img_path = default_fallback
-                if isinstance(img_path, str) and img_path and os.path.exists(img_path):
-                    try:
-                        pil_img = Image.open(img_path).convert('RGBA')
-                        current_width, current_height = pil_img.size
-                        if current_width != max_width or current_height != max_height:
-                            new_img = Image.new('RGBA', (max_width, max_height), (0, 0, 0, 0))
-                            paste_x = (max_width - current_width) // 2
-                            paste_y = (max_height - current_height) // 2
-                            new_img.paste(pil_img, (paste_x, paste_y), pil_img)
-                            pil_img = new_img
-                        img = np.array(pil_img)
-                    except Exception as e:
-                        img = np.zeros((max_height, max_width, 4), dtype=np.uint8)
-                else:
-                    img = np.zeros((max_height, max_width, 4), dtype=np.uint8)
-                    img[:, :, 0] = 255
-                    img[:, :, 2] = 255
-                # We don't need to calculate frame_count anymore
-                # Just return the frame duration for reference but use a fixed frame count of 1
-                frame_duration = frame.get('ms', 100) / 1000.0
-                if frame_duration <= 0:
-                    frame_duration = 0.1
-                # Always use 1 frame - frame timing will be handled during video assembly
-                return i, img, 1
-            except Exception as e:
-                blank = np.zeros((max_height, max_width, 4), dtype=np.uint8)
-                return i, blank, 1
-
-        max_workers = min(8, os.cpu_count() or 4)
-        results = [None] * total_frames
-        last_update_time = time.time()
-        update_interval = 0.1  # Update progress more frequently (100ms) for smoother UI
-        
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(_prepare_single, item): item[0] for item in enumerate(seq)}
-            for idx, fut in enumerate(as_completed(futures)):
-                i, img, _ = fut.result()  # Ignoramos frame_count pois não vamos duplicar frames
-                frame_path = os.path.join(temp_dir, f"frame_{i:05d}.png")
-                Image.fromarray(img).save(frame_path)
-                frame_files.append(frame_path)
-                # Removemos a duplicação de frames - vamos usar as durações originais
-                
-                # More frequent progress updates with more detailed information
-                current_time = time.time()
-                if progress_callback and (idx % max(1, total_frames // 40) == 0 or 
-                                        current_time - last_update_time >= update_interval):
-                    last_update_time = current_time
-                    progress_percent = int(5 + (idx / total_frames) * 35)  # Scale from 5% to 40%
-                    percent_complete = int((idx / total_frames) * 100)
-                    progress_callback(
-                        progress_percent, 
-                        f"Preparing frames: {percent_complete}% complete ({idx+1}/{total_frames})"
-                    )
-        
-        # Report progress with more detail
-        if progress_callback:
-            progress_callback(40, f"Creating video clip from {len(frame_files)} frames")
-        
-        # Verify all frames have the same dimensions before creating the clip
-        if progress_callback:
-            progress_callback(42, "Verifying frame consistency and preparing for encoding")
-        
-        # Final check - verify all PNGs have identical dimensions
-        from PIL import Image
-        frame_dimensions = []
-        for frame_file in frame_files[:5]:  # Check just a few files for efficiency
-            if os.path.exists(frame_file):
-                with Image.open(frame_file) as img:
-                    frame_dimensions.append(img.size)
-        
-        # Check if all dimensions are the same
-        if len(set(frame_dimensions)) > 1:
-            error_msg = f"Frame dimension mismatch detected: {set(frame_dimensions)}"
-            print(f"ERROR: {error_msg}")
-            if progress_callback:
-                progress_callback(-1, error_msg)
-            return False
+            frame_filename = os.path.join(temp_dir, f"frame_{i:06d}.png")
             
-        # Using direct FFmpeg approach instead of MoviePy for more reliability
-        try:
-            # Add more debug information about the frames before creating the clip
-            print(f"Creating clip from {len(frame_files)} frames at {fps} fps")
-            if len(frame_files) > 0:
-                print(f"First frame: {frame_files[0]}")
-                
-                # Check a sample of frames to ensure they exist
-                for i in range(min(5, len(frame_files))):
-                    frame_index = i * (len(frame_files) // 5) if len(frame_files) > 5 else i
-                    if frame_index < len(frame_files):
-                        frame_path = frame_files[frame_index]
-                        if os.path.exists(frame_path):
-                            frame_size = os.path.getsize(frame_path)
-                            print(f"Frame {frame_index}: {frame_path} (size: {frame_size} bytes)")
-                        else:
-                            print(f"Frame {frame_index}: {frame_path} does not exist!")
+            # Get image path
+            img_path = frame.get('img') or frame.get('fallback_img')
             
-            # Report progress with more detailed information
-            if progress_callback:
-                total_frames = len(frame_files)
-                # Compute duration from sequence ms if provided
-                total_ms = 0
+            # Create or load image
+            if not img_path or not os.path.exists(img_path):
+                # Create simple fallback
+                img = Image.new('RGBA', (STANDARD_WIDTH, STANDARD_HEIGHT), (0, 0, 0, 255))
+                draw = ImageDraw.Draw(img)
+                
+                # Draw character
+                char = frame.get('char', '?')
                 try:
-                    for fr in seq:
-                        total_ms += max(1, int(fr.get('ms') or fr.get('duration') or 0))
-                except Exception:
-                    total_ms = int((total_frames / fps) * 1000)
-                video_duration = total_ms / 1000.0 if total_ms else (total_frames / fps)
-                print(f"📊 Total frames: {total_frames}, Aggregated duration: {video_duration:.2f}s (reported fps={fps})")
-                progress_callback(48, f"Starting video encoding: {total_frames} frames, {video_duration:.2f}s")
-            
-            # Ensure the directory exists
-            os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-            
-            # Use direct FFmpeg approach instead of relying on MoviePy
-            # Create a temporary file listing all frames
-            import tempfile
-            import subprocess
-            
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
-                image_list_path = f.name
-                # Use per-frame durations from seq (ms) with concat demuxer
-                # FFmpeg rule: duration line applies to previously listed file (except last which repeats)
-                for i, frame_path in enumerate(frame_files):
-                    normalized_path = frame_path.replace('\\', '/')
-                    f.write(f"file '{normalized_path}'\n")
-                    if i < len(frame_files):
-                        # Map index i to seq[i] duration
-                        try:
-                            fr_ms = max(1, int(seq[i].get('ms') or seq[i].get('duration') or 0))
-                        except Exception:
-                            fr_ms = int(1000 / fps)
-                        f.write(f"duration {fr_ms/1000.0}\n")
-                # Duplicate last file without duration for concat correctness
-                if frame_files:
-                    normalized_path = frame_files[-1].replace('\\', '/')
-                    f.write(f"file '{normalized_path}'\n")
-            
-            # Build FFmpeg command
-            ffmpeg_cmd = [
-                'ffmpeg',
-                '-y',  # Overwrite output file
-                '-f', 'concat',  # Use concat demuxer
-                '-safe', '0',  # Don't check for absolute paths
-                '-i', image_list_path,  # Input file list
-                '-c:v', 'libx264',  # Use H.264 codec
-                '-preset', preset,  # Encoding speed/compression tradeoff
-                '-crf', str(crf),  # Quality level
-                '-pix_fmt', 'yuv420p',  # Standard pixel format for compatibility
-                '-an',  # No audio
-                path  # Output path
-            ]
-            
-            print("Running FFmpeg command:", ' '.join(ffmpeg_cmd))
-            
-            # Use subprocess to run FFmpeg with progress monitoring
-            process = subprocess.Popen(
-                ffmpeg_cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                universal_newlines=True,
-                bufsize=1
-            )
-            
-            # Monitor FFmpeg progress with more frequent updates
-            last_progress = 0
-            last_update_time = time.time()
-            update_interval = 0.2  # Update progress at most every 0.2 seconds for smoother UI
-            while True:
-                output_line = process.stderr.readline()
-                if output_line == '' and process.poll() is not None:
-                    break
+                    font = ImageFont.load_default()
+                    bbox = draw.textbbox((0, 0), char, font=font)
+                    text_width = bbox[2] - bbox[0] 
+                    text_height = bbox[3] - bbox[1]
+                    x = (STANDARD_WIDTH - text_width) // 2
+                    y = (STANDARD_HEIGHT - text_height) // 2
+                    draw.text((x, y), char, fill=(255, 255, 255, 255), font=font)
+                except:
+                    # Simple fallback without font
+                    x = STANDARD_WIDTH // 2 - 20
+                    y = STANDARD_HEIGHT // 2 - 20
+                    draw.text((x, y), char, fill=(255, 255, 255, 255))
                 
-                current_time = time.time()
-                elapsed_since_update = current_time - last_update_time
-                
-                if output_line:
-                    # Try to parse progress from FFmpeg output
-                    if 'time=' in output_line:
-                        try:
-                            # Extract time information (e.g., time=00:00:12.34)
-                            time_str = output_line.split('time=')[1].split(' ')[0]
-                            # Parse the time in the format HH:MM:SS.MS
-                            h, m, s = time_str.split(':')
-                            seconds = float(h) * 3600 + float(m) * 60 + float(s)
-                            
-                            # Calculate progress as a percentage (estimate using total frame count)
-                            total_duration = len(frame_files) / fps
-                            progress_percent = min(95, 50 + int((seconds / total_duration) * 45))
-                            
-                            # Only update if progress has changed and enough time has passed
-                            if (progress_percent > last_progress or elapsed_since_update >= update_interval) and progress_callback:
-                                last_progress = progress_percent
-                                last_update_time = current_time
-                                
-                                # Calculate more detailed percentage
-                                encoding_percent = int((seconds / total_duration) * 100)
-                                
-                                # Send more detailed progress update
-                                progress_callback(
-                                    progress_percent, 
-                                    f"Encoding video: {encoding_percent}% complete (frame {int(seconds * fps)}/{len(frame_files)})"
-                                )
-                        except Exception as e:
-                            # If we can't parse progress, still show that we're working
-                            if progress_callback and (elapsed_since_update >= update_interval):
-                                last_update_time = current_time
-                                if last_progress < 75:
-                                    last_progress = 75
-                                progress_callback(last_progress, f"Encoding video (progress at {last_progress}%)")
+            else:
+                # Load existing image
+                try:
+                    img = Image.open(img_path).convert('RGBA')
+                    if img.size != (STANDARD_WIDTH, STANDARD_HEIGHT):
+                        img = img.resize((STANDARD_WIDTH, STANDARD_HEIGHT), Image.Resampling.LANCZOS)
+                except Exception as e:
+                    print("Error loading {}: {}".format(img_path, e))
+                    img = Image.new('RGBA', (STANDARD_WIDTH, STANDARD_HEIGHT), (255, 0, 0, 255))
             
-            # Get the return code
-            return_code = process.poll()
+            # Save frame
+            img.save(frame_filename, 'PNG')
+            frame_files.append(frame_filename)
             
-            # Clean up the temporary file
-            try:
-                os.unlink(image_list_path)
-            except:
-                print("Warning: Failed to remove temporary file list")
-            
-            # Check if FFmpeg was successful
-            if return_code != 0:
-                error_output = process.stderr.read()
-                error_msg = f"FFmpeg failed with code {return_code}: {error_output}"
-                print(f"ERROR: {error_msg}")
-                if progress_callback:
-                    progress_callback(-1, error_msg)
-                return False
-            
-            print(f"Successfully created video: {path}")
-            return True
-            
-        except Exception as export_error:
-            error_msg = f"Failed to create video: {str(export_error)}"
-            print(f"ERROR: {error_msg}")
+            # Update progress
+            if progress_callback and i % 50 == 0:
+                progress = int((i / total_frames) * 80) + 10
+                progress_callback(progress, f"Processing frames: {i+1}/{total_frames}")
+        
+        print("Generated {} frames".format(len(frame_files)))
+        
+        # Create FFmpeg input file list
+        if progress_callback:
+            progress_callback(85, "Preparing FFmpeg encoding")
+        
+        # Ensure output directory exists
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        
+        # Create temporary file listing all frames with durations
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
+            image_list_path = f.name
+            for i, frame_path in enumerate(frame_files):
+                normalized_path = frame_path.replace('\\', '/')
+                f.write(f"file '{normalized_path}'\n")
+                if i < len(frame_files):
+                    # Use frame duration from sequence
+                    try:
+                        fr_ms = max(1, int(seq[i].get('ms', 1000 // fps)))
+                    except:
+                        fr_ms = 1000 // fps
+                    f.write(f"duration {fr_ms/1000.0}\n")
+            # Duplicate last frame for FFmpeg concat
+            if frame_files:
+                normalized_path = frame_files[-1].replace('\\', '/')
+                f.write(f"file '{normalized_path}'\n")
+        
+        # Build FFmpeg command
+        ffmpeg_cmd = [
+            'ffmpeg', '-y',
+            '-f', 'concat', '-safe', '0',
+            '-i', image_list_path,
+            '-c:v', 'libx264',
+            '-preset', preset,
+            '-crf', str(crf),
+            '-pix_fmt', 'yuv420p',
+            '-an',
+            path
+        ]
+        
+        print("Running FFmpeg: {}".format(' '.join(ffmpeg_cmd)))
+        
+        # Run FFmpeg
+        process = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
+        
+        # Clean up temp file
+        try:
+            os.unlink(image_list_path)
+        except:
+            pass
+        
+        if process.returncode != 0:
+            error_msg = "FFmpeg failed: {}".format(process.stderr)
+            print("ERROR: {}".format(error_msg))
             if progress_callback:
                 progress_callback(-1, error_msg)
             return False
         
-        # Report cleanup progress
+        # Clean up frame files
         if progress_callback:
             progress_callback(95, "Cleaning up temporary files")
-            
-        # Clean up temporary files
+        
         try:
             for frame_file in frame_files:
                 if os.path.exists(frame_file):
                     os.remove(frame_file)
             os.rmdir(temp_dir)
         except Exception as cleanup_error:
-            print(f"Warning: Error during cleanup: {str(cleanup_error)}")
+            print("Cleanup warning: {}".format(cleanup_error))
         
-        # Final progress update
         if progress_callback:
             progress_callback(100, "Video export complete")
-            
-        return True
-    except Exception as e:
-        # Quiet optional MoviePy dependency warnings unless explicitly requested
-        msg = str(e)
-        if "No module named 'moviepy'" in msg and not os.environ.get('MOVIEPY_VERBOSE',''):
-            # Soft notice for developers if debug flag set later, otherwise suppress
-            pass
-        else:
-            print(f"Error exporting video: {msg}")
-        import traceback
-        traceback.print_exc()
         
-        # Create a placeholder file to indicate error
-        try:
-            with open(path, 'w') as f:
-                f.write(f"Error generating video: {str(e)}")
-        except:
-            pass
-            
+        print("Successfully created video: {}".format(path))
+        return True
+        
+    except Exception as e:
+        print("Fallback export error: {}".format(e))
         if progress_callback:
-            progress_callback(-1, f"Error: {msg}")
-            
+            progress_callback(-1, "Error: {}".format(e))
         return False

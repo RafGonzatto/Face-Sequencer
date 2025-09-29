@@ -222,20 +222,15 @@ class AudioAligner:
         # Enhanced denoising - reduce background noise
         audio = librosa.effects.preemphasis(audio, coef=config.audio.preemphasis_coef())
         
-        # Light processing for ElevenLabs audio - preserve silences for gap detection
-        if "ElevenLabs" in audio_path:
-            print("📝 Detected ElevenLabs audio - applying specialized processing (preserving pauses)")
-            # NO trimming - preserve all audio including silences for gap detection
-            
-            # Apply only gentle high-pass filter to remove rumble
-            from scipy.signal import butter, filtfilt
-            nyq = 0.5 * sr
-            cutoff = config.audio.high_pass_cutoff() / nyq  # High-pass filter from config
-            b, a = butter(3, cutoff, btype='high')
-            audio = filtfilt(b, a, audio)
-        else:
-            # Standard light trimming for other audio sources
-            audio, _ = librosa.effects.trim(audio, top_db=config.audio.trim_top_db())  # Trimming level from config
+        # Apply gentle high-pass filter to remove rumble (for all audio types)
+        from scipy.signal import butter, filtfilt
+        nyq = 0.5 * sr
+        cutoff = config.audio.high_pass_cutoff() / nyq  # High-pass filter from config
+        b, a = butter(3, cutoff, btype='high')
+        audio = filtfilt(b, a, audio)
+        
+        # Apply light trimming for all audio sources
+        audio, _ = librosa.effects.trim(audio, top_db=config.audio.trim_top_db())  # Trimming level from config
         
         # Final check of audio levels after processing
         rms_after = np.sqrt(np.mean(audio**2))
@@ -813,14 +808,7 @@ class AudioAligner:
         Returns:
             AlignmentResult with tokens and quality stats
         """
-        # Special case for ElevenLabs audio
-        if "ElevenLabs" in audio_path:
-            print("⚠️ ElevenLabs audio detected - using pre-processed version if available")
-            # Check for pre-processed version
-            optimized_path = "uploads/audio/optimized_elevenlabs.wav"
-            if os.path.exists(optimized_path):
-                print("✅ Using optimized audio file")
-                audio_path = optimized_path
+        # Use the provided audio file directly
                 
         # Use provided language or fall back to instance language
         use_language = language or self.language

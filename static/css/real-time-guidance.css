@@ -1,0 +1,393 @@
+/* Real-time Guidance Panel Styles */
+
+.guidance-panel {
+  font-size: 14px;
+  line-height: 1.4;
+  transform: translateY(0);
+}
+
+.guidance-panel.collapsed .guidance-content {
+  display: none;
+}
+
+.guidance-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+  color: white;
+  border-radius: 12px 12px 0 0;
+}
+
+.guidance-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.guidance-title i {
+  font-size: 16px;
+  opacity: 0.9;
+}
+
+.guidance-toggle {
+  background: none;
+  border: none;
+  color: white;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  transition: background-color 0.2s ease;
+}
+
+.guidance-toggle:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.guidance-toggle i {
+  font-size: 12px;
+  transition: transform 0.2s ease;
+}
+
+.guidance-content {
+  padding: 0;
+  max-height: 350px;
+  overflow-y: auto;
+}
+
+/* Suggestions Section */
+.guidance-suggestions {
+  padding: 16px;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.suggestion-item {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  border-left: 4px solid #e5e7eb;
+  background: #f9fafb;
+  transition: all 0.2s ease;
+}
+
+.suggestion-item:last-child {
+  margin-bottom: 0;
+}
+
+.suggestion-item.priority-high {
+  border-left-color: #ef4444;
+  background: #fef2f2;
+}
+
+.suggestion-item.priority-medium {
+  border-left-color: #f59e0b;
+  background: #fffbeb;
+}
+
+.suggestion-item.priority-low {
+  border-left-color: #3b82f6;
+  background: #eff6ff;
+}
+
+.suggestion-icon {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.suggestion-item.priority-high .suggestion-icon {
+  color: #ef4444;
+}
+
+.suggestion-item.priority-medium .suggestion-icon {
+  color: #f59e0b;
+}
+
+.suggestion-item.priority-low .suggestion-icon {
+  color: #3b82f6;
+}
+
+.suggestion-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.suggestion-title {
+  font-weight: 600;
+  color: #111827;
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+
+.suggestion-message {
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 1.4;
+  margin-bottom: 8px;
+}
+
+.suggestion-action {
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.suggestion-action.btn-primary {
+  background: #2563eb;
+  color: white;
+}
+
+.suggestion-action.btn-primary:hover {
+  background: #1d4ed8;
+}
+
+/* No Suggestions State */
+.no-suggestions {
+  text-align: center;
+  padding: 24px 16px;
+  color: #6b7280;
+}
+
+.no-suggestions i {
+  font-size: 32px;
+  color: #10b981;
+  margin-bottom: 12px;
+  display: block;
+}
+
+.no-suggestions p {
+  margin: 0;
+  font-size: 14px;
+}
+
+/* Progress Section */
+.guidance-progress {
+  padding: 16px;
+}
+
+.progress-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  transition: all 0.2s ease;
+}
+
+.progress-item i {
+  font-size: 12px;
+  color: #d1d5db;
+  transition: color 0.2s ease;
+}
+
+.progress-item.completed i {
+  color: #10b981;
+}
+
+.progress-item span {
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.progress-item.completed span {
+  color: #374151;
+  font-weight: 500;
+}
+
+/* Guidance Highlight Effect */
+.guidance-highlight {
+  animation: guidance-pulse 2s ease-in-out;
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3) !important;
+}
+
+@keyframes guidance-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.2);
+  }
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .guidance-panel {
+    width: calc(100vw - 40px);
+    max-width: 320px;
+    bottom: 80px; /* Account for mobile browsers */
+  }
+}
+
+@media (max-width: 480px) {
+  .guidance-panel {
+    left: 20px;
+    right: 20px;
+    width: auto;
+    bottom: 20px;
+  }
+
+  .suggestion-item {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .suggestion-icon {
+    align-self: flex-start;
+  }
+}
+
+/* Dark Theme Support */
+@media (prefers-color-scheme: dark) {
+  .guidance-panel {
+    background: #1f2937;
+    border-color: #374151;
+    color: #f9fafb;
+  }
+
+  .guidance-header {
+    background: linear-gradient(135deg, #1e40af, #1d4ed8);
+  }
+
+  .guidance-suggestions {
+    border-color: #374151;
+  }
+
+  .suggestion-item {
+    background: #374151;
+    border-left-color: #4b5563;
+  }
+
+  .suggestion-item.priority-high {
+    background: #422006;
+    border-left-color: #dc2626;
+  }
+
+  .suggestion-item.priority-medium {
+    background: #451a03;
+    border-left-color: #d97706;
+  }
+
+  .suggestion-item.priority-low {
+    background: #1e3a8a;
+    border-left-color: #2563eb;
+  }
+
+  .suggestion-icon {
+    background: #4b5563;
+  }
+
+  .suggestion-title {
+    color: #f9fafb;
+  }
+
+  .suggestion-message {
+    color: #d1d5db;
+  }
+
+  .no-suggestions {
+    color: #9ca3af;
+  }
+
+  .progress-item span {
+    color: #9ca3af;
+  }
+
+  .progress-item.completed span {
+    color: #f3f4f6;
+  }
+}
+
+/* High Contrast Mode */
+@media (prefers-contrast: high) {
+  .guidance-panel {
+    border: 2px solid #000;
+  }
+
+  .suggestion-item {
+    border-left-width: 6px;
+  }
+
+  .suggestion-action {
+    border: 1px solid;
+  }
+}
+
+/* Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+  .guidance-panel,
+  .suggestion-item,
+  .guidance-toggle i,
+  .progress-item,
+  .guidance-highlight {
+    transition: none;
+    animation: none;
+  }
+}
+
+/* Animation for panel entrance */
+@keyframes slideInFromRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.guidance-panel {
+  animation: slideInFromRight 0.3s ease-out;
+}
+
+/* Hover effects */
+.suggestion-item:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.progress-item:hover {
+  background: rgba(59, 130, 246, 0.05);
+  border-radius: 4px;
+}
+
+/* Focus states for accessibility */
+.guidance-toggle:focus,
+.suggestion-action:focus {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+/* Scrollbar styling */
+.guidance-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.guidance-content::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+.guidance-content::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+.guidance-content::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}

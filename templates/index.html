@@ -37,6 +37,26 @@
       href="{{ url_for('static', filename='css/errors.css') }}"
     />
     <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/ux-enhancements.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/smart-panels.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/interactive-onboarding.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/real-time-guidance.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/expandable-timeline.css') }}"
+    />
+    <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
@@ -101,14 +121,26 @@
           </h1>
         </div>
         <div class="header-right">
-          <button class="btn btn-secondary" id="loadProject">
-            <i class="fas fa-folder-open"></i> Load Project
+          <button
+            class="btn btn-secondary"
+            id="loadProject"
+            title="Load existing project (Ctrl+O)"
+          >
+            <i class="fas fa-folder-open"></i> <span>Load Project</span>
           </button>
-          <button class="btn btn-secondary" id="saveProject">
-            <i class="fas fa-save"></i> Save Project
+          <button
+            class="btn btn-secondary"
+            id="saveProject"
+            title="Save current project (Ctrl+S)"
+          >
+            <i class="fas fa-save"></i> <span>Save Project</span>
           </button>
-          <button class="btn btn-primary" id="exportVideo">
-            <i class="fas fa-download"></i> Export MP4
+          <button
+            class="btn btn-primary"
+            id="exportVideo"
+            title="Export video file"
+          >
+            <i class="fas fa-download"></i> <span>Export MP4</span>
           </button>
         </div>
       </header>
@@ -352,13 +384,27 @@
           <!-- Action Buttons -->
           <div class="section">
             <div class="action-buttons">
-              <button class="btn btn-primary btn-lg" id="buildSequenceBtn">
-                <i class="fas fa-play"></i> Build Sequence
+              <button
+                class="btn btn-primary btn-lg"
+                id="buildSequenceBtn"
+                title="Generate lip-sync animation (Ctrl+Enter)"
+              >
+                <i class="fas fa-play"></i>
+                <span>Build Sequence</span>
+                <small class="keyboard-hint">Ctrl+Enter</small>
               </button>
-              <button class="btn btn-secondary" id="previewBtn">
+              <button
+                class="btn btn-secondary"
+                id="previewBtn"
+                title="Preview current animation (Space)"
+              >
                 <i class="fas fa-eye"></i> Preview
               </button>
-              <button class="btn btn-outline" id="testModeBtn">
+              <button
+                class="btn btn-outline"
+                id="testModeBtn"
+                title="Test with sample data"
+              >
                 <i class="fas fa-flask"></i> Test Mode
               </button>
             </div>
@@ -418,6 +464,35 @@
                 <i class="fas fa-stop"></i>
               </button>
               <span class="timeline-info" id="timelineInfo">0 frames</span>
+              <div class="timeline-size-controls">
+                <button
+                  class="btn btn-outline btn-xs"
+                  id="timelineExpandBtn"
+                  title="Expand Timeline"
+                >
+                  <i class="fas fa-expand-arrows-alt"></i>
+                </button>
+                <button
+                  class="btn btn-outline btn-xs"
+                  id="timelineCollapseBtn"
+                  title="Collapse Timeline"
+                  style="display: none"
+                >
+                  <i class="fas fa-compress-arrows-alt"></i>
+                </button>
+                <div class="timeline-height-slider">
+                  <input
+                    type="range"
+                    id="timelineHeightSlider"
+                    min="200"
+                    max="600"
+                    value="300"
+                    step="50"
+                    title="Timeline Height"
+                  />
+                  <span class="slider-label">Height</span>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -464,14 +539,23 @@
           </div>
 
           <!-- Timeline -->
-          <div class="timeline-container">
-            <div class="timeline-header">
-              <div class="timeline-scrubber" id="timelineScrubber">
-                <div class="scrubber-handle" id="scrubberHandle"></div>
+          <div class="timeline-container" id="timelineContainer">
+            <div class="timeline-resize-handle" id="timelineResizeHandle">
+              <div class="resize-handle-grip">
+                <i class="fas fa-grip-lines"></i>
               </div>
             </div>
-            <div class="timeline-frames" id="timelineFrames">
-              <!-- Timeline frames will be populated by JavaScript -->
+            <div class="timeline-content" id="timelineContent">
+              <div class="timeline-header">
+                <div class="timeline-scrubber" id="timelineScrubber">
+                  <div class="scrubber-handle" id="scrubberHandle"></div>
+                </div>
+              </div>
+              <div class="timeline-frames-wrapper" id="timelineFramesWrapper">
+                <div class="timeline-frames" id="timelineFrames">
+                  <!-- Timeline frames will be populated by JavaScript -->
+                </div>
+              </div>
             </div>
           </div>
 
@@ -575,6 +659,8 @@
     <script src="{{ url_for('static', filename='js/keyboard_navigation.js') }}"></script>
     <script src="{{ url_for('static', filename='js/debug_audio.js') }}"></script>
     <script src="{{ url_for('static', filename='js/export_validation.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/ux-enhancements.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/smart-panels.js') }}"></script>
 
     <script>
       // Initialize the application after DOM is fully loaded
@@ -632,9 +718,24 @@
             })();
           } catch (error) {
             console.error("Error initializing Face Sequencer App:", error);
+            // Show user-friendly error message
+            const errorMsg = document.createElement("div");
+            errorMsg.style.cssText =
+              "position: fixed; top: 20px; right: 20px; background: #dc2626; color: white; padding: 15px; border-radius: 8px; z-index: 10000; max-width: 400px;";
+            errorMsg.innerHTML = `
+              <h4 style="margin: 0 0 8px 0;">App Initialization Error</h4>
+              <p style="margin: 0; font-size: 14px;">${error.message}</p>
+              <button onclick="location.reload()" style="margin-top: 10px; background: #991b1b; border: none; color: white; padding: 5px 10px; border-radius: 4px; cursor: pointer;">Reload Page</button>
+            `;
+            document.body.appendChild(errorMsg);
+            setTimeout(() => errorMsg.remove(), 10000);
           }
         }, 100); // Small delay to ensure DOM is fully ready
       });
     </script>
+    <script src="{{ url_for('static', filename='js/interactive-onboarding.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/real-time-guidance.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/expandable-timeline.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/timeline-integration.js') }}"></script>
   </body>
 </html>
