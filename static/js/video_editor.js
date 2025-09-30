@@ -18,6 +18,8 @@ class VideoEditorModule extends EventTarget {
     // Snapping configuration
     this._snapThresholdMs = 120;
     this._frameRate = 30;
+  this._frameSnapStep = 10; // default: consider every 10 frames for visual markers
+  this._snappingEnabled = true;
     // External audio support placeholder
     this.externalAudioBlob = null;
     // Bind shortcuts later after DOM ready
@@ -1341,6 +1343,7 @@ class VideoEditorModule extends EventTarget {
   }
 
   _maybeSnap(valueMs, frameMs, id, edge) {
+    if (!this._snappingEnabled) return valueMs;
     // snap to frame
     const frameSnap = Math.round(valueMs / frameMs) * frameMs;
     if (Math.abs(frameSnap - valueMs) < this._snapThresholdMs)
@@ -1382,7 +1385,7 @@ class VideoEditorModule extends EventTarget {
     const points = new Set();
     // Frame grid (sparser: every 10 frames)
     const frameMs = 1000/this._frameRate;
-    const frameStep = frameMs * 10;
+    const frameStep = frameMs * this._frameSnapStep;
     for (let t=0; t<= totalDuration; t+= frameStep) {
       if (Math.abs(t - activeSub.start_ms) < this._snapThresholdMs || Math.abs(t - activeSub.end_ms) < this._snapThresholdMs) {
         points.add(t);
@@ -1451,7 +1454,13 @@ class VideoEditorModule extends EventTarget {
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") {
         e.preventDefault();
         this.redo();
+      } else if (e.key === 'Alt') {
+        // Holding Alt temporarily disables snapping
+        this._snappingEnabled = false;
       }
+    });
+    window.addEventListener('keyup', (e)=>{
+      if (e.key === 'Alt') this._snappingEnabled = true;
     });
   }
 
@@ -1477,6 +1486,7 @@ class VideoEditorModule extends EventTarget {
   }
 
   deleteSubtitle(id) {
+    this._pushHistory();
     this.subtitles = this.subtitles.filter((s) => s.id !== id);
     this.renderSubtitleTimeline();
     this.renderSubtitleSegments();
@@ -1641,7 +1651,6 @@ class VideoEditorModule extends EventTarget {
     // Create overlay container if it doesn't exist
     let overlay = document.getElementById("subtitleOverlay");
     if (!overlay) {
-      overlay = document.createElement("div");
       overlay.id = "subtitleOverlay";
       overlay.className = "subtitle-overlay";
 
@@ -1668,9 +1677,7 @@ class VideoEditorModule extends EventTarget {
   updateSubtitleOverlay(overlay) {
     if (!this.videoPreview || !overlay) return;
 
-    const currentTime = this.videoPreview.currentTime * 1000; // Convert to ms
-
-    // Find current subtitle
+    const currentTime = this.videoPreview.currentTime * 1000; // ms
     const currentSubtitle = this.subtitles.find(
       (s) => currentTime >= s.start_ms && currentTime <= s.end_ms
     );
@@ -1706,7 +1713,6 @@ class VideoEditorModule extends EventTarget {
   }
 
   _computeDynamicVerticalPosition(style) {
-    // Simple heuristic: if controls bar (e.g., with class .video-controls) overlaps bottom 25%, lift subtitles
     const controls = document.querySelector(
       ".video-controls, .player-controls"
     );
@@ -1724,7 +1730,6 @@ class VideoEditorModule extends EventTarget {
   }
 
   _formatSubtitleLines(text, style) {
-    // Basic intelligent wrapping: split by spaces trying to keep lines balanced
     if (!text) return "";
     const words = text.split(/\s+/);
     if (words.length <= 6) return this._escapeHtml(text);
@@ -1745,17 +1750,13 @@ class VideoEditorModule extends EventTarget {
   }
 
   _escapeHtml(str) {
-    return str.replace(
-      /[&<>"']/g,
-      (c) =>
-        ({
-          "&": "&amp;",
-          "<": "&lt;",
-          ">": "&gt;",
-          '"': "&quot;",
-          "'": "&#39;",
-        }[c])
-    );
+    return str.replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;",
+    }[c]));
   }
 
   hexToRgba(hex, alpha) {
