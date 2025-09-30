@@ -20,7 +20,7 @@ class VideoEditorModule extends EventTarget {
     this._frameRate = 30;
   this._frameSnapStep = 10; // default: consider every 10 frames for visual markers
   this._snappingEnabled = true;
-    this._showFrameGrid = true;
+  this._showFrameGrid = true; // will be overridden by persisted value if present
     this._snapTooltip = null;
     // Restore persisted snap step if available
     try {
@@ -717,31 +717,39 @@ class VideoEditorModule extends EventTarget {
       typeof EnhancedSubtitleTimeline !== "undefined" &&
       this.subtitleTimeline
     ) {
-      try {
-        this.enhancedTimeline = new EnhancedSubtitleTimeline(
-          this.subtitleTimeline,
-          this
-        );
+      if (!this.enhancedTimeline) {
+        try {
+          this.enhancedTimeline = new EnhancedSubtitleTimeline(
+            this.subtitleTimeline,
+            this
+          );
 
-        // Listen for timeline events
-        this.enhancedTimeline.addEventListener("segmentUpdated", (e) => {
-          this.handleSegmentUpdate(e.detail);
-        });
+          this.enhancedTimeline.addEventListener("segmentUpdated", (e) => {
+            this.handleSegmentUpdate(e.detail);
+          });
 
-        this.enhancedTimeline.addEventListener("segmentDeleted", (e) => {
-          this.handleSegmentDelete(e.detail);
-        });
+          this.enhancedTimeline.addEventListener("segmentDeleted", (e) => {
+            this.handleSegmentDelete(e.detail);
+          });
 
-        this.enhancedTimeline.addEventListener("autoAlignRequested", () => {
-          this.autoAlignSubtitles();
-        });
+          this.enhancedTimeline.addEventListener("autoAlignRequested", () => {
+            this.autoAlignSubtitles();
+          });
 
-        console.log("✨ Enhanced subtitle timeline initialized");
-      } catch (error) {
-        console.warn("Enhanced timeline initialization failed:", error);
-        this.enhancedTimeline = null;
+          this.enhancedTimeline.addEventListener(
+            "optimizationRequested",
+            () => this.optimizeCurrentSubtitles()
+          );
+
+          console.log("✨ Enhanced subtitle timeline initialized");
+        } catch (error) {
+          console.warn("Enhanced timeline initialization failed:", error);
+          this.enhancedTimeline = null;
+        }
       }
+      return !!this.enhancedTimeline;
     }
+    return false;
   }
 
   handleSegmentUpdate(detail) {
@@ -1575,6 +1583,21 @@ class VideoEditorModule extends EventTarget {
       } else if (e.key === 'Alt') {
         // Holding Alt temporarily disables snapping
         this._snappingEnabled = false;
+      } else if (!e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'f') {
+        this._showFrameGrid = !this._showFrameGrid;
+        try { localStorage.setItem('showFrameGrid', this._showFrameGrid ? '1':'0'); } catch(err) {}
+        this.app?.showStatus?.(this._showFrameGrid ? 'Frame grid ON' : 'Frame grid OFF');
+        if (this._snapLayer) this._clearSnapMarkers();
+      } else if (e.shiftKey && (e.key === '.' || e.key === '>')) {
+        this._frameSnapStep = Math.min(this._frameSnapStep + 1, 30);
+        if (this.frameSnapStepSelect) this.frameSnapStepSelect.value = String(this._frameSnapStep);
+        try { localStorage.setItem('frameSnapStep', String(this._frameSnapStep)); } catch(err) {}
+        this.app?.showStatus?.(`Snap step: every ${this._frameSnapStep} frame(s)`);
+      } else if (e.shiftKey && (e.key === '/' || e.key === '?')) {
+        this._frameSnapStep = Math.max(this._frameSnapStep - 1, 1);
+        if (this.frameSnapStepSelect) this.frameSnapStepSelect.value = String(this._frameSnapStep);
+        try { localStorage.setItem('frameSnapStep', String(this._frameSnapStep)); } catch(err) {}
+        this.app?.showStatus?.(`Snap step: every ${this._frameSnapStep} frame(s)`);
       }
     });
     window.addEventListener('keyup', (e)=>{
