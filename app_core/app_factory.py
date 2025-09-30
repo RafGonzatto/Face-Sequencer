@@ -71,11 +71,12 @@ def create_app(test_mode: bool | None = None):
     except Exception as e:  # noqa: BLE001
         app_logger.debug(f"Streaming alignment blueprint not registered: {e}")
     try:  # pragma: no cover
-        from app_core.routes_sequence import sequence_bp  # type: ignore
-        if 'sequence' not in [bp.name for bp in app.blueprints.values()]:
-            app.register_blueprint(sequence_bp)
+        from app_core.routes_sequence import sequence_build_bp  # type: ignore
+        # Register only if our unique name not already present
+        if 'sequence_build' not in [bp.name for bp in app.blueprints.values()]:
+            app.register_blueprint(sequence_build_bp)
     except Exception as e:  # noqa: BLE001
-        app_logger.debug(f"Sequence blueprint not registered: {e}")
+        app_logger.debug(f"Sequence build blueprint not registered: {e}")
     try:  # pragma: no cover
         from app_core.routes_export import export_legacy_bp  # type: ignore
         if 'export_legacy' not in [bp.name for bp in app.blueprints.values()]:

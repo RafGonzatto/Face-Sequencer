@@ -85,7 +85,7 @@
     <script src="{{ url_for('static', filename='js/export_progress.js') }}"></script>
     <script src="{{ url_for('static', filename='js/timeline_enhancements.js') }}"></script>
     <script src="{{ url_for('static', filename='js/ErrorToast.js') }}"></script>
-  <script src="{{ url_for('static', filename='js/error_handler.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/error_handler.js') }}"></script>
   </head>
   <body>
     <!-- Accessibility Live Regions -->
@@ -102,292 +102,51 @@
       aria-atomic="true"
     ></div>
 
-    <!-- Drag & Drop Onboarding Banner -->
-    <div
-      id="dragOnboardingBanner"
-      class="drag-onboarding-banner"
-      role="status"
-      aria-hidden="true"
-      style="display: none"
-    >
-      <i class="fas fa-hand-pointer" aria-hidden="true"></i>
-      <span data-i18n-key="drag_banner_text"
-        >Drag one or multiple image files from your computer and drop them onto
-        the character tiles to map them. The first file goes to the tile you
-        drop on; the rest will auto-fill the next unmapped letters.</span
-      >
-      <button
-        type="button"
-        class="close-banner"
-        aria-label="Dismiss"
-        onclick="(function(){const b=document.getElementById('dragOnboardingBanner');if(b){b.style.display='none';b.setAttribute('aria-hidden','true'); localStorage.setItem('dragOnboardingShown','1'); const btn=document.getElementById('showDragHelpBtn'); if(btn) btn.style.display='inline-flex';}})()"
-      >
-        ×
-      </button>
+    <!-- Project / Folder Selection Panel (restored for tests expecting #folderPath, #scanFolderBtn) -->
+    <div class="panel left-panel" id="folderSelectionPanel">
+      <div class="panel-header">
+        <h2><i class="fas fa-folder-open"></i> Project Setup</h2>
+      </div>
+      <div class="section" id="imageFolderSection">
+        <h3>Image Folder</h3>
+        <p class="help-text">Select the folder containing character images</p>
+        <div class="folder-input-group" style="display:flex; gap:8px; align-items:stretch; flex-wrap:wrap;">
+          <label for="folderPath" class="visually-hidden">Image Folder Path</label>
+          <input
+            type="text"
+            id="folderPath"
+            placeholder="Enter or browse folder"
+            autocomplete="off"
+            style="flex:1; min-width:240px;"
+          />
+          <button class="btn btn-outline" id="browseFolderBtn" type="button" title="Browse for folder">
+            <i class="fas fa-folder"></i> Browse
+          </button>
+          <button class="btn btn-primary" id="scanFolderBtn" type="button" title="Scan folder for images">
+            <i class="fas fa-search"></i> Scan
+          </button>
+        </div>
+        <small class="help-text">After scanning, map characters below then build the sequence.</small>
+      </div>
+
+      <div class="section" id="textInputSection">
+        <h3>Input Text</h3>
+        <textarea
+          id="textInput"
+          rows="3"
+          placeholder="Type the text for the lip-sync sequence"
+          style="width:100%; resize:vertical;"
+        ></textarea>
+      </div>
+
+      <div class="section" id="exportActionsSection">
+        <h3>Export</h3>
+        <button class="btn btn-outline" id="exportVideo" type="button" title="Open export modal">
+          <i class="fas fa-file-export"></i> Export Video
+        </button>
+      </div>
     </div>
-    <div class="app-container">
-      <!-- Header -->
-      <header class="app-header">
-        <div class="header-left">
-          <h1 class="app-title">
-            <i class="fas fa-video"></i>
-            Face Sequencer Pro
-          </h1>
-        </div>
-        <div class="header-center">
-          <div class="mode-switcher">
-            <button
-              class="mode-btn active"
-              id="faceAnimationMode"
-              data-mode="face-animation"
-              title="Face Animation Mode"
-            >
-              <i class="fas fa-user"></i>
-              <span>Face Animation</span>
-            </button>
-            <button
-              class="mode-btn"
-              id="videoEditorMode"
-              data-mode="video-editor"
-              title="Video Editor with Subtitles"
-              onclick="console.log('🔴 BUTTON CLICKED DIRECTLY!'); window.testVideoEditorToggle();"
-            >
-              <i class="fas fa-film"></i>
-              <span>Video Editor</span>
-            </button>
-          </div>
-        </div>
-        <div class="header-right">
-          <button
-            class="btn btn-secondary"
-            id="loadProject"
-            title="Load existing project (Ctrl+O)"
-          >
-            <i class="fas fa-folder-open"></i> <span>Load Project</span>
-          </button>
-          <button
-            class="btn btn-secondary"
-            id="saveProject"
-            title="Save current project (Ctrl+S)"
-          >
-            <i class="fas fa-save"></i> <span>Save Project</span>
-          </button>
-          <button
-            class="btn btn-primary"
-            id="exportVideo"
-            title="Export video file"
-          >
-            <i class="fas fa-download"></i> <span>Export MP4</span>
-          </button>
-        </div>
-      </header>
 
-      <!-- Main Content Area -->
-      <div class="main-content active" id="faceAnimationInterface">
-        <!-- Left Panel - Input & Configuration -->
-        <div class="panel left-panel">
-          <div class="panel-header">
-            <h2><i class="fas fa-cogs"></i> Configuration</h2>
-          </div>
-
-          <!-- Text Input Section -->
-          <div class="section">
-            <h3>Text Input</h3>
-            <div class="input-group">
-              <textarea
-                id="textInput"
-                placeholder="Enter your text here..."
-                class="text-area"
-                rows="4"
-              ></textarea>
-              <div class="text-stats">
-                <span id="charCount">0 characters</span>
-                <span id="mappingStatus" class="mapping-status">Ready</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- UI Language Selection -->
-          <div class="section">
-            <h3>
-              <span data-i18n-key="ui_language_heading"
-                >Interface Language</span
-              >
-            </h3>
-            <div class="input-group">
-              <select id="uiLanguageSelect" aria-label="Interface Language">
-                <option value="en">English</option>
-                <option value="pt-BR">Português (Brasil)</option>
-              </select>
-            </div>
-          </div>
-
-          <!-- Image Folder Section -->
-          <div class="section">
-            <h3>Image Source</h3>
-            <div class="input-group">
-              <div class="folder-input">
-                <input
-                  type="text"
-                  id="folderPath"
-                  placeholder="Enter folder path or browse..."
-                />
-                <button
-                  class="btn btn-outline browse-btn"
-                  id="browseFolderBtn"
-                  data-action="browse_folder"
-                >
-                  <i class="fas fa-folder"></i> Browse
-                </button>
-              </div>
-              <button class="btn btn-primary btn-sm" id="scanFolderBtn">
-                <i class="fas fa-sync"></i> Scan Folder
-              </button>
-            </div>
-          </div>
-
-          <!-- Audio Upload Section -->
-          <div class="section">
-            <h3>Audio Input</h3>
-            <div class="input-group">
-              <div class="audio-upload-container" id="audioUpload">
-                <input
-                  type="file"
-                  id="audioFileInput"
-                  accept=".mp3,.wav,.ogg,.flac,.m4a"
-                  class="file-input"
-                />
-                <label for="audioFileInput" class="file-input-label">
-                  <i class="fas fa-music"></i>
-                  <span>Choose Audio File</span>
-                </label>
-                <span id="selectedAudioFile" class="selected-file"
-                  >No file selected</span
-                >
-              </div>
-              <button class="btn btn-primary btn-sm" id="uploadAudioBtn">
-                <i class="fas fa-upload"></i> Upload Audio
-              </button>
-            </div>
-            <div class="timing-toggle">
-              <span>Timing Mode:</span>
-              <div class="toggle-switch">
-                <input
-                  type="checkbox"
-                  id="timingModeToggle"
-                  class="toggle-input"
-                />
-                <label for="timingModeToggle" class="toggle-label">
-                  <span class="toggle-option">Manual</span>
-                  <span class="toggle-option">Audio-driven</span>
-                </label>
-              </div>
-            </div>
-
-            <div class="input-group" style="margin-top: 8px">
-              <label class="checkbox">
-                <input type="checkbox" id="audioTextDrivenToggle" />
-                <span>Audio-only timing (use text letters)</span>
-              </label>
-              <small class="help-text"
-                >Usa o áudio apenas para o tempo; os quadros são gerados pelas
-                letras/tokens do texto.</small
-              >
-            </div>
-          </div>
-
-          <!-- Animation Settings -->
-          <div class="section">
-            <h3>Animation Settings</h3>
-            <div class="settings-grid">
-              <div class="setting-item">
-                <label for="frameDuration">Frame Duration (ms)</label>
-                <input
-                  type="number"
-                  id="frameDuration"
-                  value="80"
-                  min="1"
-                  max="1000"
-                />
-              </div>
-              <div class="setting-item">
-                <label for="pauseDuration">Pause Duration (ms)</label>
-                <input
-                  type="number"
-                  id="pauseDuration"
-                  value="120"
-                  min="0"
-                  max="2000"
-                />
-              </div>
-              <div class="setting-item">
-                <label for="fps">FPS</label>
-                <input type="number" id="fps" value="30" min="1" max="60" />
-              </div>
-              <div class="setting-item">
-                <label for="quality">Quality (CRF)</label>
-                <input type="number" id="quality" value="14" min="0" max="30" />
-              </div>
-            </div>
-
-            <!-- Enhanced Audio Alignment Settings -->
-            <div
-              class="enhanced-alignment-settings"
-              id="enhancedAlignmentSettings"
-              style="margin-top: 15px"
-            >
-              <h4><i class="fas fa-magic"></i> Enhanced Audio Alignment</h4>
-              <p class="help-text">
-                Advanced alignment features for improved synchronization
-              </p>
-
-              <div class="settings-grid">
-                <div class="setting-item">
-                  <label class="checkbox-label">
-                    <input type="checkbox" id="useEnhancedAlignment" />
-                    <span>Enable Enhanced Alignment</span>
-                  </label>
-                  <small class="help-text"
-                    >Use advanced algorithms for better lip-sync accuracy</small
-                  >
-                </div>
-
-                <div class="setting-item" id="alignmentMethodContainer">
-                  <label for="alignmentMethod">Alignment Method</label>
-                  <select id="alignmentMethod">
-                    <option value="auto">Auto (Recommended)</option>
-                    <option value="wav2vec2">Wav2Vec2 (Transformer)</option>
-                    <option value="whisper">Whisper (Fallback)</option>
-                  </select>
-                </div>
-
-                <div class="setting-item" id="targetFpsContainer">
-                  <label for="targetFps">Target FPS for Sync</label>
-                  <input
-                    type="number"
-                    id="targetFps"
-                    value="30"
-                    min="24"
-                    max="60"
-                  />
-                  <small class="help-text"
-                    >Frame rate for sub-frame synchronization</small
-                  >
-                </div>
-              </div>
-
-              <div
-                class="enhancement-status"
-                id="enhancementStatus"
-                style="margin-top: 10px"
-              >
-                <small
-                  ><i class="fas fa-info-circle"></i> Checking enhanced features
-                  availability...</small
-                >
-              </div>
-            </div>
-          </div>
 
           <!-- Fallback Image -->
           <div class="section">
