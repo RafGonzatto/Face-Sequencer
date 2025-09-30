@@ -1210,6 +1210,21 @@ class VideoEditorModule extends EventTarget {
           const reader = resp.body.getReader();
           const decoder = new TextDecoder();
           let buffer='';
+          let jobId=null;
+          this.partialTokens = [];
+          const updatePhase = (ev, data) => {
+            if(progressCallback){
+              const phaseMap = { start:'Iniciando', precheck:'Verificando', load_audio:'Carregando áudio', decode:'Decodificando', transcribe:'Transcrevendo', tokens_partial:'Transcrevendo', align:'Alinhando', enhance:'Aprimorando', build_sequence:'Finalizando', complete:'Concluído', cancelled:'Cancelado', heartbeat:'Processando' };
+              let label = phaseMap[ev] || ev;
+              const pct = data && typeof data.progress_percent === 'number' ? data.progress_percent : null;
+              if(pct!=null) label += ` (${pct}%)`;
+              progressCallback(label);
+            }
+            // Overlay progress bar (reuse UploadProgress for simplicity)
+            if(data && typeof data.progress_percent === 'number'){
+              window.UploadProgress?.updateProgress(data.progress_percent, this.videoPreview?.parentElement);
+            }
+          };
           const parseChunk = () => reader.read().then(({done, value})=>{
             if(done){ return; }
             buffer += decoder.decode(value, {stream:true});
@@ -1220,14 +1235,25 @@ class VideoEditorModule extends EventTarget {
               try {
                 const json = JSON.parse(part.slice(5).trim());
                 const ev = json.event; const data = json.data;
-                if(progressCallback){
-                  const phaseMap = { start:'Iniciando', precheck:'Verificando', load_audio:'Carregando áudio', decode:'Decodificando', transcribe:'Transcrevendo', align:'Alinhando', enhance:'Aprimorando', build_sequence:'Finalizando', complete:'Concluído' };
-                  progressCallback(phaseMap[ev] || ev);
+                if(ev==='error'){ window.ApiError?.handle({ success:false, ...data }); }
+                if(data && data.job_id && !jobId) jobId = data.job_id;
+                updatePhase(ev, data);
+                if(ev==='tokens_partial' || ev==='transcribe'){
+                  if(data && data.token_chunk){
+                    this.partialTokens.push(...data.token_chunk);
+                    // Could update a live preview component here
+                  }
+                }
+                if(ev==='cancelled'){
+                  reject(new Error('Generation cancelled'));
+                  return;
                 }
                 if(ev==='complete'){
                   resolve({ alignment: data.alignment || data.result?.data?.alignment || data });
+                  return;
                 } else if(ev==='error'){
                   reject(new Error(data?.error || 'Streaming alignment error'));
+                  return;
                 }
               } catch(e){ console.warn('SSE chunk parse error', e); }
             }

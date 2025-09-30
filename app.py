@@ -1760,10 +1760,25 @@ def align_audio_enhanced_stream():  # pragma: no cover - streaming path
     from flask import Response, stream_with_context
     import json, datetime
 
+    PHASE_WEIGHTS = {
+        'start': 0,
+        'precheck': 5,
+        'load_audio': 10,
+        'decode': 25,
+        'transcribe': 55,
+        'align': 75,
+        'enhance': 85,
+        'build_sequence': 95,
+        'complete': 100,
+    }
+    ACTIVE_ALIGNMENT_JOBS: dict[str, dict] = getattr(app, '_active_alignment_jobs', {})  # type: ignore[attr-defined]
+    setattr(app, '_active_alignment_jobs', ACTIVE_ALIGNMENT_JOBS)
+
     def _event(phase: str, data: dict | None = None):
+        pct = PHASE_WEIGHTS.get(phase, min(PHASE_WEIGHTS.values()))
         payload = {
             'event': phase,
-            'data': data or {},
+            'data': {**(data or {}), 'progress_percent': pct},
             'timestamp': datetime.datetime.utcnow().isoformat() + 'Z'
         }
         return f"data: {json.dumps(payload)}\n\n"
@@ -1771,7 +1786,11 @@ def align_audio_enhanced_stream():  # pragma: no cover - streaming path
     @stream_with_context
     def generate():  # noqa: PLR0912 - linear phase emission
         try:
-            yield _event('start', {'message': 'Enhanced alignment starting'})
+            import time, uuid
+            job_id = f"aln_{uuid.uuid4().hex[:10]}"
+            ACTIVE_ALIGNMENT_JOBS[job_id] = {'cancel': False, 'started': time.time()}
+            last_heartbeat = time.time()
+            yield _event('start', {'message': 'Enhanced alignment starting', 'job_id': job_id})
             # Basic JSON body
             data = request.get_json(silent=True) or {}
             audio_filename = data.get('filename')
@@ -1780,6 +1799,9 @@ def align_audio_enhanced_stream():  # pragma: no cover - streaming path
             fps = float(data.get('fps', 30.0))
             method = data.get('method', 'auto')
             yield _event('precheck', {'enhanced_available': ENHANCED_ALIGNMENT_AVAILABLE, 'audio_alignment_available': AUDIO_ALIGNMENT_AVAILABLE})
+            if ACTIVE_ALIGNMENT_JOBS[job_id]['cancel']:
+                yield _event('cancelled', {'job_id': job_id, 'phase': 'precheck'})
+                return
             if not AUDIO_ALIGNMENT_AVAILABLE:
                 raise AlignmentError('Audio alignment system not available', details={'phase': 'precheck'})
             if not audio_filename:
@@ -1799,9 +1821,14 @@ def align_audio_enhanced_stream():  # pragma: no cover - streaming path
                 with app.test_request_context(json={'filename': audio_filename, 'text': text, 'language': language, 'fps': fps, 'method': method}):
                     standard_resp = align_audio()
                 yield _event('complete', {'fallback': True, 'result': standard_resp.get_json() if hasattr(standard_resp, 'get_json') else None})
+                ACTIVE_ALIGNMENT_JOBS.pop(job_id, None)
                 return
             # Begin enhanced phases
-            yield _event('decode', {'message': 'Decoding & preparing models'})
+            if ACTIVE_ALIGNMENT_JOBS[job_id]['cancel']:
+                yield _event('cancelled', {'job_id': job_id, 'phase': 'decode'})
+                ACTIVE_ALIGNMENT_JOBS.pop(job_id, None)
+                return
+            yield _event('decode', {'message': 'Decoding & preparing models', 'job_id': job_id})
             # Actual call
             try:
                 alignment_result, timeline, frame_states = aligner.align_audio_to_text_enhanced(
@@ -1809,8 +1836,50 @@ def align_audio_enhanced_stream():  # pragma: no cover - streaming path
                 )
             except Exception as dec_err:  # noqa: BLE001
                 raise AlignmentError(f'Enhanced alignment failed early: {dec_err}', details={'phase': 'decode'})
-            yield _event('transcribe', {'message': 'Transcribing & tokenizing', 'tokens': len(getattr(alignment_result, 'tokens', []) or [])})
-            yield _event('align', {'message': 'Refining alignment', 'language': getattr(alignment_result, 'language', language)})
+            # Heartbeat check mid stream
+            def _heartbeat():
+                nonlocal last_heartbeat
+                now = time.time()
+                if now - last_heartbeat > 8:
+                    last_heartbeat = now
+                    return True
+                return False
+
+            tokens_full = getattr(alignment_result, 'tokens', []) or []
+            # Emit partial token chunks while "transcribe" phase (simulate incremental reveal)
+            chunk_size = 40
+            for i in range(0, len(tokens_full), chunk_size):
+                if ACTIVE_ALIGNMENT_JOBS[job_id]['cancel']:
+                    yield _event('cancelled', {'job_id': job_id, 'phase': 'transcribe'})
+                    ACTIVE_ALIGNMENT_JOBS.pop(job_id, None)
+                    return
+                subset = tokens_full[i:i+chunk_size]
+                subset_json = [
+                    {
+                        'type': t.type.value,
+                        'text': t.text,
+                        'start_ms': t.start_ms,
+                        'end_ms': t.end_ms,
+                        'confidence': t.confidence,
+                        'lang': t.lang,
+                    } for t in subset
+                ]
+                phase_evt = 'transcribe' if i == 0 else 'tokens_partial'
+                yield _event(phase_evt, {
+                    'message': 'Transcribing & tokenizing' if i == 0 else 'More tokens',
+                    'chunk_index': i // chunk_size,
+                    'token_chunk': subset_json,
+                    'sent_tokens': min(i+chunk_size, len(tokens_full)),
+                    'total_tokens': len(tokens_full),
+                    'job_id': job_id
+                })
+                if _heartbeat():
+                    yield _event('heartbeat', {'job_id': job_id, 'uptime_ms': int((time.time()-ACTIVE_ALIGNMENT_JOBS[job_id]['started'])*1000)})
+            if ACTIVE_ALIGNMENT_JOBS[job_id]['cancel']:
+                yield _event('cancelled', {'job_id': job_id, 'phase': 'align'})
+                ACTIVE_ALIGNMENT_JOBS.pop(job_id, None)
+                return
+            yield _event('align', {'message': 'Refining alignment', 'language': getattr(alignment_result, 'language', language), 'job_id': job_id})
             # Build JSON friendly result (reuse existing logic/lightweight duplicate)
             tokens_json = [
                 {
@@ -1824,7 +1893,11 @@ def align_audio_enhanced_stream():  # pragma: no cover - streaming path
                     'duration_ms': t.end_ms - t.start_ms
                 } for t in getattr(alignment_result, 'tokens', [])
             ]
-            yield _event('enhance', {'message': 'Applying enhancement & frame states'})
+            if ACTIVE_ALIGNMENT_JOBS[job_id]['cancel']:
+                yield _event('cancelled', {'job_id': job_id, 'phase': 'enhance'})
+                ACTIVE_ALIGNMENT_JOBS.pop(job_id, None)
+                return
+            yield _event('enhance', {'message': 'Applying enhancement & frame states', 'job_id': job_id})
             frame_states_json = [
                 {
                     'frame_number': fs.frame_number,
@@ -1849,14 +1922,32 @@ def align_audio_enhanced_stream():  # pragma: no cover - streaming path
                 },
                 'total_duration_ms': getattr(getattr(alignment_result, 'stats', None), 'audio_ms', None)
             }
-            yield _event('build_sequence', {'message': 'Finalizing sequence', 'token_count': len(tokens_json)})
-            yield _event('complete', {'success': True, 'alignment': result_dict})
+            if ACTIVE_ALIGNMENT_JOBS[job_id]['cancel']:
+                yield _event('cancelled', {'job_id': job_id, 'phase': 'build_sequence'})
+                ACTIVE_ALIGNMENT_JOBS.pop(job_id, None)
+                return
+            yield _event('build_sequence', {'message': 'Finalizing sequence', 'token_count': len(tokens_json), 'job_id': job_id})
+            yield _event('complete', {'success': True, 'alignment': result_dict, 'job_id': job_id})
+            ACTIVE_ALIGNMENT_JOBS.pop(job_id, None)
         except AlignmentError as ae:  # noqa: BLE001
             yield _event('error', {'error': str(ae), 'details': getattr(ae, 'details', {}), 'error_type': 'alignment_error'})
         except Exception as e:  # noqa: BLE001
             yield _event('error', {'error': str(e), 'error_type': 'unexpected_error'})
 
     return Response(generate(), mimetype='text/event-stream')
+
+@app.route('/api/audio/align-enhanced/cancel', methods=['POST'])
+def cancel_alignment_stream():  # pragma: no cover - simple control
+    try:
+        data = request.get_json(silent=True) or {}
+        job_id = data.get('job_id')
+        ACTIVE_ALIGNMENT_JOBS: dict[str, dict] = getattr(app, '_active_alignment_jobs', {})  # type: ignore[attr-defined]
+        if job_id in ACTIVE_ALIGNMENT_JOBS:
+            ACTIVE_ALIGNMENT_JOBS[job_id]['cancel'] = True
+            return jsonify(success_response('Cancellation requested', job_id=job_id))
+        return jsonify(error_response('Job not found', error_type='not_found', status=404)), 404
+    except Exception as e:  # noqa: BLE001
+        return jsonify(error_response(str(e), error_type='unexpected_error', status=500)), 500
 
 def validate_and_correct_frame_timing(frame_states, audio_duration_ms=None, fps=30.0):
     """
