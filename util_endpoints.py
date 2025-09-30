@@ -1,10 +1,12 @@
 """Utility / demo endpoints blueprint.
 
-This isolates utility routes from early import-time side-effects in app.py.
+Isolates lightweight utility routes from early import-time side-effects in
+``app.py``.
 
-The v2 error demo endpoint demonstrates standardized error response contracts
-without relying on decorator mutation. A legacy /api/util/error-demo route is
-retained and delegates to the v2 implementation for backward compatibility.
+The current error demo endpoint (``/api/util/error-demo-v2``) demonstrates the
+standardized error response contract. The legacy ``/api/util/error-demo`` route
+was removed after migration – keeping only a single canonical endpoint reduces
+confusion and simplifies tests.
 """
 from __future__ import annotations
 from flask import Blueprint, request, jsonify
@@ -38,11 +40,6 @@ def util_error_demo_v2():  # pragma: no cover (covered indirectly in tests)
         return _err('Explicit processing classification', 'processing_error', 422)
     ok_body = success_response('OK', mode=mode)
     return jsonify(ok_body), 200
-
-@util_bp.route('/api/util/error-demo', methods=['GET'])
-def util_error_demo_legacy():  # pragma: no cover - thin delegate
-    # Backward compatibility: delegate to v2 behavior
-    return util_error_demo_v2()
 
 __all__ = [
     'util_bp',

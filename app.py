@@ -115,6 +115,19 @@ app = Flask(
     template_folder=str(config.paths.template_folder()),
 )
 
+# Register lightweight utility blueprint early so contract tests for
+# error-demo endpoint don't depend on later large blueprint batch
+# (which can fail in minimal test environments due to optional deps).
+try:  # pragma: no cover - defensive
+    from util_endpoints import util_bp as _early_util_bp
+    if 'util' not in app.blueprints:
+        app.register_blueprint(_early_util_bp)
+except Exception as _early_util_err:  # noqa: BLE001
+    try:
+        logger.warning("Early util blueprint registration failed: %s", _early_util_err)
+    except Exception:
+        pass
+
 # Configure app error handling
 configure_app_error_handling(app)
 

@@ -9,10 +9,9 @@ import re
 ROOT = pathlib.Path(__file__).parent
 TARGET = 'AudioProcessingError'
 ALLOW_FILES = {
-    'audio_error_handling.py',  # deprecated shim retained
+    'audio_error_handling.py',  # deprecated shim retained (to be removed later)
     'audio_exceptions.py',      # mapping import guard
     '.ci_no_legacy_audio_error_check.py',  # self
-    'audio_error_adapter.py',   # mentions term only in docstring examples
 }
 pattern = re.compile(r'\bAudioProcessingError\b')
 violations = []

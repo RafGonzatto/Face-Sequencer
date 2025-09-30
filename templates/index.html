@@ -738,9 +738,25 @@
                 <button class="btn btn-sm" id="clearSubtitlesBtn" disabled>
                   <i class="fas fa-trash"></i> Clear
                 </button>
-                <div class="snap-step-control" style="display:inline-flex;align-items:center;gap:4px;margin-left:8px;">
-                  <label for="frameSnapStep" style="font-size:11px;color:#bbb;margin:0;">Snap Step</label>
-                  <select id="frameSnapStep" class="form-select form-select-sm" style="width:auto;padding:2px 4px;line-height:1.1;">
+                <div
+                  class="snap-step-control"
+                  style="
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 4px;
+                    margin-left: 8px;
+                  "
+                >
+                  <label
+                    for="frameSnapStep"
+                    style="font-size: 11px; color: #bbb; margin: 0"
+                    >Snap Step</label
+                  >
+                  <select
+                    id="frameSnapStep"
+                    class="form-select form-select-sm"
+                    style="width: auto; padding: 2px 4px; line-height: 1.1"
+                  >
                     <option value="1">1</option>
                     <option value="2">2</option>
                     <option value="5">5</option>
@@ -766,11 +782,32 @@
               id="subtitleTimelineContainer"
             >
               <div class="snapping-preferences" id="snappingPreferences">
-                <label><input type="checkbox" id="toggleSnapping" checked /> Snapping</label>
-                <label><input type="checkbox" id="toggleFrameGrid" checked /> Frame Grid</label>
-                <label><input type="checkbox" id="toggleStrictSnap" /> Strict Mode</label>
-                <label>Threshold(ms): <input type="range" min="20" max="250" value="120" id="snapThresholdRange" /></label>
-                <span class="hotkeys-hint" title="Hotkeys:\nAlt = Temp disable\nF = Toggle frame grid\nShift+. / Shift+/ = Step +/-\nStrict Mode: snaps only if delta < threshold">?</span>
+                <label
+                  ><input type="checkbox" id="toggleSnapping" checked />
+                  Snapping</label
+                >
+                <label
+                  ><input type="checkbox" id="toggleFrameGrid" checked /> Frame
+                  Grid</label
+                >
+                <label
+                  ><input type="checkbox" id="toggleStrictSnap" /> Strict
+                  Mode</label
+                >
+                <label
+                  >Threshold(ms):
+                  <input
+                    type="range"
+                    min="20"
+                    max="250"
+                    value="120"
+                    id="snapThresholdRange"
+                /></label>
+                <span
+                  class="hotkeys-hint"
+                  title="Hotkeys:\nAlt = Temp disable\nF = Toggle frame grid\nShift+. / Shift+/ = Step +/-\nStrict Mode: snaps only if delta < threshold"
+                  >?</span
+                >
               </div>
               <div class="subtitle-timeline" id="subtitleTimeline">
                 <!-- Enhanced timeline will be rendered here -->

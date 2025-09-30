@@ -18,19 +18,21 @@ class VideoEditorModule extends EventTarget {
     // Snapping configuration
     this._snapThresholdMs = 120;
     this._frameRate = 30;
-  this._frameSnapStep = 10; // default: consider every 10 frames for visual markers
-  this._snappingEnabled = true;
-  this._showFrameGrid = true; // will be overridden by persisted value if present
-  this._strictSnapMode = false;
+    this._frameSnapStep = 10; // default: consider every 10 frames for visual markers
+    this._snappingEnabled = true;
+    this._showFrameGrid = true; // will be overridden by persisted value if present
+    this._strictSnapMode = false;
     this._snapTooltip = null;
     // Restore persisted snap step if available
     try {
-      const savedStep = localStorage.getItem('frameSnapStep');
+      const savedStep = localStorage.getItem("frameSnapStep");
       if (savedStep) {
-        const parsed = parseInt(savedStep,10);
-        if (!isNaN(parsed) && parsed>0) this._frameSnapStep = parsed;
+        const parsed = parseInt(savedStep, 10);
+        if (!isNaN(parsed) && parsed > 0) this._frameSnapStep = parsed;
       }
-    } catch(e) { /* ignore */ }
+    } catch (e) {
+      /* ignore */
+    }
     // External audio support placeholder
     this.externalAudioBlob = null;
     // Bind shortcuts later after DOM ready
@@ -71,7 +73,7 @@ class VideoEditorModule extends EventTarget {
     // Subtitle elements
     this.generateSubtitlesBtn = document.getElementById("generateSubtitlesBtn");
     this.clearSubtitlesBtn = document.getElementById("clearSubtitlesBtn");
-  this.frameSnapStepSelect = document.getElementById("frameSnapStep");
+    this.frameSnapStepSelect = document.getElementById("frameSnapStep");
     this.videoTranscript = document.getElementById("videoTranscript");
     this.subtitleTimeline = document.getElementById("subtitleTimeline");
     this.segmentsList = document.getElementById("segmentsList");
@@ -165,53 +167,86 @@ class VideoEditorModule extends EventTarget {
     this.clearSubtitlesBtn?.addEventListener("click", () =>
       this.clearSubtitles()
     );
-    this.frameSnapStepSelect?.addEventListener('change', ()=>{
-      const v = parseInt(this.frameSnapStepSelect.value,10);
-      if (!isNaN(v) && v>0) {
+    this.frameSnapStepSelect?.addEventListener("change", () => {
+      const v = parseInt(this.frameSnapStepSelect.value, 10);
+      if (!isNaN(v) && v > 0) {
         this._frameSnapStep = v;
-        try { localStorage.setItem('frameSnapStep', String(v)); } catch(e) {}
-        if (this._snappingEnabled) this.app?.showStatus?.(`Snap step: every ${v} frame(s)`);
+        try {
+          localStorage.setItem("frameSnapStep", String(v));
+        } catch (e) {}
+        if (this._snappingEnabled)
+          this.app?.showStatus?.(`Snap step: every ${v} frame(s)`);
       }
     });
     // Snapping preference panel bindings
-    const toggleSnapping = document.getElementById('toggleSnapping');
-    const toggleFrameGrid = document.getElementById('toggleFrameGrid');
-    const toggleStrictSnap = document.getElementById('toggleStrictSnap');
-    const snapThresholdRange = document.getElementById('snapThresholdRange');
+    const toggleSnapping = document.getElementById("toggleSnapping");
+    const toggleFrameGrid = document.getElementById("toggleFrameGrid");
+    const toggleStrictSnap = document.getElementById("toggleStrictSnap");
+    const snapThresholdRange = document.getElementById("snapThresholdRange");
     if (toggleSnapping) {
       toggleSnapping.checked = this._snappingEnabled;
-      toggleSnapping.addEventListener('change', ()=>{
+      toggleSnapping.addEventListener("change", () => {
         this._snappingEnabled = toggleSnapping.checked;
-        this.app?.showStatus?.(this._snappingEnabled? 'Snapping ON':'Snapping OFF');
+        this.app?.showStatus?.(
+          this._snappingEnabled ? "Snapping ON" : "Snapping OFF"
+        );
       });
     }
     if (toggleFrameGrid) {
-      try { const saved = localStorage.getItem('showFrameGrid'); if (saved) this._showFrameGrid = saved==='1'; } catch(e) {}
+      try {
+        const saved = localStorage.getItem("showFrameGrid");
+        if (saved) this._showFrameGrid = saved === "1";
+      } catch (e) {}
       toggleFrameGrid.checked = this._showFrameGrid;
-      toggleFrameGrid.addEventListener('change', ()=>{
+      toggleFrameGrid.addEventListener("change", () => {
         this._showFrameGrid = toggleFrameGrid.checked;
-        try { localStorage.setItem('showFrameGrid', this._showFrameGrid? '1':'0'); } catch(e) {}
-        this.app?.showStatus?.(this._showFrameGrid? 'Frame grid ON':'Frame grid OFF');
+        try {
+          localStorage.setItem(
+            "showFrameGrid",
+            this._showFrameGrid ? "1" : "0"
+          );
+        } catch (e) {}
+        this.app?.showStatus?.(
+          this._showFrameGrid ? "Frame grid ON" : "Frame grid OFF"
+        );
         if (this._snapLayer) this._clearSnapMarkers();
       });
     }
     if (toggleStrictSnap) {
-      try { const saved = localStorage.getItem('strictSnapMode'); if (saved) this._strictSnapMode = saved==='1'; } catch(e) {}
+      try {
+        const saved = localStorage.getItem("strictSnapMode");
+        if (saved) this._strictSnapMode = saved === "1";
+      } catch (e) {}
       toggleStrictSnap.checked = this._strictSnapMode;
-      toggleStrictSnap.addEventListener('change', ()=>{
+      toggleStrictSnap.addEventListener("change", () => {
         this._strictSnapMode = toggleStrictSnap.checked;
-        try { localStorage.setItem('strictSnapMode', this._strictSnapMode? '1':'0'); } catch(e) {}
-        this.app?.showStatus?.(this._strictSnapMode? 'Strict snap ON':'Strict snap OFF');
+        try {
+          localStorage.setItem(
+            "strictSnapMode",
+            this._strictSnapMode ? "1" : "0"
+          );
+        } catch (e) {}
+        this.app?.showStatus?.(
+          this._strictSnapMode ? "Strict snap ON" : "Strict snap OFF"
+        );
       });
     }
     if (snapThresholdRange) {
-      try { const saved = localStorage.getItem('snapThresholdMs'); if (saved) { const p=parseInt(saved,10); if(!isNaN(p)) this._snapThresholdMs=p; } } catch(e) {}
+      try {
+        const saved = localStorage.getItem("snapThresholdMs");
+        if (saved) {
+          const p = parseInt(saved, 10);
+          if (!isNaN(p)) this._snapThresholdMs = p;
+        }
+      } catch (e) {}
       snapThresholdRange.value = this._snapThresholdMs;
-      snapThresholdRange.addEventListener('input', ()=>{
-        const v = parseInt(snapThresholdRange.value,10);
+      snapThresholdRange.addEventListener("input", () => {
+        const v = parseInt(snapThresholdRange.value, 10);
         if (!isNaN(v)) {
           this._snapThresholdMs = v;
-          try { localStorage.setItem('snapThresholdMs', String(v)); } catch(e) {}
+          try {
+            localStorage.setItem("snapThresholdMs", String(v));
+          } catch (e) {}
         }
       });
     }
@@ -779,9 +814,8 @@ class VideoEditorModule extends EventTarget {
             this.autoAlignSubtitles();
           });
 
-          this.enhancedTimeline.addEventListener(
-            "optimizationRequested",
-            () => this.optimizeCurrentSubtitles()
+          this.enhancedTimeline.addEventListener("optimizationRequested", () =>
+            this.optimizeCurrentSubtitles()
           );
 
           console.log("✨ Enhanced subtitle timeline initialized");
@@ -1139,18 +1173,18 @@ class VideoEditorModule extends EventTarget {
       const longGap = prevEnd !== null && token.start_ms - prevEnd > gapBreakMs;
       const needsNew =
         !currentSubtitle ||
-        (token.start_ms - currentSubtitle.start_ms > maxDuration) ||
-        (currentSubtitle.text.length + text.length + 1 > maxChars) ||
+        token.start_ms - currentSubtitle.start_ms > maxDuration ||
+        currentSubtitle.text.length + text.length + 1 > maxChars ||
         longGap;
 
       if (needsNew) {
         if (currentSubtitle) subtitles.push(currentSubtitle);
         currentSubtitle = {
           id: subtitles.length,
-            text: text,
-            start_ms: token.start_ms,
-            end_ms: token.end_ms,
-            confidence: token.confidence || 1.0,
+          text: text,
+          start_ms: token.start_ms,
+          end_ms: token.end_ms,
+          confidence: token.confidence || 1.0,
         };
       } else {
         currentSubtitle.text += " " + text;
@@ -1162,7 +1196,11 @@ class VideoEditorModule extends EventTarget {
       }
 
       // If token ends with strong punctuation and segment is sufficiently long, close subtitle early
-      if (/[,.;!?…]$/.test(text) && currentSubtitle && currentSubtitle.text.length >= minSegmentChars) {
+      if (
+        /[,.;!?…]$/.test(text) &&
+        currentSubtitle &&
+        currentSubtitle.text.length >= minSegmentChars
+      ) {
         subtitles.push(currentSubtitle);
         currentSubtitle = null;
       }
@@ -1418,11 +1456,17 @@ class VideoEditorModule extends EventTarget {
     this._lastSnapMeta = null;
     const threshold = this._snapThresholdMs;
     const strict = this._strictSnapMode;
-    const considerSnap = (candidate, type)=>{
+    const considerSnap = (candidate, type) => {
       const delta = candidate - original;
       if (Math.abs(delta) < threshold) {
         if (!strict || Math.abs(delta) < threshold) {
-          this._lastSnapMeta = { type, edge, target: candidate, deltaMs: delta, deltaFrames: Math.round(delta / frameMs) };
+          this._lastSnapMeta = {
+            type,
+            edge,
+            target: candidate,
+            deltaMs: delta,
+            deltaFrames: Math.round(delta / frameMs),
+          };
           return candidate;
         }
       }
@@ -1430,14 +1474,14 @@ class VideoEditorModule extends EventTarget {
     };
     // frame snap
     const frameSnap = Math.round(valueMs / frameMs) * frameMs;
-    const snappedFrame = considerSnap(frameSnap, 'frame');
+    const snappedFrame = considerSnap(frameSnap, "frame");
     if (snappedFrame != null) valueMs = snappedFrame;
     // neighbor edges
     for (const s of this.subtitles) {
       if (s.id === id) continue;
-      const startCandidate = considerSnap(s.start_ms, 'neighbor');
+      const startCandidate = considerSnap(s.start_ms, "neighbor");
       if (startCandidate != null) valueMs = startCandidate;
-      const endCandidate = considerSnap(s.end_ms, 'neighbor');
+      const endCandidate = considerSnap(s.end_ms, "neighbor");
       if (endCandidate != null) valueMs = endCandidate;
     }
     return valueMs;
@@ -1445,14 +1489,14 @@ class VideoEditorModule extends EventTarget {
 
   _ensureSnapMarkersLayer() {
     if (!this.subtitleTimeline) return;
-    let layer = this.subtitleTimeline.querySelector('.snap-markers-layer');
+    let layer = this.subtitleTimeline.querySelector(".snap-markers-layer");
     if (!layer) {
-      layer = document.createElement('div');
-      layer.className = 'snap-markers-layer';
+      layer = document.createElement("div");
+      layer.className = "snap-markers-layer";
       Object.assign(layer.style, {
-        position: 'absolute',
-        inset: '0',
-        pointerEvents: 'none'
+        position: "absolute",
+        inset: "0",
+        pointerEvents: "none",
       });
       this.subtitleTimeline.appendChild(layer);
     }
@@ -1460,43 +1504,52 @@ class VideoEditorModule extends EventTarget {
   }
 
   _clearSnapMarkers() {
-    if (this._snapLayer) this._snapLayer.innerHTML = '';
+    if (this._snapLayer) this._snapLayer.innerHTML = "";
   }
 
   _updateSnapMarkers(activeSub) {
     if (!this._snapLayer || !this.subtitles.length) return;
-    const totalDuration = Math.max(...this.subtitles.map(s=>s.end_ms||0));
+    const totalDuration = Math.max(...this.subtitles.map((s) => s.end_ms || 0));
     const points = new Set();
     // Frame grid (sparser: every 10 frames)
-    const frameMs = 1000/this._frameRate;
+    const frameMs = 1000 / this._frameRate;
     const frameStep = frameMs * this._frameSnapStep;
     if (this._showFrameGrid) {
-      for (let t=0; t<= totalDuration; t+= frameStep) {
-        if (Math.abs(t - activeSub.start_ms) < this._snapThresholdMs || Math.abs(t - activeSub.end_ms) < this._snapThresholdMs) {
+      for (let t = 0; t <= totalDuration; t += frameStep) {
+        if (
+          Math.abs(t - activeSub.start_ms) < this._snapThresholdMs ||
+          Math.abs(t - activeSub.end_ms) < this._snapThresholdMs
+        ) {
           points.add(t);
         }
       }
     }
     // Neighbor edges
     for (const s of this.subtitles) {
-      if (s===activeSub) continue;
-      if (Math.abs(s.start_ms - activeSub.start_ms) < this._snapThresholdMs || Math.abs(s.start_ms - activeSub.end_ms) < this._snapThresholdMs)
+      if (s === activeSub) continue;
+      if (
+        Math.abs(s.start_ms - activeSub.start_ms) < this._snapThresholdMs ||
+        Math.abs(s.start_ms - activeSub.end_ms) < this._snapThresholdMs
+      )
         points.add(s.start_ms);
-      if (Math.abs(s.end_ms - activeSub.start_ms) < this._snapThresholdMs || Math.abs(s.end_ms - activeSub.end_ms) < this._snapThresholdMs)
+      if (
+        Math.abs(s.end_ms - activeSub.start_ms) < this._snapThresholdMs ||
+        Math.abs(s.end_ms - activeSub.end_ms) < this._snapThresholdMs
+      )
         points.add(s.end_ms);
     }
-    this._snapLayer.innerHTML = '';
-    points.forEach(ms=>{
-      const line = document.createElement('div');
-      const leftPct = (ms/totalDuration)*100;
+    this._snapLayer.innerHTML = "";
+    points.forEach((ms) => {
+      const line = document.createElement("div");
+      const leftPct = (ms / totalDuration) * 100;
       Object.assign(line.style, {
-        position: 'absolute',
+        position: "absolute",
         top: 0,
         bottom: 0,
-        width: '2px',
-        background: 'rgba(255,215,0,0.7)',
-        left: leftPct+'%',
-        transform: 'translateX(-1px)'
+        width: "2px",
+        background: "rgba(255,215,0,0.7)",
+        left: leftPct + "%",
+        transform: "translateX(-1px)",
       });
       this._snapLayer.appendChild(line);
     });
@@ -1512,26 +1565,32 @@ class VideoEditorModule extends EventTarget {
   _applyEdgeSnapHighlight(segmentEl, sub, totalDuration) {
     // Remove existing edge guides
     if (!this.subtitleTimeline) return;
-    let guideLayer = this.subtitleTimeline.querySelector('.snap-edge-guides');
+    let guideLayer = this.subtitleTimeline.querySelector(".snap-edge-guides");
     if (!guideLayer) {
-      guideLayer = document.createElement('div');
-      guideLayer.className = 'snap-edge-guides';
-      Object.assign(guideLayer.style, { position:'absolute', inset:'0', pointerEvents:'none' });
+      guideLayer = document.createElement("div");
+      guideLayer.className = "snap-edge-guides";
+      Object.assign(guideLayer.style, {
+        position: "absolute",
+        inset: "0",
+        pointerEvents: "none",
+      });
       this.subtitleTimeline.appendChild(guideLayer);
     }
-    guideLayer.innerHTML = '';
+    guideLayer.innerHTML = "";
     if (!this._lastSnapMeta || !sub) return;
     const { edge, target } = this._lastSnapMeta;
     if (target == null) return;
     const leftPct = (target / totalDuration) * 100;
-    const line = document.createElement('div');
-    line.className = 'snap-edge-line';
-    line.style.left = leftPct + '%';
-    line.style.transform = 'translateX(-1.5px)';
+    const line = document.createElement("div");
+    line.className = "snap-edge-line";
+    line.style.left = leftPct + "%";
+    line.style.transform = "translateX(-1.5px)";
     guideLayer.appendChild(line);
     // fade out after short time (on mouseup this stays then fades)
-    requestAnimationFrame(()=>{
-      setTimeout(()=>{ line.style.opacity='0'; }, 120);
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        line.style.opacity = "0";
+      }, 120);
     });
     // add subtle highlight to which edge snapped
     if (segmentEl) {
@@ -1544,58 +1603,69 @@ class VideoEditorModule extends EventTarget {
   _showSnapTooltip(targetMs, edge, totalDuration) {
     if (!this.subtitleTimeline) return;
     if (!this._snapTooltip) {
-      this._snapTooltip = document.createElement('div');
-      this._snapTooltip.className = 'snap-tooltip';
+      this._snapTooltip = document.createElement("div");
+      this._snapTooltip.className = "snap-tooltip";
       this.subtitleTimeline.appendChild(this._snapTooltip);
     }
-    const frameMs = 1000/this._frameRate;
+    const frameMs = 1000 / this._frameRate;
     const frameIndex = Math.round(targetMs / frameMs);
     const leftPct = (targetMs / totalDuration) * 100;
-    this._snapTooltip.style.left = leftPct+'%';
-    this._snapTooltip.style.top = '6px';
-    const abs = this._formatAbsoluteTime(targetMs/1000);
-    let deltaHtml = '';
-    if (this._lastSnapMeta && typeof this._lastSnapMeta.deltaMs === 'number') {
+    this._snapTooltip.style.left = leftPct + "%";
+    this._snapTooltip.style.top = "6px";
+    const abs = this._formatAbsoluteTime(targetMs / 1000);
+    let deltaHtml = "";
+    if (this._lastSnapMeta && typeof this._lastSnapMeta.deltaMs === "number") {
       const d = this._lastSnapMeta.deltaMs;
       const df = this._lastSnapMeta.deltaFrames;
-      deltaHtml = ` <span class="snap-delta">${d>=0?'+':''}${d}ms (${df}f)</span>`;
+      deltaHtml = ` <span class="snap-delta">${
+        d >= 0 ? "+" : ""
+      }${d}ms (${df}f)</span>`;
     }
-    this._snapTooltip.innerHTML = `${Math.round(targetMs)}ms (${abs}) <span class="snap-frame">f${frameIndex}</span> <span class="snap-edge">${edge}</span>${deltaHtml}`;
-    requestAnimationFrame(()=>{ this._snapTooltip.style.opacity='1'; });
+    this._snapTooltip.innerHTML = `${Math.round(
+      targetMs
+    )}ms (${abs}) <span class="snap-frame">f${frameIndex}</span> <span class="snap-edge">${edge}</span>${deltaHtml}`;
+    requestAnimationFrame(() => {
+      this._snapTooltip.style.opacity = "1";
+    });
     clearTimeout(this._snapTooltip._hideTimer);
-    this._snapTooltip._hideTimer = setTimeout(()=>{ this._snapTooltip.style.opacity='0'; }, 900);
+    this._snapTooltip._hideTimer = setTimeout(() => {
+      this._snapTooltip.style.opacity = "0";
+    }, 900);
   }
 
   _formatAbsoluteTime(seconds) {
-    if (!isFinite(seconds)) return '00:00.000';
-    const m = Math.floor(seconds/60);
+    if (!isFinite(seconds)) return "00:00.000";
+    const m = Math.floor(seconds / 60);
     const s = Math.floor(seconds % 60);
-    const ms = Math.round((seconds - Math.floor(seconds))*1000);
-    return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(ms).padStart(3,'0')}`;
+    const ms = Math.round((seconds - Math.floor(seconds)) * 1000);
+    return `${String(m).padStart(2, "0")}:${String(s).padStart(
+      2,
+      "0"
+    )}.${String(ms).padStart(3, "0")}`;
   }
 
   _updateEdgeDelta(segmentEl, edge, deltaMs) {
     if (!segmentEl) return;
-    let badge = segmentEl.querySelector('.edge-delta');
+    let badge = segmentEl.querySelector(".edge-delta");
     if (!badge) {
-      badge = document.createElement('div');
-      badge.className = 'edge-delta';
+      badge = document.createElement("div");
+      badge.className = "edge-delta";
       segmentEl.appendChild(badge);
     }
-    badge.textContent = (deltaMs>=0?'+':'') + deltaMs + 'ms';
-    badge.style.left = edge==='start' ? '-2px' : 'calc(100% - 28px)';
+    badge.textContent = (deltaMs >= 0 ? "+" : "") + deltaMs + "ms";
+    badge.style.left = edge === "start" ? "-2px" : "calc(100% - 28px)";
   }
 
   _clearEdgeDelta(segmentEl) {
     if (!segmentEl) return;
-    const badge = segmentEl.querySelector('.edge-delta');
+    const badge = segmentEl.querySelector(".edge-delta");
     if (badge) badge.remove();
   }
 
   _debouncedOverlayUpdate() {
     if (this._overlayUpdateRaf) cancelAnimationFrame(this._overlayUpdateRaf);
-    this._overlayUpdateRaf = requestAnimationFrame(()=>{
-      const overlay = document.getElementById('subtitleOverlay');
+    this._overlayUpdateRaf = requestAnimationFrame(() => {
+      const overlay = document.getElementById("subtitleOverlay");
       if (overlay) this.updateSubtitleOverlay(overlay);
     });
   }
@@ -1631,32 +1701,56 @@ class VideoEditorModule extends EventTarget {
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") {
         e.preventDefault();
         this.redo();
-      } else if (e.key === 'Alt') {
+      } else if (e.key === "Alt") {
         // Holding Alt temporarily disables snapping
         this._snappingEnabled = false;
-      } else if (!e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'f') {
+      } else if (!e.ctrlKey && !e.metaKey && e.key.toLowerCase() === "f") {
         this._showFrameGrid = !this._showFrameGrid;
-        try { localStorage.setItem('showFrameGrid', this._showFrameGrid ? '1':'0'); } catch(err) {}
-        this.app?.showStatus?.(this._showFrameGrid ? 'Frame grid ON' : 'Frame grid OFF');
+        try {
+          localStorage.setItem(
+            "showFrameGrid",
+            this._showFrameGrid ? "1" : "0"
+          );
+        } catch (err) {}
+        this.app?.showStatus?.(
+          this._showFrameGrid ? "Frame grid ON" : "Frame grid OFF"
+        );
         if (this._snapLayer) this._clearSnapMarkers();
-      } else if (e.shiftKey && (e.key === '.' || e.key === '>')) {
+      } else if (e.shiftKey && (e.key === "." || e.key === ">")) {
         this._frameSnapStep = Math.min(this._frameSnapStep + 1, 30);
-        if (this.frameSnapStepSelect) this.frameSnapStepSelect.value = String(this._frameSnapStep);
-        try { localStorage.setItem('frameSnapStep', String(this._frameSnapStep)); } catch(err) {}
-        this.app?.showStatus?.(`Snap step: every ${this._frameSnapStep} frame(s)`);
-      } else if (e.key.toLowerCase() === 's' && !e.ctrlKey && !e.metaKey) {
+        if (this.frameSnapStepSelect)
+          this.frameSnapStepSelect.value = String(this._frameSnapStep);
+        try {
+          localStorage.setItem("frameSnapStep", String(this._frameSnapStep));
+        } catch (err) {}
+        this.app?.showStatus?.(
+          `Snap step: every ${this._frameSnapStep} frame(s)`
+        );
+      } else if (e.key.toLowerCase() === "s" && !e.ctrlKey && !e.metaKey) {
         this._strictSnapMode = !this._strictSnapMode;
-        try { localStorage.setItem('strictSnapMode', this._strictSnapMode? '1':'0'); } catch(e) {}
-        this.app?.showStatus?.(this._strictSnapMode? 'Strict snap ON':'Strict snap OFF');
-      } else if (e.shiftKey && (e.key === '/' || e.key === '?')) {
+        try {
+          localStorage.setItem(
+            "strictSnapMode",
+            this._strictSnapMode ? "1" : "0"
+          );
+        } catch (e) {}
+        this.app?.showStatus?.(
+          this._strictSnapMode ? "Strict snap ON" : "Strict snap OFF"
+        );
+      } else if (e.shiftKey && (e.key === "/" || e.key === "?")) {
         this._frameSnapStep = Math.max(this._frameSnapStep - 1, 1);
-        if (this.frameSnapStepSelect) this.frameSnapStepSelect.value = String(this._frameSnapStep);
-        try { localStorage.setItem('frameSnapStep', String(this._frameSnapStep)); } catch(err) {}
-        this.app?.showStatus?.(`Snap step: every ${this._frameSnapStep} frame(s)`);
+        if (this.frameSnapStepSelect)
+          this.frameSnapStepSelect.value = String(this._frameSnapStep);
+        try {
+          localStorage.setItem("frameSnapStep", String(this._frameSnapStep));
+        } catch (err) {}
+        this.app?.showStatus?.(
+          `Snap step: every ${this._frameSnapStep} frame(s)`
+        );
       }
     });
-    window.addEventListener('keyup', (e)=>{
-      if (e.key === 'Alt') this._snappingEnabled = true;
+    window.addEventListener("keyup", (e) => {
+      if (e.key === "Alt") this._snappingEnabled = true;
     });
   }
 
@@ -1946,13 +2040,17 @@ class VideoEditorModule extends EventTarget {
   }
 
   _escapeHtml(str) {
-    return str.replace(/[&<>"']/g, (c) => ({
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#39;",
-    }[c]));
+    return str.replace(
+      /[&<>"']/g,
+      (c) =>
+        ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#39;",
+        }[c])
+    );
   }
 
   hexToRgba(hex, alpha) {

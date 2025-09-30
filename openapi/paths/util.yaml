@@ -2,12 +2,9 @@
 /api/util/error-demo-v2:
   get:
     tags: [util]
-    summary: Error demo v2 endpoint
+    summary: Error demo endpoint (canonical)
+    description: |
+      Demonstrates standardized error envelope variations based on the ``mode`` query parameter.
+      Accepted modes: ``value`` (400), ``missing`` (404), ``timeout`` (504), ``classified`` (422), any other -> 200.
     responses:
-      "200": { description: OK or error envelope depending on mode }
-/api/util/error-demo:
-  get:
-    tags: [util]
-    summary: Legacy error demo delegating to v2
-    responses:
-      "200": { description: Delegate response }
+      "200": { description: OK success envelope or error envelope depending on mode }
