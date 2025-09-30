@@ -60,6 +60,7 @@ class VideoEditorModule extends EventTarget {
     // Subtitle elements
     this.generateSubtitlesBtn = document.getElementById("generateSubtitlesBtn");
     this.clearSubtitlesBtn = document.getElementById("clearSubtitlesBtn");
+  this.frameSnapStepSelect = document.getElementById("frameSnapStep");
     this.videoTranscript = document.getElementById("videoTranscript");
     this.subtitleTimeline = document.getElementById("subtitleTimeline");
     this.segmentsList = document.getElementById("segmentsList");
@@ -153,6 +154,13 @@ class VideoEditorModule extends EventTarget {
     this.clearSubtitlesBtn?.addEventListener("click", () =>
       this.clearSubtitles()
     );
+    this.frameSnapStepSelect?.addEventListener('change', ()=>{
+      const v = parseInt(this.frameSnapStepSelect.value,10);
+      if (!isNaN(v) && v>0) {
+        this._frameSnapStep = v;
+        if (this._snappingEnabled) this.app?.showStatus?.(`Snap step: every ${v} frame(s)`);
+      }
+    });
     this.previewSubtitles?.addEventListener("click", () =>
       this.previewWithSubtitles()
     );
@@ -1346,15 +1354,21 @@ class VideoEditorModule extends EventTarget {
     if (!this._snappingEnabled) return valueMs;
     // snap to frame
     const frameSnap = Math.round(valueMs / frameMs) * frameMs;
-    if (Math.abs(frameSnap - valueMs) < this._snapThresholdMs)
+    if (Math.abs(frameSnap - valueMs) < this._snapThresholdMs) {
       valueMs = frameSnap;
+      this._lastSnapMeta = { type: 'frame', edge, target: frameSnap };
+    }
     // snap to neighbor edges
     for (const s of this.subtitles) {
       if (s.id === id) continue;
-      if (Math.abs(s.start_ms - valueMs) < this._snapThresholdMs)
+      if (Math.abs(s.start_ms - valueMs) < this._snapThresholdMs) {
         valueMs = s.start_ms;
-      if (Math.abs(s.end_ms - valueMs) < this._snapThresholdMs)
+        this._lastSnapMeta = { type: 'neighbor', edge, target: s.start_ms };
+      }
+      if (Math.abs(s.end_ms - valueMs) < this._snapThresholdMs) {
         valueMs = s.end_ms;
+        this._lastSnapMeta = { type: 'neighbor', edge, target: s.end_ms };
+      }
     }
     return valueMs;
   }
@@ -1421,6 +1435,43 @@ class VideoEditorModule extends EventTarget {
     this._undoStack.push(snapshot);
     if (this._undoStack.length > this._maxHistory) this._undoStack.shift();
     this._redoStack = [];
+  }
+
+  _applyEdgeSnapHighlight(segmentEl, sub, totalDuration) {
+    // Remove existing edge guides
+    if (!this.subtitleTimeline) return;
+    let guideLayer = this.subtitleTimeline.querySelector('.snap-edge-guides');
+    if (!guideLayer) {
+      guideLayer = document.createElement('div');
+      guideLayer.className = 'snap-edge-guides';
+      Object.assign(guideLayer.style, { position:'absolute', inset:'0', pointerEvents:'none' });
+      this.subtitleTimeline.appendChild(guideLayer);
+    }
+    guideLayer.innerHTML = '';
+    if (!this._lastSnapMeta || !sub) return;
+    const { edge, target } = this._lastSnapMeta;
+    if (target == null) return;
+    const leftPct = (target / totalDuration) * 100;
+    const line = document.createElement('div');
+    Object.assign(line.style, {
+      position: 'absolute', top: 0, bottom: 0, width: '3px',
+      left: leftPct + '%', transform: 'translateX(-1.5px)',
+      background: 'linear-gradient(to bottom, rgba(255,215,0,0.15), rgba(255,215,0,0.9), rgba(255,215,0,0.15))',
+      boxShadow: '0 0 6px 2px rgba(255,215,0,0.6)'
+    });
+    guideLayer.appendChild(line);
+    // add subtle highlight to which edge snapped
+    if (segmentEl) {
+      segmentEl.dataset.snapEdge = edge;
+    }
+  }
+
+  _debouncedOverlayUpdate() {
+    if (this._overlayUpdateRaf) cancelAnimationFrame(this._overlayUpdateRaf);
+    this._overlayUpdateRaf = requestAnimationFrame(()=>{
+      const overlay = document.getElementById('subtitleOverlay');
+      if (overlay) this.updateSubtitleOverlay(overlay);
+    });
   }
 
   undo() {

@@ -610,6 +610,21 @@ body.video-editor-active .video-placeholder i {
   transform: translateY(-2px);
 }
 
+/* Snapping visual states */
+.subtitle-segment.snapping-active {
+  outline: 2px dashed rgba(255,215,0,0.6);
+  outline-offset: 2px;
+}
+
+.subtitle-segment.snapped {
+  box-shadow: 0 0 0 2px rgba(255,215,0,0.9), 0 0 8px 2px rgba(255,215,0,0.6);
+  background: linear-gradient(135deg, var(--primary-500, #3b82f6), #fbbf24);
+}
+
+.snap-markers-layer div {
+  mix-blend-mode: screen;
+}
+
 .segment-content {
   padding: 4px 8px;
   height: 100%;
