@@ -82,4 +82,10 @@ def create_app(test_mode: bool | None = None):
             app.register_blueprint(export_legacy_bp)
     except Exception as e:  # noqa: BLE001
         app_logger.debug(f"Export legacy blueprint not registered: {e}")
+    try:  # pragma: no cover
+        from app_core.routes_subtitles import subtitles_bp  # type: ignore
+        if 'subtitles' not in [bp.name for bp in app.blueprints.values()]:
+            app.register_blueprint(subtitles_bp)
+    except Exception as e:  # noqa: BLE001
+        app_logger.debug(f"Subtitles blueprint not registered: {e}")
     return app, socketio
