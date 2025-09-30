@@ -17,6 +17,14 @@ import os, json, uuid, time, hashlib, re, subprocess, threading
 from pathlib import Path
 from flask import Blueprint, jsonify, send_file, request
 from werkzeug.utils import secure_filename
+from .export_utils import (
+    hex_to_ass_color,
+    hash_video_file,
+    hash_payload,
+    combined_export_hash,
+    wrap_text_balanced,
+    format_ass_timestamp,
+)
 from api_responses import success_response, error_response
 
 export_legacy_bp = Blueprint("export_legacy", __name__)
@@ -172,20 +180,10 @@ def export_video_with_subtitles():  # pragma: no cover - ffmpeg side-effects
                 pass
         threading.Thread(target=_cleanup_old, daemon=True).start()
         # Hash/cache
-        video_hasher = hashlib.sha256()
-        try:
-            with open(input_path, 'rb') as vf:
-                for chunk in iter(lambda: vf.read(1024 * 1024), b''):
-                    video_hasher.update(chunk)
-        except Exception:
-            pass
-        video_hash = video_hasher.hexdigest()
-        try:
-            normalized_payload = {'subtitles': subtitles, 'style': style, 'overlay': overlay}
-            payload_hash = hashlib.sha256(json.dumps(normalized_payload, sort_keys=True, ensure_ascii=False).encode('utf-8')).hexdigest()
-        except Exception:
-            payload_hash = uuid.uuid4().hex
-        combined_hash = hashlib.sha256(f"{video_hash}:{payload_hash}".encode('utf-8')).hexdigest()
+        video_hash = hash_video_file(input_path)
+        normalized_payload = {'subtitles': subtitles, 'style': style, 'overlay': overlay}
+        payload_hash = hash_payload(normalized_payload) or uuid.uuid4().hex
+        combined_hash = combined_export_hash(video_hash, payload_hash)
         out_name = f"burned_{combined_hash[:16]}.mp4"
         out_path = upload_dir / out_name
         if out_path.exists() and out_path.stat().st_size > 0:
@@ -207,27 +205,6 @@ def export_video_with_subtitles():  # pragma: no cover - ffmpeg side-effects
             pass
         if not width or not height:
             width, height = width or 1280, height or 720
-        def _hex_to_ass_color(hex_color, alpha_percent=None):
-            try:
-                if not hex_color:
-                    hex_color = '#FFFFFF'
-                hc = hex_color.strip().lstrip('#')
-                if len(hc) == 3:
-                    hc = ''.join(c * 2 for c in hc)
-                if len(hc) != 6:
-                    return '&H00FFFFFF'
-                r = int(hc[0:2], 16); g = int(hc[2:4], 16); b = int(hc[4:6], 16)
-                if alpha_percent is None:
-                    alpha = 0
-                else:
-                    try:
-                        alpha_f = max(0, min(100, float(alpha_percent))) / 100.0
-                        alpha = int(alpha_f * 255)
-                    except Exception:
-                        alpha = 0
-                return f"&H{alpha:02X}{b:02X}{g:02X}{r:02X}"
-            except Exception:
-                return '&H00FFFFFF'
         base_font_size_user = style.get('fontSize')
         try:
             if base_font_size_user is not None:
@@ -240,35 +217,17 @@ def export_video_with_subtitles():  # pragma: no cover - ffmpeg side-effects
         font_name = style.get('fontFamily') or 'Arial'
         outline_w = int(style.get('outlineWidth') or 3)
         def _col(cn, alpha=None):
-            return _hex_to_ass_color(style.get(cn), alpha)
+            return hex_to_ass_color(style.get(cn), alpha)
         primary_color = _col('textColor') or '&H00FFFFFF'
         outline_color = _col('outlineColor') or '&H00000000'
-        back_color = _hex_to_ass_color(style.get('backgroundColor') or '#000000', style.get('backgroundOpacity'))
+        back_color = hex_to_ass_color(style.get('backgroundColor') or '#000000', style.get('backgroundOpacity'))
         x_pct = float((overlay.get('xPercent', 50.0))) / 100.0
         y_pct = float((overlay.get('yPercent', 80.0))) / 100.0
         pos_x = int(width * x_pct); pos_y = int(height * y_pct)
         avg_char_px = font_size * 0.55
         target_line_chars = max(8, int(width * 0.75 / avg_char_px))
         def _wrap_text_if_needed(raw_text: str) -> str:
-            if not raw_text:
-                return ''
-            raw = re.sub(r'<br\s*/?>', '\n', raw_text.replace('\r\n', '\n'), flags=re.IGNORECASE)
-            if '\n' in raw:
-                parts = [p.strip() for p in raw.split('\n') if p.strip()]
-            else:
-                words = raw.split()
-                parts = []
-                line = []
-                count = 0
-                for w in words:
-                    wlen = len(w)
-                    if count + wlen + (1 if line else 0) > target_line_chars and line:
-                        parts.append(' '.join(line)); line = [w]; count = wlen
-                    else:
-                        line.append(w); count += wlen + (1 if line[:-1] else 0)
-                if line:
-                    parts.append(' '.join(line))
-            return '\n'.join(parts)
+            return wrap_text_balanced(raw_text, target_line_chars)
         def _build_karaoke_line(sub):
             words = sub.get('words') or []
             if not words:
@@ -294,12 +253,7 @@ def export_video_with_subtitles():  # pragma: no cover - ffmpeg side-effects
             ass.write(style_line + '\n\n[Events]\n')
             ass.write('Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n')
             def _fmt_ts(ms):
-                if ms is None: ms = 0
-                ms = max(0, int(ms))
-                h = ms // 3600000; ms -= h*3600000
-                m = ms // 60000; ms -= m*60000
-                s = ms // 1000; cs = int((ms - s*1000)/10)
-                return f"{h:d}:{m:02d}:{s:02d}.{cs:02d}"
+                return format_ass_timestamp(ms)
             fade_in = int(effects.get('fadeInMs') or 0); fade_out = int(effects.get('fadeOutMs') or 0)
             karaoke_enabled = bool(effects.get('karaoke'))
             for sub in subtitles:
