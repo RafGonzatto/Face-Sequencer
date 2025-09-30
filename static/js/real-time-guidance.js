@@ -12,6 +12,9 @@ class RealTimeGuidance {
     this.createGuidancePanel();
     this.bindEvents();
     this.startAnalyzing();
+
+    // Make instance globally available for direct calls from HTML
+    window.realTimeGuidance = this;
   }
 
   createGuidancePanel() {
@@ -109,6 +112,12 @@ class RealTimeGuidance {
         this.analyzeCurrentState();
       }
     }, 2000);
+  }
+
+  // Handle input changes from form fields
+  onInputChange(e) {
+    // When input fields change, analyze the current state
+    setTimeout(() => this.analyzeCurrentState(), 100);
   }
 
   analyzeCurrentState() {
@@ -283,15 +292,15 @@ class RealTimeGuidance {
 
     container.innerHTML = topSuggestions
       .map(
-        (suggestion) => `
-      <div class="suggestion-item priority-${suggestion.priority}" data-type="${suggestion.type}">
+        (suggestion, index) => `
+      <div class="suggestion-item priority-${suggestion.priority}" data-type="${suggestion.type}" data-index="${index}" tabindex="0" role="button">
         <div class="suggestion-icon">
           <i class="${suggestion.icon}"></i>
         </div>
         <div class="suggestion-content">
           <div class="suggestion-title">${suggestion.title}</div>
           <div class="suggestion-message">${suggestion.message}</div>
-          <button class="suggestion-action btn btn-sm btn-primary" onclick="window.realTimeGuidance.executeSuggestion('${suggestion.type}')">
+          <button class="suggestion-action btn btn-sm btn-primary" data-type="${suggestion.type}" data-index="${index}">
             ${suggestion.actionText}
           </button>
         </div>
@@ -299,6 +308,49 @@ class RealTimeGuidance {
     `
       )
       .join("");
+
+    // Add click event listeners to suggestions and buttons
+    setTimeout(() => {
+      // Add click handlers for all suggestion items
+      const items = container.querySelectorAll(".suggestion-item");
+      items.forEach((item, idx) => {
+        const suggestionIndex = parseInt(item.dataset.index);
+        const suggestion = topSuggestions[suggestionIndex];
+
+        // Make the whole suggestion clickable
+        item.addEventListener("click", (e) => {
+          if (!e.target.closest(".suggestion-action")) {
+            this.executeSuggestionByIndex(suggestionIndex);
+          }
+        });
+
+        // Make it keyboard accessible
+        item.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            this.executeSuggestionByIndex(suggestionIndex);
+            e.preventDefault();
+          }
+        });
+
+        // Handle button clicks
+        const button = item.querySelector(".suggestion-action");
+        if (button) {
+          button.addEventListener("click", () => {
+            this.executeSuggestionByIndex(suggestionIndex);
+          });
+        }
+      });
+    }, 0);
+  }
+
+  // Execute a suggestion by its index in the current suggestions array
+  executeSuggestionByIndex(index) {
+    const suggestion = this.currentSuggestions[index];
+    if (suggestion && suggestion.action) {
+      suggestion.action();
+    } else {
+      this.executeSuggestion(suggestion?.type || "setup");
+    }
   }
 
   updateProgress(progress) {
@@ -394,6 +446,45 @@ class RealTimeGuidance {
   destroy() {
     if (this.guidancePanel) {
       this.guidancePanel.remove();
+    }
+  }
+
+  onButtonClick(event) {
+    const target = event.target;
+    const button = target.closest("button");
+
+    if (!button) return;
+
+    // Provide guidance based on button type
+    const buttonId = button.id || button.className;
+    const buttonText = button.textContent?.toLowerCase() || "";
+
+    // Upload button guidance
+    if (buttonText.includes("upload") || buttonId.includes("upload")) {
+      this.showGuidance("upload_guidance", {
+        title: "Upload Video",
+        message:
+          "Select a video file to start creating your lip-sync animation.",
+        type: "info",
+      });
+    }
+
+    // Export button guidance
+    else if (buttonText.includes("export") || buttonId.includes("export")) {
+      this.showGuidance("export_guidance", {
+        title: "Export Options",
+        message: "Choose your export format and quality settings.",
+        type: "info",
+      });
+    }
+
+    // Play/pause button guidance
+    else if (buttonText.includes("play") || buttonText.includes("pause")) {
+      this.showGuidance("playback_guidance", {
+        title: "Playback Controls",
+        message: "Use playback controls to review your animation.",
+        type: "tip",
+      });
     }
   }
 }

@@ -54,16 +54,26 @@ class TimelineEnhancer {
     this.rulerEl.className = "time-ruler";
     rulerWrapper.appendChild(this.rulerEl);
 
-    // Safe insertion - check if timeline-frames exists
+    // Safe insertion - check if timeline-frames exists and is a child
     const timelineFrames =
       container.querySelector(".timeline-frames") ||
-      container.querySelector(".timeline-frames-wrapper");
-    if (timelineFrames) {
-      container.insertBefore(rulerWrapper, timelineFrames);
+      container.querySelector(".timeline-frames-wrapper") ||
+      container.querySelector(".timeline-content") ||
+      container.firstElementChild;
+
+    if (timelineFrames && container.contains(timelineFrames)) {
+      try {
+        container.insertBefore(rulerWrapper, timelineFrames);
+      } catch (error) {
+        console.warn("Timeline insertion failed, using fallback:", error);
+        container.appendChild(rulerWrapper);
+      }
     } else {
       // Fallback: append to container
       container.appendChild(rulerWrapper);
-      console.log("Timeline frames not found, appending ruler to container");
+      console.log(
+        "Timeline frames not found or not a child, appending ruler to container"
+      );
     }
 
     // Waveform overlay

@@ -164,5 +164,5 @@ function createDebugger() {
 // Iniciar o depurador quando a página estiver carregada
 document.addEventListener("DOMContentLoaded", function () {
   // Esperamos um pouco para garantir que tudo foi carregado
-  setTimeout(createDebugger, 1000);
+  //  setTimeout(createDebugger, 1000);
 });

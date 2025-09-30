@@ -47,70 +47,63 @@ class FaceSequencerApp {
     this.initAriaRegions();
     this.initLocalization();
 
-    // Make sure sequences are in sync
     this.syncSequenceState();
-
-    // Audio manager will be initialized by audio.js
     this.audioManager = null;
-
-    // Initialize synchronized playback
     this.initSyncPlayback();
-
-    // Initialize enhanced alignment features
     this.initEnhancedAlignment();
-    // Timeline enhancer (after DOM present)
+
     if (window.TimelineEnhancer) {
       try {
         this.timelineEnhancer = new TimelineEnhancer(this);
-      } catch (error) {
-        console.error("Error initializing TimelineEnhancer:", error);
-        // Continue without timeline enhancer
+      } catch (err) {
+        console.error("Error initializing TimelineEnhancer:", err);
       }
     }
+    // All event listeners handled within bindEvents().
   }
 
+  // Recreated after accidental removal
   initializeElements() {
+    console.log("[FaceSequencerApp] initializeElements start");
+    const q = (id) => document.getElementById(id);
+
     // Text input elements
-    this.textInput = document.getElementById("textInput");
-    this.charCount = document.getElementById("charCount");
-    this.mappingStatus = document.getElementById("mappingStatus");
+    this.textInput = q("textInput");
+    this.charCount = q("charCount");
+    this.mappingStatus = q("mappingStatus");
 
     // Folder elements
-    this.folderPath = document.getElementById("folderPath");
-    this.browseFolderBtn = document.getElementById("browseFolderBtn");
-    this.scanFolderBtn = document.getElementById("scanFolderBtn");
-    this.folderInput = document.getElementById("folderInput");
+    this.folderPath = q("folderPath");
+    this.browseFolderBtn = q("browseFolderBtn");
+    this.scanFolderBtn = q("scanFolderBtn");
+    this.folderInput = q("folderInput");
 
     // Settings elements
-    this.frameDuration = document.getElementById("frameDuration");
-    this.pauseDuration = document.getElementById("pauseDuration");
-    this.fps = document.getElementById("fps");
-    this.quality = document.getElementById("quality");
+    this.frameDuration = q("frameDuration");
+    this.pauseDuration = q("pauseDuration");
+    this.fps = q("fps");
+    this.quality = q("quality");
 
     // Enhanced alignment elements
-    this.useEnhancedAlignment = document.getElementById("useEnhancedAlignment");
-    this.alignmentMethod = document.getElementById("alignmentMethod");
-    this.targetFps = document.getElementById("targetFps");
-    this.enhancementStatus = document.getElementById("enhancementStatus");
-    this.alignmentMethodContainer = document.getElementById(
-      "alignmentMethodContainer"
-    );
-    this.targetFpsContainer = document.getElementById("targetFpsContainer");
+    this.useEnhancedAlignment = q("useEnhancedAlignment");
+    this.alignmentMethod = q("alignmentMethod");
+    this.targetFps = q("targetFps");
+    this.enhancementStatus = q("enhancementStatus");
+    this.alignmentMethodContainer = q("alignmentMethodContainer");
+    this.targetFpsContainer = q("targetFpsContainer");
 
     // Audio text-driven toggle
-    this.audioTextDrivenToggle = document.getElementById(
-      "audioTextDrivenToggle"
-    );
+    this.audioTextDrivenToggle = q("audioTextDrivenToggle");
 
-    // Fallback elements
-    this.fallbackPreview = document.getElementById("fallbackPreview");
-    this.chooseFallbackBtn = document.getElementById("chooseFallbackBtn");
-    this.imageInput = document.getElementById("imageInput");
+    // Fallback image
+    this.fallbackPreview = q("fallbackPreview");
+    this.chooseFallbackBtn = q("chooseFallbackBtn");
+    this.imageInput = q("imageInput");
 
-    // Space image elements
-    this.spacePreview = document.getElementById("spacePreview");
-    this.chooseSpaceBtn = document.getElementById("chooseSpaceBtn");
-    this.clearSpaceBtn = document.getElementById("clearSpaceBtn");
+    // Space image
+    this.spacePreview = q("spacePreview");
+    this.chooseSpaceBtn = q("chooseSpaceBtn");
+    this.clearSpaceBtn = q("clearSpaceBtn");
     this.spaceImageInput = document.createElement("input");
     this.spaceImageInput.type = "file";
     this.spaceImageInput.accept = "image/*";
@@ -118,287 +111,438 @@ class FaceSequencerApp {
     document.body.appendChild(this.spaceImageInput);
 
     // Action buttons
-    this.buildSequenceBtn = document.getElementById("buildSequenceBtn");
-    this.previewBtn = document.getElementById("previewBtn");
-    this.testModeBtn = document.getElementById("testModeBtn");
+    this.buildSequenceBtn = q("buildSequenceBtn");
+    this.previewBtn = q("previewBtn");
+    this.testModeBtn = q("testModeBtn");
 
-    // Mapping elements
-    this.mappingGrid = document.getElementById("mappingGrid");
-    this.autoMapBtn = document.getElementById("autoMapBtn");
-    this.clearMappingBtn = document.getElementById("clearMappingBtn");
+    // Mapping
+    this.mappingGrid = q("mappingGrid");
+    this.autoMapBtn = q("autoMapBtn");
+    this.clearMappingBtn = q("clearMappingBtn");
 
-    // Timeline elements
-    this.previewFrame = document.getElementById("previewFrame");
-    this.timelineFrames = document.getElementById("timelineFrames");
-    this.timelineInfo = document.getElementById("timelineInfo");
-    this.playBtn = document.getElementById("playBtn");
-    this.stopBtn = document.getElementById("stopBtn");
-    this.scrubberHandle = document.getElementById("scrubberHandle");
+    // Timeline & preview
+    this.previewFrame = q("previewFrame");
+    this.timelineFrames = q("timelineFrames");
+    this.timelineInfo = q("timelineInfo");
+    this.playBtn = q("playBtn");
+    this.stopBtn = q("stopBtn");
+    this.scrubberHandle = q("scrubberHandle");
 
-    // Frame editor elements
-    this.frameEditor = document.getElementById("frameEditor");
-    this.selectedFrameDuration = document.getElementById(
-      "selectedFrameDuration"
-    );
-    this.duplicateFrameBtn = document.getElementById("duplicateFrameBtn");
-    this.deleteFrameBtn = document.getElementById("deleteFrameBtn");
+    // Frame editor
+    this.frameEditor = q("frameEditor");
+    this.selectedFrameDuration = q("selectedFrameDuration");
+    this.duplicateFrameBtn = q("duplicateFrameBtn");
+    this.deleteFrameBtn = q("deleteFrameBtn");
 
-    // Export elements
-    this.exportModal = document.getElementById("exportModal");
-    this.exportVideoBtn = document.getElementById("exportVideo");
-    this.closeExportModal = document.getElementById("closeExportModal");
-    this.confirmExportBtn = document.getElementById("confirmExportBtn");
-    this.cancelExportBtn = document.getElementById("cancelExportBtn");
+    // Export
+    this.exportModal = q("exportModal");
+    this.exportVideoBtn = q("exportVideo");
+    this.closeExportModal = q("closeExportModal");
+    this.confirmExportBtn = q("confirmExportBtn");
+    this.cancelExportBtn = q("cancelExportBtn");
 
-    // Project elements
-    this.saveProjectBtn = document.getElementById("saveProject");
-    this.loadProjectBtn = document.getElementById("loadProject");
-    this.projectInput = document.getElementById("projectInput");
+    // Project
+    this.saveProjectBtn = q("saveProject");
+    this.loadProjectBtn = q("loadProject");
+    this.projectInput = q("projectInput");
 
-    // Status elements
-    this.statusMessage = document.getElementById("statusMessage");
-    this.progressContainer = document.getElementById("progressContainer");
-    this.progressFill = document.getElementById("progressFill");
-    this.progressText = document.getElementById("progressText");
+    // Status
+    this.statusMessage = q("statusMessage");
+    this.progressContainer = q("progressContainer");
+    this.progressFill = q("progressFill");
+    this.progressText = q("progressText");
+
+    // Optional audio upload (log if missing but not fatal)
+    this.audioUpload = q("audioUpload");
+
+    const required = [
+      "textInput",
+      "buildSequenceBtn",
+      "mappingGrid",
+      "timelineFrames",
+      "exportVideo",
+    ];
+    const missing = required.filter((id) => !q(id));
+    if (missing.length) {
+      console.warn(
+        "Missing DOM elements:",
+        missing.map((m) => `#${m}`)
+      );
+    }
+    console.log("[FaceSequencerApp] initializeElements complete");
   }
 
+  // Safe event binding separated from init
   bindEvents() {
-    // Text input events
-    this.textInput.addEventListener("input", () => {
-      this.state.project.text = this.textInput.value;
-      this.updateCharCount();
-      this.validateMappings();
-    });
+    console.log("[FaceSequencerApp] bindEvents start");
+    const on = (el, ev, fn, label) => {
+      if (el) return el.addEventListener(ev, fn);
+      console.warn("[bindEvents] Missing element for", label || ev);
+    };
 
-    // Folder events
-    this.browseFolderBtn.addEventListener("click", () => {
-      this.folderInput.click();
-    });
+    on(
+      this.textInput,
+      "input",
+      () => {
+        this.state.project.text = this.textInput.value;
+        this.updateCharCount();
+        this.validateMappings();
+      },
+      "textInput.input"
+    );
 
-    this.folderInput.addEventListener("change", (e) => {
-      if (e.target.files.length > 0) {
-        // Get the folder path from the first file
-        const fullRelPath = e.target.files[0].webkitRelativePath; // e.g. ImagesSet/A.png
-        const topFolder = fullRelPath.split("/")[0];
-        console.log("Selected folder (top-level):", topFolder);
-        console.log("First file relative path:", fullRelPath);
-        this.folderPath.value = topFolder;
-        this.state.project.folder_path = topFolder; // store logical folder token
-
-        // Show success message
-        this.showStatus(`Folder selected: ${topFolder}`);
-      }
-    });
-
-    // Manual folder path input
-    this.folderPath.addEventListener("input", () => {
-      this.state.project.folder_path = this.folderPath.value;
-    });
-
-    this.scanFolderBtn.addEventListener("click", () => {
-      this.scanFolder();
-    });
+    on(
+      this.browseFolderBtn,
+      "click",
+      () => this.folderInput && this.folderInput.click(),
+      "browseFolderBtn.click"
+    );
+    on(
+      this.folderInput,
+      "change",
+      (e) => {
+        if (e.target.files?.length) {
+          const fullRelPath = e.target.files[0].webkitRelativePath || "";
+          const topFolder = fullRelPath.split("/")[0] || e.target.files[0].name;
+          this.folderPath && (this.folderPath.value = topFolder);
+          this.state.project.folder_path = topFolder;
+          this.showStatus(`Folder selected: ${topFolder}`);
+        }
+      },
+      "folderInput.change"
+    );
+    on(
+      this.folderPath,
+      "input",
+      () => {
+        this.state.project.folder_path = this.folderPath.value;
+      },
+      "folderPath.input"
+    );
+    on(
+      this.scanFolderBtn,
+      "click",
+      () => this.scanFolder(),
+      "scanFolderBtn.click"
+    );
 
     if (this.audioTextDrivenToggle) {
-      this.audioTextDrivenToggle.addEventListener("change", () => {
-        this.state.project.audio_text_driven =
-          this.audioTextDrivenToggle.checked;
-      });
-      // default ON
+      on(
+        this.audioTextDrivenToggle,
+        "change",
+        () => {
+          this.state.project.audio_text_driven =
+            this.audioTextDrivenToggle.checked;
+        },
+        "audioTextDrivenToggle.change"
+      );
       this.audioTextDrivenToggle.checked = true;
       this.state.project.audio_text_driven = true;
     }
 
-    // Settings events
-    this.frameDuration.addEventListener("change", () => {
-      this.state.project.settings.frame_duration = parseInt(
-        this.frameDuration.value
-      );
-    });
+    on(
+      this.frameDuration,
+      "change",
+      () => {
+        this.state.project.settings.frame_duration = parseInt(
+          this.frameDuration.value || "0"
+        );
+      },
+      "frameDuration.change"
+    );
+    on(
+      this.pauseDuration,
+      "change",
+      () => {
+        this.state.project.settings.pause_duration = parseInt(
+          this.pauseDuration.value || "0"
+        );
+      },
+      "pauseDuration.change"
+    );
+    on(
+      this.fps,
+      "change",
+      () => {
+        this.state.project.settings.fps = parseInt(this.fps.value || "0");
+      },
+      "fps.change"
+    );
+    on(
+      this.quality,
+      "change",
+      () => {
+        this.state.project.settings.quality = parseInt(
+          this.quality.value || "0"
+        );
+      },
+      "quality.change"
+    );
 
-    this.pauseDuration.addEventListener("change", () => {
-      this.state.project.settings.pause_duration = parseInt(
-        this.pauseDuration.value
-      );
-    });
+    on(
+      this.useEnhancedAlignment,
+      "change",
+      () => this.toggleEnhancedAlignmentSettings(),
+      "useEnhancedAlignment.change"
+    );
+    on(
+      this.alignmentMethod,
+      "change",
+      () => {
+        this.state.project.settings.alignmentMethod =
+          this.alignmentMethod.value;
+      },
+      "alignmentMethod.change"
+    );
+    on(
+      this.targetFps,
+      "change",
+      () => {
+        this.state.project.settings.targetFps = parseInt(
+          this.targetFps.value || "0"
+        );
+        if (this.useEnhancedAlignment?.checked && this.fps) {
+          this.fps.value = this.targetFps.value;
+          this.state.project.settings.fps = parseInt(
+            this.targetFps.value || "0"
+          );
+        }
+      },
+      "targetFps.change"
+    );
 
-    this.fps.addEventListener("change", () => {
-      this.state.project.settings.fps = parseInt(this.fps.value);
-    });
+    on(
+      this.chooseFallbackBtn,
+      "click",
+      () => this.imageInput && this.imageInput.click(),
+      "chooseFallbackBtn.click"
+    );
+    on(
+      this.imageInput,
+      "change",
+      (e) => {
+        if (e.target.files?.length) this.handleFallbackImage(e.target.files[0]);
+      },
+      "imageInput.change"
+    );
+    on(
+      this.chooseSpaceBtn,
+      "click",
+      () => this.spaceImageInput && this.spaceImageInput.click(),
+      "chooseSpaceBtn.click"
+    );
+    on(
+      this.spaceImageInput,
+      "change",
+      (e) => {
+        if (e.target.files?.length) this.handleSpaceImage(e.target.files[0]);
+      },
+      "spaceImageInput.change"
+    );
+    on(
+      this.clearSpaceBtn,
+      "click",
+      () => this.clearSpaceImage(),
+      "clearSpaceBtn.click"
+    );
 
-    this.quality.addEventListener("change", () => {
-      this.state.project.settings.quality = parseInt(this.quality.value);
-    });
+    on(
+      this.buildSequenceBtn,
+      "click",
+      () => this.buildSequence(),
+      "buildSequenceBtn.click"
+    );
+    on(
+      this.previewBtn,
+      "click",
+      () => this.togglePreview(),
+      "previewBtn.click"
+    );
+    on(
+      this.testModeBtn,
+      "click",
+      () => this.enableTestMode(),
+      "testModeBtn.click"
+    );
+    on(
+      this.autoMapBtn,
+      "click",
+      () => this.autoMapCharacters(),
+      "autoMapBtn.click"
+    );
+    on(
+      this.clearMappingBtn,
+      "click",
+      () => this.clearMappings(),
+      "clearMappingBtn.click"
+    );
 
-    // Enhanced alignment events
-    this.useEnhancedAlignment?.addEventListener("change", () => {
-      this.toggleEnhancedAlignmentSettings();
-    });
-
-    this.alignmentMethod?.addEventListener("change", () => {
-      this.state.project.settings.alignmentMethod = this.alignmentMethod.value;
-    });
-
-    this.targetFps?.addEventListener("change", () => {
-      this.state.project.settings.targetFps = parseInt(this.targetFps.value);
-      // Sync with main FPS if enhanced is enabled
-      if (this.useEnhancedAlignment?.checked) {
-        this.fps.value = this.targetFps.value;
-        this.state.project.settings.fps = parseInt(this.targetFps.value);
-      }
-    });
-
-    // Fallback events
-    this.chooseFallbackBtn.addEventListener("click", () => {
-      this.imageInput.click();
-    });
-
-    this.imageInput.addEventListener("change", (e) => {
-      if (e.target.files.length > 0) {
-        this.handleFallbackImage(e.target.files[0]);
-      }
-    });
-
-    // Space image events
-    this.chooseSpaceBtn.addEventListener("click", () => {
-      this.spaceImageInput.click();
-    });
-
-    this.spaceImageInput.addEventListener("change", (e) => {
-      if (e.target.files.length > 0) {
-        this.handleSpaceImage(e.target.files[0]);
-      }
-    });
-
-    this.clearSpaceBtn.addEventListener("click", () => {
-      this.clearSpaceImage();
-    });
-
-    // Action events
-    this.buildSequenceBtn.addEventListener("click", () => {
-      this.buildSequence();
-    });
-
-    this.previewBtn.addEventListener("click", () => {
-      this.togglePreview();
-    });
-
-    this.testModeBtn.addEventListener("click", () => {
-      this.enableTestMode();
-    });
-
-    // Mapping events
-    this.autoMapBtn.addEventListener("click", () => {
-      this.autoMapCharacters();
-    });
-
-    this.clearMappingBtn.addEventListener("click", () => {
-      this.clearMappings();
-    });
-
-    // Bulk import & drag help
+    // Bulk import
     this.bulkImportBtn = document.getElementById("bulkImportBtn");
     this.bulkImportInput = document.getElementById("bulkImportInput");
     this.showDragHelpBtn = document.getElementById("showDragHelpBtn");
     if (this.bulkImportBtn && this.bulkImportInput) {
-      this.bulkImportBtn.addEventListener("click", () =>
-        this.bulkImportInput.click()
+      on(
+        this.bulkImportBtn,
+        "click",
+        () => this.bulkImportInput.click(),
+        "bulkImportBtn.click"
       );
-      this.bulkImportInput.addEventListener("change", (e) => {
-        if (e.target.files?.length) {
-          const files = Array.from(e.target.files).filter((f) =>
-            this.isImageFile(f)
-          );
-          if (files.length) {
-            this.processBatchMapping(files).then(() => {
-              this.showSuccess(`${files.length} images imported.`);
-              this.announceStatus(
-                `${files.length} images imported successfully.`
+      on(
+        this.bulkImportInput,
+        "change",
+        (e) => {
+          if (e.target.files?.length) {
+            const files = Array.from(e.target.files).filter((f) =>
+              this.isImageFile(f)
+            );
+            if (files.length) {
+              this.processBatchMapping(files).then(() =>
+                this.showStatus(
+                  `Imported ${files.length} file${files.length > 1 ? "s" : ""}`
+                )
               );
-            });
-          } else {
-            this.showError("No supported image files selected");
-            this.announceAlert("No supported image files selected");
+            }
           }
-          this.bulkImportInput.value = "";
-        }
-      });
-    }
-    if (this.showDragHelpBtn) {
-      this.showDragHelpBtn.addEventListener("click", () => {
-        localStorage.removeItem("dragOnboardingShown");
-        const banner = document.getElementById("dragOnboardingBanner");
-        if (banner) {
-          banner.style.display = "flex";
-          banner.setAttribute("aria-hidden", "false");
-        }
-        this.showDragHelpBtn.style.display = "none";
-      });
+        },
+        "bulkImportInput.change"
+      );
     }
 
-    // Timeline events
-    this.playBtn.addEventListener("click", () => {
-      this.playSequence();
+    // Timeline controls
+    on(this.playBtn, "click", () => this.playSequence(), "playBtn.click");
+    on(this.stopBtn, "click", () => this.stopSequence(), "stopBtn.click");
+    // Scrubber
+    this.setupTimelineScrubber?.();
+
+    // Frame editor
+    on(
+      this.selectedFrameDuration,
+      "change",
+      () => this.updateFrameDuration(),
+      "selectedFrameDuration.change"
+    );
+    on(
+      this.duplicateFrameBtn,
+      "click",
+      () => this.duplicateFrame(),
+      "duplicateFrameBtn.click"
+    );
+    on(
+      this.deleteFrameBtn,
+      "click",
+      () => this.deleteFrame(),
+      "deleteFrameBtn.click"
+    );
+
+    // Export modal
+    on(
+      this.exportVideoBtn,
+      "click",
+      () => this.showExportModal(),
+      "exportVideoBtn.click"
+    );
+    on(
+      this.closeExportModal,
+      "click",
+      () => this.hideExportModal(),
+      "closeExportModal.click"
+    );
+    on(
+      this.confirmExportBtn,
+      "click",
+      () => this.exportVideo(),
+      "confirmExportBtn.click"
+    );
+    on(
+      this.cancelExportBtn,
+      "click",
+      () => this.hideExportModal(),
+      "cancelExportBtn.click"
+    );
+    on(
+      this.exportModal,
+      "click",
+      (e) => {
+        if (e.target === this.exportModal) this.hideExportModal();
+      },
+      "exportModal.backdropClick"
+    );
+
+    // Project save/load
+    on(
+      this.saveProjectBtn,
+      "click",
+      () => this.saveProject(),
+      "saveProjectBtn.click"
+    );
+    on(
+      this.loadProjectBtn,
+      "click",
+      () => this.projectInput && this.projectInput.click(),
+      "loadProjectBtn.click"
+    );
+    on(
+      this.projectInput,
+      "change",
+      (e) => {
+        if (e.target.files?.length) this.loadProject(e.target.files[0]);
+      },
+      "projectInput.change"
+    );
+    console.log("[FaceSequencerApp] bindEvents complete");
+  }
+
+  setupModeButtons() {
+    // Face Animation Mode Button
+    const faceAnimationBtn = document.getElementById("faceAnimationMode");
+    if (faceAnimationBtn) {
+      faceAnimationBtn.addEventListener("click", () =>
+        this.switchToMode("face-animation")
+      );
+    }
+
+    // Video Editor Mode Button
+    const videoEditorBtn = document.getElementById("videoEditorMode");
+    if (videoEditorBtn) {
+      videoEditorBtn.addEventListener("click", () =>
+        this.switchToMode("video-editor")
+      );
+    }
+  }
+
+  switchToMode(mode) {
+    console.log(`Switching to mode: ${mode}`);
+
+    // Hide all interfaces
+    const faceAnimationInterface = document.querySelector(".main-content");
+    const videoEditorInterface = document.getElementById(
+      "videoEditorInterface"
+    );
+
+    // Update button states
+    document.querySelectorAll(".mode-btn").forEach((btn) => {
+      btn.classList.remove("active");
     });
 
-    this.stopBtn.addEventListener("click", () => {
-      this.stopSequence();
-    });
+    if (mode === "face-animation") {
+      if (faceAnimationInterface)
+        faceAnimationInterface.style.display = "block";
+      if (videoEditorInterface) videoEditorInterface.style.display = "none";
+      document.getElementById("faceAnimationMode")?.classList.add("active");
+    } else if (mode === "video-editor") {
+      if (faceAnimationInterface) faceAnimationInterface.style.display = "none";
+      if (videoEditorInterface) videoEditorInterface.style.display = "block";
+      document.getElementById("videoEditorMode")?.classList.add("active");
 
-    // Timeline scrubber events
-    this.setupTimelineScrubber();
+      // Initialize video editor specific features
+      this.initializeVideoEditor();
+    }
+  }
 
-    // Frame editor events
-    this.selectedFrameDuration.addEventListener("change", () => {
-      this.updateFrameDuration();
-    });
-
-    this.duplicateFrameBtn.addEventListener("click", () => {
-      this.duplicateFrame();
-    });
-
-    this.deleteFrameBtn.addEventListener("click", () => {
-      this.deleteFrame();
-    });
-
-    // Export events
-    this.exportVideoBtn.addEventListener("click", () => {
-      this.showExportModal();
-    });
-
-    this.closeExportModal.addEventListener("click", () => {
-      this.hideExportModal();
-    });
-
-    this.confirmExportBtn.addEventListener("click", () => {
-      this.exportVideo();
-    });
-
-    this.cancelExportBtn.addEventListener("click", () => {
-      this.hideExportModal();
-    });
-
-    // Project events
-    this.saveProjectBtn.addEventListener("click", () => {
-      this.saveProject();
-    });
-
-    this.loadProjectBtn.addEventListener("click", () => {
-      this.projectInput.click();
-    });
-
-    this.projectInput.addEventListener("change", (e) => {
-      if (e.target.files.length > 0) {
-        this.loadProject(e.target.files[0]);
-      }
-    });
-
-    // Modal close on backdrop click
-    this.exportModal.addEventListener("click", (e) => {
-      if (e.target === this.exportModal) {
-        this.hideExportModal();
-      }
-    });
+  initializeVideoEditor() {
+    console.log("Initializing Video Editor features...");
+    // Add any video editor specific initialization here
   }
 
   // API Communication Methods
@@ -1169,14 +1313,24 @@ class FaceSequencerApp {
     this.syncSequenceState();
 
     // Update form fields
-    this.textInput.value = this.state.project.text;
+    const safeSet = (el, prop, val) => {
+      if (el) {
+        try {
+          el[prop] = val;
+        } catch (err) {
+          console.warn("safeSet failed", { el, prop, val, err });
+        }
+      }
+    };
+
+    safeSet(this.textInput, "value", this.state.project.text || "");
     // Race guard: avoid clobbering a user-typed folder path if state not yet populated
     // Scenario: init() triggers loadProject() (async) then updateUI() runs immediately while
     // user (or automated test) is typing the folder path. Original code overwrote the input
     // with an empty string, causing subsequent scanFolder() to early-exit and no thumbnails load.
     // Fix: Only overwrite if (a) state has a non-empty folder_path OR (b) input currently empty.
     // Additionally, never overwrite while the input is focused and state folder_path is empty.
-    const currentInputVal = this.folderPath.value;
+    const currentInputVal = this.folderPath?.value || "";
     const statePath = this.state.project.folder_path || "";
     const folderInputFocused = document.activeElement === this.folderPath;
     if (
@@ -1187,13 +1341,21 @@ class FaceSequencerApp {
     ) {
       // Do not overwrite if user is actively typing and statePath is still empty
       if (!(folderInputFocused && !statePath)) {
-        this.folderPath.value = statePath;
+        safeSet(this.folderPath, "value", statePath);
       }
     }
-    this.frameDuration.value = this.state.project.settings.frame_duration;
-    this.pauseDuration.value = this.state.project.settings.pause_duration;
-    this.fps.value = this.state.project.settings.fps;
-    this.quality.value = this.state.project.settings.quality;
+    safeSet(
+      this.frameDuration,
+      "value",
+      this.state.project.settings.frame_duration
+    );
+    safeSet(
+      this.pauseDuration,
+      "value",
+      this.state.project.settings.pause_duration
+    );
+    safeSet(this.fps, "value", this.state.project.settings.fps);
+    safeSet(this.quality, "value", this.state.project.settings.quality);
 
     this.updateCharCount();
     this.validateMappings();

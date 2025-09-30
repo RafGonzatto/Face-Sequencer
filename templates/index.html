@@ -57,6 +57,19 @@
       href="{{ url_for('static', filename='css/expandable-timeline.css') }}"
     />
     <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/video-editor.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/enhanced-timeline.css') }}"
+    />
+    <!-- Phase 3 Advanced Video Editor Styles -->
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/advanced-video-editor-phase3.css') }}"
+    />
+    <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
@@ -120,6 +133,29 @@
             Face Sequencer Pro
           </h1>
         </div>
+        <div class="header-center">
+          <div class="mode-switcher">
+            <button
+              class="mode-btn active"
+              id="faceAnimationMode"
+              data-mode="face-animation"
+              title="Face Animation Mode"
+            >
+              <i class="fas fa-user"></i>
+              <span>Face Animation</span>
+            </button>
+            <button
+              class="mode-btn"
+              id="videoEditorMode"
+              data-mode="video-editor"
+              title="Video Editor with Subtitles"
+              onclick="console.log('🔴 BUTTON CLICKED DIRECTLY!'); window.testVideoEditorToggle();"
+            >
+              <i class="fas fa-film"></i>
+              <span>Video Editor</span>
+            </button>
+          </div>
+        </div>
         <div class="header-right">
           <button
             class="btn btn-secondary"
@@ -146,7 +182,7 @@
       </header>
 
       <!-- Main Content Area -->
-      <div class="main-content">
+      <div class="main-content active" id="faceAnimationInterface">
         <!-- Left Panel - Input & Configuration -->
         <div class="panel left-panel">
           <div class="panel-header">
@@ -209,7 +245,7 @@
           <div class="section">
             <h3>Audio Input</h3>
             <div class="input-group">
-              <div class="audio-upload-container">
+              <div class="audio-upload-container" id="audioUpload">
                 <input
                   type="file"
                   id="audioFileInput"
@@ -603,6 +639,285 @@
           </div>
         </div>
       </div>
+      <!-- Video Editor Interface (moved inside app-container) -->
+      <div
+        class="video-editor-interface"
+        id="videoEditorInterface"
+        style="display: none"
+      >
+        <!-- Video Editor Header -->
+        <div class="video-editor-header">
+          <h2><i class="fas fa-film"></i> Video Editor with Smart Subtitles</h2>
+          <div class="video-editor-actions">
+            <button class="btn btn-secondary" id="loadVideoBtn">
+              <i class="fas fa-upload"></i> Upload Video
+            </button>
+            <button
+              class="btn btn-primary"
+              id="exportVideoWithSubtitles"
+              disabled
+            >
+              <i class="fas fa-download"></i> Export with Subtitles
+            </button>
+          </div>
+        </div>
+
+        <!-- Three-column layout -->
+        <div class="video-editor-main">
+          <!-- Video Preview Column -->
+          <div class="video-preview-panel">
+            <div class="video-preview-container">
+              <video
+                id="videoPreview"
+                controls
+                class="video-preview"
+                style="display: none"
+              >
+                Your browser does not support the video tag.
+              </video>
+              <div class="video-placeholder" id="videoPlaceholder">
+                <i class="fas fa-film fa-3x"></i>
+                <p>Upload a video to get started</p>
+                <button
+                  class="btn btn-primary"
+                  onclick="document.getElementById('loadVideoBtn').click()"
+                >
+                  <i class="fas fa-upload"></i> Choose Video File
+                </button>
+              </div>
+            </div>
+
+            <!-- Video Controls -->
+            <div class="video-controls">
+              <div class="playback-controls">
+                <button class="btn btn-sm" id="playPauseBtn" disabled>
+                  <i class="fas fa-play"></i>
+                </button>
+                <button class="btn btn-sm" id="stopVideoBtn" disabled>
+                  <i class="fas fa-stop"></i>
+                </button>
+                <span class="video-time">00:00 / 00:00</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Subtitle Timeline Column -->
+          <div class="subtitle-timeline-panel">
+            <div class="panel-header">
+              <h3><i class="fas fa-timeline"></i> Subtitle Timeline</h3>
+              <div class="timeline-controls">
+                <button
+                  class="btn btn-sm"
+                  id="generateSubtitlesBtn"
+                  disabled
+                  title="Generate subtitles from text and audio"
+                >
+                  <i class="fas fa-magic"></i> Generate
+                </button>
+                <button class="btn btn-sm" id="clearSubtitlesBtn" disabled>
+                  <i class="fas fa-trash"></i> Clear
+                </button>
+              </div>
+            </div>
+
+            <!-- Text Input for Transcription -->
+            <div class="transcript-input">
+              <label for="videoTranscript">Video Transcript:</label>
+              <textarea
+                id="videoTranscript"
+                placeholder="Enter or paste the text that matches your video's audio..."
+                rows="4"
+              ></textarea>
+            </div>
+
+            <!-- Enhanced Subtitle Timeline Container -->
+            <div
+              class="subtitle-timeline-container"
+              id="subtitleTimelineContainer"
+            >
+              <div class="subtitle-timeline" id="subtitleTimeline">
+                <!-- Enhanced timeline will be rendered here -->
+                <div class="timeline-placeholder">
+                  <i class="fas fa-waveform-lines"></i>
+                  <p>Generate subtitles to see enhanced timeline</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Subtitle Quality Metrics Panel -->
+            <div
+              class="subtitle-metrics"
+              id="subtitleMetrics"
+              style="display: none"
+            >
+              <h4>📊 Subtitle Quality Metrics</h4>
+              <div class="metrics-grid">
+                <div class="metric-item">
+                  <span class="metric-label">Reading Speed:</span>
+                  <span class="metric-value" id="readingSpeedMetric"
+                    >- words/sec</span
+                  >
+                </div>
+                <div class="metric-item">
+                  <span class="metric-label">Readability Score:</span>
+                  <span class="metric-value" id="readabilityMetric">-%</span>
+                </div>
+                <div class="metric-item">
+                  <span class="metric-label">Total Segments:</span>
+                  <span class="metric-value" id="segmentCountMetric">-</span>
+                </div>
+                <div class="metric-item">
+                  <span class="metric-label">Platform:</span>
+                  <span class="metric-value" id="platformMetric">custom</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Subtitle Segments List -->
+            <div class="subtitle-segments" id="subtitleSegments">
+              <div class="segments-header">
+                <h4>Subtitle Segments</h4>
+                <span class="segment-count">0 segments</span>
+              </div>
+              <div class="segments-list" id="segmentsList">
+                <!-- Individual subtitle segments will be listed here -->
+              </div>
+            </div>
+          </div>
+
+          <!-- Properties Panel Column -->
+          <div class="subtitle-properties-panel">
+            <div class="panel-header">
+              <h3><i class="fas fa-paint-brush"></i> Subtitle Style</h3>
+            </div>
+            <div class="section">
+              <h4>Platform Presets</h4>
+              <div class="preset-buttons">
+                <button class="preset-btn" data-preset="instagram-story">
+                  <i class="fab fa-instagram"></i> IG Story
+                </button>
+                <button class="preset-btn" data-preset="instagram-reel">
+                  <i class="fab fa-instagram"></i> IG Reel
+                </button>
+                <button class="preset-btn" data-preset="tiktok">
+                  <i class="fab fa-tiktok"></i> TikTok
+                </button>
+                <button class="preset-btn" data-preset="youtube-shorts">
+                  <i class="fab fa-youtube"></i> YT Shorts
+                </button>
+              </div>
+            </div>
+            <div class="section">
+              <h4>Font & Text</h4>
+              <div class="style-controls">
+                <div class="control-group">
+                  <label>Font Family:</label>
+                  <select id="fontFamily">
+                    <option value="Arial, sans-serif">Arial</option>
+                    <option value="'Segoe UI', sans-serif">Segoe UI</option>
+                    <option value="'Roboto', sans-serif">Roboto</option>
+                    <option value="'Open Sans', sans-serif">Open Sans</option>
+                    <option value="'Montserrat', sans-serif">Montserrat</option>
+                  </select>
+                </div>
+                <div class="control-group">
+                  <label>Font Size:</label>
+                  <input
+                    type="range"
+                    id="fontSize"
+                    min="12"
+                    max="72"
+                    value="24"
+                  />
+                  <span class="value-display">24px</span>
+                </div>
+                <div class="control-group">
+                  <label>Font Weight:</label>
+                  <select id="fontWeight">
+                    <option value="normal">Normal</option>
+                    <option value="bold">Bold</option>
+                    <option value="600">Semi Bold</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div class="section">
+              <h4>Colors</h4>
+              <div class="style-controls">
+                <div class="control-group">
+                  <label>Text Color:</label>
+                  <input type="color" id="textColor" value="#ffffff" />
+                </div>
+                <div class="control-group">
+                  <label>Background:</label>
+                  <input type="color" id="backgroundColor" value="#000000" />
+                  <input
+                    type="range"
+                    id="backgroundOpacity"
+                    min="0"
+                    max="100"
+                    value="70"
+                  />
+                  <span class="value-display">70%</span>
+                </div>
+                <div class="control-group">
+                  <label>Outline:</label>
+                  <input type="color" id="outlineColor" value="#000000" />
+                  <input
+                    type="range"
+                    id="outlineWidth"
+                    min="0"
+                    max="5"
+                    value="2"
+                  />
+                  <span class="value-display">2px</span>
+                </div>
+              </div>
+            </div>
+            <div class="section">
+              <h4>Position & Layout</h4>
+              <div class="style-controls">
+                <div class="control-group">
+                  <label>Vertical Position:</label>
+                  <select id="verticalPosition">
+                    <option value="top">Top</option>
+                    <option value="center">Center</option>
+                    <option value="bottom" selected>Bottom</option>
+                  </select>
+                </div>
+                <div class="control-group">
+                  <label>Horizontal Align:</label>
+                  <select id="horizontalAlign">
+                    <option value="left">Left</option>
+                    <option value="center" selected>Center</option>
+                    <option value="right">Right</option>
+                  </select>
+                </div>
+                <div class="control-group">
+                  <label>Max Width:</label>
+                  <input
+                    type="range"
+                    id="maxWidth"
+                    min="50"
+                    max="100"
+                    value="80"
+                  />
+                  <span class="value-display">80%</span>
+                </div>
+              </div>
+            </div>
+            <div class="section">
+              <h4>Preview</h4>
+              <button class="btn btn-primary" id="previewSubtitles" disabled>
+                <i class="fas fa-eye"></i> Preview Subtitles
+              </button>
+              <div class="preview-info">
+                <small>Preview shows subtitles overlaid on video</small>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- File Input (Hidden) -->
@@ -648,6 +963,299 @@
       </div>
     </div>
 
+    <!-- Video Editor Interface (moved outside modal) -->
+    <div
+      class="video-editor-interface"
+      id="videoEditorInterface"
+      style="display: none"
+    >
+      <!-- Video Editor Header -->
+      <div class="video-editor-header">
+        <h2><i class="fas fa-film"></i> Video Editor with Smart Subtitles</h2>
+        <div class="video-editor-actions">
+          <button class="btn btn-secondary" id="loadVideoBtn">
+            <i class="fas fa-upload"></i> Upload Video
+          </button>
+          <button
+            class="btn btn-primary"
+            id="exportVideoWithSubtitles"
+            disabled
+          >
+            <i class="fas fa-download"></i> Export with Subtitles
+          </button>
+        </div>
+      </div>
+
+      <!-- Three-column layout -->
+      <div class="video-editor-main">
+        <!-- Video Preview Column -->
+        <div class="video-preview-panel">
+          <div class="video-preview-container">
+            <video
+              id="videoPreview"
+              controls
+              class="video-preview"
+              style="display: none"
+            >
+              Your browser does not support the video tag.
+            </video>
+            <div class="video-placeholder" id="videoPlaceholder">
+              <i class="fas fa-film fa-3x"></i>
+              <p>Upload a video to get started</p>
+              <button
+                class="btn btn-primary"
+                onclick="document.getElementById('loadVideoBtn').click()"
+              >
+                <i class="fas fa-upload"></i> Choose Video File
+              </button>
+            </div>
+          </div>
+
+          <!-- Video Controls -->
+          <div class="video-controls">
+            <div class="playback-controls">
+              <button class="btn btn-sm" id="playPauseBtn" disabled>
+                <i class="fas fa-play"></i>
+              </button>
+              <button class="btn btn-sm" id="stopVideoBtn" disabled>
+                <i class="fas fa-stop"></i>
+              </button>
+              <span class="video-time">00:00 / 00:00</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Subtitle Timeline Column -->
+        <div class="subtitle-timeline-panel">
+          <div class="panel-header">
+            <h3><i class="fas fa-timeline"></i> Subtitle Timeline</h3>
+            <div class="timeline-controls">
+              <button
+                class="btn btn-sm"
+                id="generateSubtitlesBtn"
+                disabled
+                title="Generate subtitles from text and audio"
+              >
+                <i class="fas fa-magic"></i> Generate
+              </button>
+              <button class="btn btn-sm" id="clearSubtitlesBtn" disabled>
+                <i class="fas fa-trash"></i> Clear
+              </button>
+            </div>
+          </div>
+
+          <!-- Text Input for Transcription -->
+          <div class="transcript-input">
+            <label for="videoTranscript">Video Transcript:</label>
+            <textarea
+              id="videoTranscript"
+              placeholder="Enter or paste the text that matches your video's audio..."
+              rows="4"
+            ></textarea>
+          </div>
+
+          <!-- Enhanced Subtitle Timeline Container -->
+          <div
+            class="subtitle-timeline-container"
+            id="subtitleTimelineContainer"
+          >
+            <div class="subtitle-timeline" id="subtitleTimeline">
+              <!-- Enhanced timeline will be rendered here -->
+              <div class="timeline-placeholder">
+                <i class="fas fa-waveform-lines"></i>
+                <p>Generate subtitles to see enhanced timeline</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Subtitle Quality Metrics Panel -->
+          <div
+            class="subtitle-metrics"
+            id="subtitleMetrics"
+            style="display: none"
+          >
+            <h4>📊 Subtitle Quality Metrics</h4>
+            <div class="metrics-grid">
+              <div class="metric-item">
+                <span class="metric-label">Reading Speed:</span>
+                <span class="metric-value" id="readingSpeedMetric"
+                  >- words/sec</span
+                >
+              </div>
+              <div class="metric-item">
+                <span class="metric-label">Readability Score:</span>
+                <span class="metric-value" id="readabilityMetric">-%</span>
+              </div>
+              <div class="metric-item">
+                <span class="metric-label">Total Segments:</span>
+                <span class="metric-value" id="segmentCountMetric">-</span>
+              </div>
+              <div class="metric-item">
+                <span class="metric-label">Platform:</span>
+                <span class="metric-value" id="platformMetric">custom</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Subtitle Segments List -->
+          <div class="subtitle-segments" id="subtitleSegments">
+            <div class="segments-header">
+              <h4>Subtitle Segments</h4>
+              <span class="segment-count">0 segments</span>
+            </div>
+            <div class="segments-list" id="segmentsList">
+              <!-- Individual subtitle segments will be listed here -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Properties Panel Column -->
+        <div class="subtitle-properties-panel">
+          <div class="panel-header">
+            <h3><i class="fas fa-paint-brush"></i> Subtitle Style</h3>
+          </div>
+
+          <!-- Platform Presets -->
+          <div class="section">
+            <h4>Platform Presets</h4>
+            <div class="preset-buttons">
+              <button class="preset-btn" data-preset="instagram-story">
+                <i class="fab fa-instagram"></i> IG Story
+              </button>
+              <button class="preset-btn" data-preset="instagram-reel">
+                <i class="fab fa-instagram"></i> IG Reel
+              </button>
+              <button class="preset-btn" data-preset="tiktok">
+                <i class="fab fa-tiktok"></i> TikTok
+              </button>
+              <button class="preset-btn" data-preset="youtube-shorts">
+                <i class="fab fa-youtube"></i> YT Shorts
+              </button>
+            </div>
+          </div>
+
+          <!-- Font Settings -->
+          <div class="section">
+            <h4>Font & Text</h4>
+            <div class="style-controls">
+              <div class="control-group">
+                <label>Font Family:</label>
+                <select id="fontFamily">
+                  <option value="Arial, sans-serif">Arial</option>
+                  <option value="'Segoe UI', sans-serif">Segoe UI</option>
+                  <option value="'Roboto', sans-serif">Roboto</option>
+                  <option value="'Open Sans', sans-serif">Open Sans</option>
+                  <option value="'Montserrat', sans-serif">Montserrat</option>
+                </select>
+              </div>
+              <div class="control-group">
+                <label>Font Size:</label>
+                <input
+                  type="range"
+                  id="fontSize"
+                  min="12"
+                  max="72"
+                  value="24"
+                />
+                <span class="value-display">24px</span>
+              </div>
+              <div class="control-group">
+                <label>Font Weight:</label>
+                <select id="fontWeight">
+                  <option value="normal">Normal</option>
+                  <option value="bold">Bold</option>
+                  <option value="600">Semi Bold</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- Color Settings -->
+          <div class="section">
+            <h4>Colors</h4>
+            <div class="style-controls">
+              <div class="control-group">
+                <label>Text Color:</label>
+                <input type="color" id="textColor" value="#ffffff" />
+              </div>
+              <div class="control-group">
+                <label>Background:</label>
+                <input type="color" id="backgroundColor" value="#000000" />
+                <input
+                  type="range"
+                  id="backgroundOpacity"
+                  min="0"
+                  max="100"
+                  value="70"
+                />
+                <span class="value-display">70%</span>
+              </div>
+              <div class="control-group">
+                <label>Outline:</label>
+                <input type="color" id="outlineColor" value="#000000" />
+                <input
+                  type="range"
+                  id="outlineWidth"
+                  min="0"
+                  max="5"
+                  value="2"
+                />
+                <span class="value-display">2px</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Position Settings -->
+          <div class="section">
+            <h4>Position & Layout</h4>
+            <div class="style-controls">
+              <div class="control-group">
+                <label>Vertical Position:</label>
+                <select id="verticalPosition">
+                  <option value="top">Top</option>
+                  <option value="center">Center</option>
+                  <option value="bottom" selected>Bottom</option>
+                </select>
+              </div>
+              <div class="control-group">
+                <label>Horizontal Align:</label>
+                <select id="horizontalAlign">
+                  <option value="left">Left</option>
+                  <option value="center" selected>Center</option>
+                  <option value="right">Right</option>
+                </select>
+              </div>
+              <div class="control-group">
+                <label>Max Width:</label>
+                <input
+                  type="range"
+                  id="maxWidth"
+                  min="50"
+                  max="100"
+                  value="80"
+                />
+                <span class="value-display">80%</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Preview Controls -->
+          <div class="section">
+            <h4>Preview</h4>
+            <button class="btn btn-primary" id="previewSubtitles" disabled>
+              <i class="fas fa-eye"></i> Preview Subtitles
+            </button>
+            <div class="preview-info">
+              <small>Preview shows subtitles overlaid on video</small>
+            </div>
+          </div>
+        </div>
+        <!-- end properties panel -->
+      </div>
+      <!-- end video-editor-main -->
+    </div>
+    <!-- End Video Editor Interface -->
+
     <!-- Load the main application class first -->
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 
@@ -663,14 +1271,119 @@
     <script src="{{ url_for('static', filename='js/smart-panels.js') }}"></script>
 
     <script>
-      // Initialize the application after DOM is fully loaded
+      // Test function for Video Editor toggle
+      window.testVideoEditorToggle = function () {
+        console.log("🎬 Testing Video Editor toggle...");
+        const faceInterface = document.getElementById("faceAnimationInterface");
+        const videoInterface = document.getElementById("videoEditorInterface");
+        const faceBtn = document.getElementById("faceAnimationMode");
+        const videoBtn = document.getElementById("videoEditorMode");
+
+        console.log("Elements found:", {
+          faceInterface: !!faceInterface,
+          videoInterface: !!videoInterface,
+          faceBtn: !!faceBtn,
+          videoBtn: !!videoBtn,
+        });
+
+        if (faceInterface && videoInterface && faceBtn && videoBtn) {
+          // Toggle interfaces
+          faceInterface.style.display = "none";
+          videoInterface.style.display = "flex";
+
+          // Toggle button states
+          faceBtn.classList.remove("active");
+          videoBtn.classList.add("active");
+
+          console.log("✅ Video Editor interface activated!");
+          alert("Video Editor mode activated! Check the interface.");
+        } else {
+          console.error("❌ Missing required elements for toggle");
+          alert("Error: Missing required DOM elements");
+        }
+      };
+
+      // Additional debug functions
+      window.debugVideoEditor = function () {
+        console.log("=== VIDEO EDITOR DEBUG ===");
+        console.log(
+          "VideoEditorModule available:",
+          typeof window.VideoEditorModule
+        );
+        console.log("FaceSequencerApp:", !!window.faceSequencerApp);
+
+        if (window.faceSequencerApp) {
+          console.log(
+            "App videoEditor:",
+            !!window.faceSequencerApp.videoEditor
+          );
+
+          if (window.faceSequencerApp.videoEditor) {
+            const ve = window.faceSequencerApp.videoEditor;
+            console.log(
+              "VideoEditor instance methods:",
+              Object.getOwnPropertyNames(Object.getPrototypeOf(ve))
+            );
+          }
+        }
+
+        const btn = document.getElementById("videoEditorMode");
+        console.log("Button element:", btn);
+        console.log("Button onclick:", btn?.onclick);
+
+        return {
+          moduleAvailable: typeof window.VideoEditorModule !== "undefined",
+          appAvailable: !!window.faceSequencerApp,
+          editorInstance: !!(
+            window.faceSequencerApp && window.faceSequencerApp.videoEditor
+          ),
+          buttonFound: !!btn,
+        };
+      }; // Initialize the application after DOM is fully loaded
       document.addEventListener("DOMContentLoaded", function () {
         // Make sure all DOM elements are available before initializing the app
         setTimeout(function () {
           try {
             console.log("Initializing Face Sequencer App...");
+
+            // Verify critical DOM elements exist before initialization
+            const requiredElements = [
+              "#timelineContent",
+              "#timelineFrames",
+              "#frameEditor",
+              "#audioUpload",
+            ];
+
+            const missingElements = requiredElements.filter(
+              (selector) => !document.querySelector(selector)
+            );
+
+            if (missingElements.length > 0) {
+              console.warn("Missing DOM elements:", missingElements);
+              // Still try to initialize, but with warnings
+            }
+
             window.faceSequencerApp = new FaceSequencerApp();
             console.log("Face Sequencer App initialized successfully");
+            if (window.VideoEditorModule) {
+              try {
+                window.faceSequencerApp.videoEditor = new VideoEditorModule(
+                  window.faceSequencerApp
+                );
+                console.log(
+                  "🎬 VideoEditorModule instance created and attached to app"
+                );
+              } catch (veErr) {
+                console.error(
+                  "Failed to initialize VideoEditorModule instance:",
+                  veErr
+                );
+              }
+            } else {
+              console.warn(
+                "VideoEditorModule class not available at app init time"
+              );
+            }
             // Diagnostics panel (error instrumentation) toggle
             (function () {
               const panel = document.createElement("div");
@@ -737,5 +1450,13 @@
     <script src="{{ url_for('static', filename='js/real-time-guidance.js') }}"></script>
     <script src="{{ url_for('static', filename='js/expandable-timeline.js') }}"></script>
     <script src="{{ url_for('static', filename='js/timeline-integration.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/enhanced_subtitle_timeline.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/video_editor.js') }}"></script>
+
+    <!-- Phase 3 Advanced Features -->
+    <!-- SocketIO for real-time collaboration -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    <!-- Phase 3 Advanced Video Editor -->
+    <script src="{{ url_for('static', filename='js/advanced_video_editor_phase3.js') }}"></script>
   </body>
 </html>

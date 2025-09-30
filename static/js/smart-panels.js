@@ -3,7 +3,17 @@ class SmartPanelManager {
   constructor(app) {
     this.app = app;
     this.currentTab = "setup";
-    this.init();
+    try {
+      if (!document.querySelector('.left-panel')) {
+        console.warn('[SmartPanels] .left-panel not found – disabling SmartPanelManager');
+        this.disabled = true;
+        return;
+      }
+      this.init();
+    } catch (err) {
+      console.error('[SmartPanels] Initialization failed:', err);
+      this.disabled = true;
+    }
   }
 
   init() {
@@ -164,6 +174,7 @@ class SmartPanelManager {
 
   // ===== SMART WORKFLOW GUIDANCE =====
   improveWorkflow() {
+  if (this.disabled) return;
     // Add workflow indicator
     this.addWorkflowIndicator();
 
@@ -242,6 +253,10 @@ class SmartPanelManager {
     suggestionContainer.id = "smartSuggestions";
 
     const leftPanel = document.querySelector(".left-panel");
+    if (!leftPanel) {
+      console.warn('[SmartPanels] Cannot append suggestions, .left-panel missing');
+      return;
+    }
     leftPanel.appendChild(suggestionContainer);
 
     // Update suggestions based on current state
@@ -288,18 +303,38 @@ class SmartPanelManager {
         )
         .join("")}
     `;
+    // Bind suggestion actions (guard against duplicate binding on refresh)
+    if (!container.dataset.bound) {
+      container.addEventListener("click", (e) => {
+        const item = e.target.closest(".suggestion-item");
+        if (item?.dataset.action) {
+          console.log("[SmartSuggestions] click action", item.dataset.action);
+          this.executeSuggestion(item.dataset.action);
+        }
+      });
+      container.dataset.bound = "1";
+    }
 
-    // Bind suggestion actions
-    container.addEventListener("click", (e) => {
-      const item = e.target.closest(".suggestion-item");
-      if (item?.dataset.action) {
-        this.executeSuggestion(item.dataset.action);
-      }
-    });
+    // Acessibilidade + teclado
+    container
+      .querySelectorAll(".suggestion-item[data-action]")
+      .forEach((el) => {
+        el.tabIndex = 0;
+        el.setAttribute("role", "button");
+        // Remove potential previous keydown to avoid stacking by cloning node pattern not used here
+        el.onkeydown = (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            console.log("[SmartSuggestions] key action", el.dataset.action);
+            this.executeSuggestion(el.dataset.action);
+          }
+        };
+      });
   }
 
   getSuggestions() {
     const suggestions = [];
+  if (this.disabled) return;
     const setupComplete = this.checkSetupComplete();
     const contentComplete = this.checkContentComplete();
     const hasSequence = this.app.state.sequence?.length > 0;
@@ -347,6 +382,7 @@ class SmartPanelManager {
   }
 
   executeSuggestion(action) {
+    console.log("[SmartSuggestions] executeSuggestion", action);
     switch (action) {
       case "browse_folder":
         document.getElementById("browseFolderBtn")?.click();
@@ -363,6 +399,8 @@ class SmartPanelManager {
       case "export_video":
         document.getElementById("exportVideo")?.click();
         break;
+      default:
+        console.warn("[SmartSuggestions] Unhandled action", action);
     }
   }
 
@@ -444,6 +482,7 @@ class SmartPanelManager {
 
   // ===== PUBLIC METHODS =====
   refresh() {
+    if (this.disabled) return;
     this.updateTabIndicators();
     this.updateWorkflowIndicator();
     this.updateSuggestions();

@@ -114,31 +114,43 @@ class AudioManager {
     }
 
     // Toggle switch between manual and audio-driven timing
-    this.timingModeToggle.addEventListener("change", (e) => {
-      this.toggleTimingMode(e.target.checked);
-    });
+    if (this.timingModeToggle) {
+      this.timingModeToggle.addEventListener("change", (e) => {
+        this.toggleTimingMode(e.target.checked);
+      });
+    } else {
+      console.warn('AudioManager: timingModeToggle not found (timing toggle disabled)');
+    }
 
     // Audio playback controls
-    this.audioPlayBtn.addEventListener("click", () => {
-      this.toggleAudioPlayback();
-    });
+    if (this.audioPlayBtn) {
+      this.audioPlayBtn.addEventListener("click", () => {
+        this.toggleAudioPlayback();
+      });
+    }
 
-    this.audioProgress.addEventListener("click", (e) => {
-      this.seekAudio(e);
-    });
+    if (this.audioProgress) {
+      this.audioProgress.addEventListener("click", (e) => {
+        this.seekAudio(e);
+      });
+    }
   }
 
   handleFileSelection(e) {
     if (e.target.files && e.target.files.length > 0) {
       this.audioFile = e.target.files[0];
-      this.selectedAudioFile.textContent = this.audioFile.name;
+      if (this.selectedAudioFile) {
+        this.selectedAudioFile.textContent = this.audioFile.name;
+      }
 
       // Create audio URL for wavesurfer
       this.audioBlob = URL.createObjectURL(this.audioFile);
       this.wavesurfer.load(this.audioBlob);
 
       // Show audio visualization container
-      this.audioVisualizationContainer.style.display = "block";
+      if (this.audioVisualizationContainer) {
+        this.audioVisualizationContainer.style.display = "block";
+      }
     }
   }
 
@@ -146,9 +158,11 @@ class AudioManager {
     this.isAudioMode = isAudioMode;
 
     // Toggle visibility of audio visualization container
-    this.audioVisualizationContainer.style.display = isAudioMode
-      ? "block"
-      : "none";
+    if (this.audioVisualizationContainer) {
+      this.audioVisualizationContainer.style.display = isAudioMode
+        ? "block"
+        : "none";
+    }
 
     // Update app state or other UI elements as needed
     console.log("Timing mode set to:", isAudioMode ? "audio-driven" : "manual");
@@ -358,11 +372,16 @@ class AudioManager {
     if (!this.wavesurfer) return;
 
     const currentTime = this.wavesurfer.getCurrentTime();
-    this.currentTimeDisplay.textContent = this.formatTime(currentTime);
+    if (this.currentTimeDisplay) {
+      this.currentTimeDisplay.textContent = this.formatTime(currentTime);
+    }
 
     // Update progress bar
-    const percent = (currentTime / this.wavesurfer.getDuration()) * 100;
-    this.audioProgressBar.style.width = `${percent}%`;
+    const duration = this.wavesurfer.getDuration();
+    if (duration && this.audioProgressBar) {
+      const percent = (currentTime / duration) * 100;
+      this.audioProgressBar.style.width = `${percent}%`;
+    }
 
     // Synchronize with animation if in audio-driven mode
     if (this.isAudioMode && this.app) {

@@ -33,6 +33,14 @@ from werkzeug.utils import secure_filename
 from PIL import Image
 import uuid
 
+# SocketIO for real-time collaboration (Phase 3 feature)
+try:
+    from flask_socketio import SocketIO
+    SOCKETIO_AVAILABLE = True
+except ImportError:
+    SOCKETIO_AVAILABLE = False
+    # Will use app_logger after import
+
 from audio_cache import audio_cache, generate_cache_key, hash_audio_file
 from api_utils import require_audio_upload
 from task_queue import job_manager
@@ -69,21 +77,20 @@ try:
         try:
             audio_aligner_instance = audio_factory.get_audio_aligner()
         except Exception as init_err:  # noqa: BLE001
-            logger.warning("Audio aligner initialization failed: %s", init_err)
+            # Will use app_logger after import
+            pass
             audio_aligner_instance = None
         AUDIO_ALIGNMENT_AVAILABLE = audio_aligner_instance is not None
         ENHANCED_ALIGNMENT_AVAILABLE = bool(getattr(audio_aligner_instance, "use_enhanced", False)) if AUDIO_ALIGNMENT_AVAILABLE else False
-        # Use logger (ASCII only) to avoid Unicode issues
-        if AUDIO_ALIGNMENT_AVAILABLE:
-            logger.info("Audio alignment available (enhanced=%s)", ENHANCED_ALIGNMENT_AVAILABLE)
-        else:
-            logger.warning("Audio alignment not available")
+        # Will use app_logger after import
+        pass
     else:  # TEST_MODE: skip heavy init, assume available for contract tests
         audio_aligner_instance = None
         AUDIO_ALIGNMENT_AVAILABLE = True
         ENHANCED_ALIGNMENT_AVAILABLE = False
 except ImportError as e:
-    logger.warning("Audio alignment modules not importable: %s", e)
+    # Will use app_logger after import
+    pass
     AUDIO_ALIGNMENT_AVAILABLE = False
     ENHANCED_ALIGNMENT_AVAILABLE = False
 
@@ -110,6 +117,26 @@ app = Flask(
 
 # Configure app error handling
 configure_app_error_handling(app)
+
+# Log delayed startup messages
+if not SOCKETIO_AVAILABLE:
+    app_logger.warning("Flask-SocketIO not available. Collaborative editing features will be disabled.")
+if not AUDIO_ALIGNMENT_AVAILABLE:
+    app_logger.warning("Audio alignment modules not available")
+elif ENHANCED_ALIGNMENT_AVAILABLE:
+    app_logger.info("Audio alignment available (enhanced=True)")
+else:
+    app_logger.info("Audio alignment available (enhanced=False)")
+
+# Initialize SocketIO for real-time collaboration (Phase 3 feature)
+socketio = None
+if SOCKETIO_AVAILABLE:
+    try:
+        socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+        app_logger.info("SocketIO initialized for real-time collaboration features")
+    except Exception as e:
+        app_logger.warning(f"Failed to initialize SocketIO: {e}")
+        socketio = None
 
 app.config.update(
     UPLOAD_FOLDER=str(config.paths.upload_folder()),
@@ -331,7 +358,7 @@ def mapping_thumbnails():
                         full_path = simplified
 
             if not os.path.isfile(full_path):
-                logger.debug("Skipping thumbnail for %s (resolved path not found) orig=%s resolved=%s", letter, original_candidate, full_path)
+                app_logger.debug("Skipping thumbnail for %s (resolved path not found) orig=%s resolved=%s", letter, original_candidate, full_path)
                 continue
             try:
                 with Image.open(full_path) as img:
@@ -344,7 +371,7 @@ def mapping_thumbnails():
                     thumbnails[letter] = f"data:image/png;base64,{b64}"
                     generated += 1
             except Exception as thumb_err:  # noqa: BLE001
-                logger.debug("Thumbnail generation failed for %s: %s", letter, thumb_err)
+                app_logger.debug("Thumbnail generation failed for %s: %s", letter, thumb_err)
                 continue
 
         return jsonify(success_response(
@@ -545,7 +572,7 @@ def serve_openapi_yaml():
             
             if rebuild_needed or json_needs_update:
                 # Rebuild both YAML and JSON to ensure consistency
-                logger.info("OpenAPI schema files need updating, regenerating from fragments")
+                app_logger.info("OpenAPI schema files need updating, regenerating from fragments")
                 import build_openapi
                 build_openapi.generate_schemas(output_yaml=True, output_json=True)
                 
@@ -2605,6 +2632,11 @@ try:  # pragma: no cover - defensive
     from system_endpoints import system_bp
     from project_endpoints import project_bp
     from templates_endpoints import templates_bp
+    # Phase 3 Advanced Features
+    from phase3_api_endpoints import phase3_bp, register_phase3_blueprint
+    # Phase 4 Enhanced Export Features
+    from phase4_export_endpoints import register_phase4_export_blueprint
+    
     # Register if not already present
     existing = {bp.name for bp in app.blueprints.values()}
     if 'util' not in existing:
@@ -2623,11 +2655,648 @@ try:  # pragma: no cover - defensive
         app.register_blueprint(project_bp)
     if 'templates' not in existing:
         app.register_blueprint(templates_bp)
+    # Register Phase 3 advanced features
+    if 'phase3' not in existing:
+        register_phase3_blueprint(app)
+        
+        # Initialize Phase 3 components
+        if socketio:
+            from phase3_api_endpoints import register_socketio_events
+            register_socketio_events(socketio)
+            app_logger.info("Phase 3 real-time collaboration features initialized")
+        
+        # Start batch processor if needed
+        try:
+            from batch_subtitle_processor import BatchSubtitleProcessor
+            batch_processor = BatchSubtitleProcessor()
+            # Note: Batch processor will be started on-demand via API calls
+            app_logger.info("Phase 3 batch processing system ready")
+        except Exception as batch_err:
+            app_logger.warning(f"Batch processor initialization failed: {batch_err}")
+    
+    # Register Phase 4 enhanced export features
+    if 'phase4_export' not in existing:
+        register_phase4_export_blueprint(app)
+        app_logger.info("Phase 4 enhanced export features initialized")
+        
 except Exception as _bp_err:  # noqa: BLE001
     try:
-        logger.warning("Failed to register util blueprint: %s", _bp_err)
+        app_logger.warning("Failed to register blueprints: %s", _bp_err)
     except Exception:
         pass
+
+# ============================================================================
+# SUBTITLE API ENDPOINTS - Video Editor Feature
+# ============================================================================
+
+@app.route('/api/subtitles/generate', methods=['POST'])
+def generate_subtitles():
+    """Generate subtitles from audio and text using alignment system"""
+    try:
+        data = request.get_json()
+        if not data:
+            return error_response("No JSON data provided", 400)
+        
+        audio_filename = data.get('audio_filename')
+        text = data.get('text', '').strip()
+        platform_preset = data.get('platform_preset', 'youtube-landscape')
+        
+        if not audio_filename or not text:
+            return error_response("Missing required fields: audio_filename, text", 400)
+        
+        # Import subtitle modules
+        try:
+            from subtitle_engine import SubtitleEngine, SubtitleStyle
+            from subtitle_renderer import SubtitleRenderer
+        except ImportError as e:
+            logger.error("Subtitle modules not available: %s", e)
+            return error_response("Subtitle generation not available", 503)
+        
+        # Get audio file path
+        audio_path = os.path.join(app.config.get('UPLOAD_FOLDER', 'uploads'), audio_filename)
+        if not os.path.exists(audio_path):
+            return error_response(f"Audio file not found: {audio_filename}", 404)
+        
+        logger.info("Generating subtitles for audio: %s", audio_filename)
+        
+        # Use existing audio alignment system
+        if not AUDIO_ALIGNMENT_AVAILABLE:
+            return error_response("Audio alignment system not available", 503)
+        
+        # Perform audio alignment
+        try:
+            if ENHANCED_ALIGNMENT_AVAILABLE:
+                # Use enhanced alignment if available
+                alignment_result, timeline, frame_states = audio_aligner_instance.align_audio_to_text_enhanced(
+                    audio_path=audio_path,
+                    transcript=text,
+                    language=data.get('language', 'pt-BR'),
+                    fps=data.get('fps', 30.0),
+                    method=data.get('method', 'auto')
+                )
+            else:
+                # Fallback to standard alignment
+                alignment_result = audio_aligner_instance.align_audio_to_text(
+                    audio_path=audio_path,
+                    transcript=text,
+                    language=data.get('language', 'pt-BR')
+                )
+                timeline, frame_states = [], []
+            
+        except Exception as e:
+            logger.error("Audio alignment failed: %s", e)
+            return error_response(f"Audio alignment failed: {str(e)}", 500)
+        
+        # Generate subtitles using subtitle engine
+        try:
+            subtitle_engine = SubtitleEngine(audio_aligner_instance)
+            
+            # Convert alignment to subtitles
+            subtitles = subtitle_engine.generate_subtitles_from_alignment(
+                alignment_result,
+                max_chars_per_line=data.get('max_chars_per_line', 40),
+                max_duration_ms=data.get('max_duration_ms', 3000)
+            )
+            
+            # Optimize for platform if specified
+            if platform_preset and platform_preset != 'custom':
+                subtitles, style = subtitle_engine.optimize_for_platform(subtitles, platform_preset)
+            else:
+                style = SubtitleStyle()
+            
+            # Validate subtitles
+            validation = subtitle_engine.validate_subtitles(subtitles)
+            
+            # Convert to JSON-serializable format
+            subtitles_data = [
+                {
+                    'id': sub.id,
+                    'text': sub.text,
+                    'start_ms': sub.start_ms,
+                    'end_ms': sub.end_ms,
+                    'confidence': sub.confidence,
+                    'duration_ms': sub.end_ms - sub.start_ms
+                }
+                for sub in subtitles
+            ]
+            
+            style_data = {
+                'font_family': style.font_family,
+                'font_size': style.font_size,
+                'font_weight': style.font_weight,
+                'text_color': style.text_color,
+                'background_color': style.background_color,
+                'background_opacity': style.background_opacity,
+                'outline_color': style.outline_color,
+                'outline_width': style.outline_width,
+                'vertical_position': style.vertical_position,
+                'horizontal_align': style.horizontal_align,
+                'max_width': style.max_width
+            }
+            
+            logger.info("Generated %d subtitle segments", len(subtitles))
+            
+            return success_response({
+                'subtitles': subtitles_data,
+                'style': style_data,
+                'validation': validation,
+                'platform_preset': platform_preset,
+                'alignment_info': {
+                    'language': alignment_result.language,
+                    'total_tokens': len(alignment_result.tokens),
+                    'avg_confidence': alignment_result.stats.avg_confidence if alignment_result.stats else 0.0
+                }
+            })
+            
+        except Exception as e:
+            logger.error("Subtitle generation failed: %s", e)
+            return error_response(f"Subtitle generation failed: {str(e)}", 500)
+            
+    except Exception as e:
+        logger.error("Unexpected error in subtitle generation: %s", e)
+        log_exception(logger, e)
+        return error_response("Internal server error", 500)
+
+
+@app.route('/api/subtitles/export', methods=['POST'])
+def export_video_with_subtitles():
+    """Export video with burned-in subtitles"""
+    try:
+        data = request.get_json()
+        if not data:
+            return error_response("No JSON data provided", 400)
+        
+        video_filename = data.get('video_filename')
+        subtitles_data = data.get('subtitles', [])
+        style_data = data.get('style', {})
+        platform_preset = data.get('platform_preset', 'youtube-landscape')
+        
+        if not video_filename or not subtitles_data:
+            return error_response("Missing required fields: video_filename, subtitles", 400)
+        
+        # Import subtitle modules
+        try:
+            from subtitle_engine import SubtitleSegment, SubtitleStyle
+            from subtitle_renderer import SubtitleRenderer
+        except ImportError as e:
+            logger.error("Subtitle modules not available: %s", e)
+            return error_response("Subtitle rendering not available", 503)
+        
+        # Get video file path
+        video_path = os.path.join(app.config.get('UPLOAD_FOLDER', 'uploads'), video_filename)
+        if not os.path.exists(video_path):
+            return error_response(f"Video file not found: {video_filename}", 404)
+        
+        logger.info("Exporting video with subtitles: %s", video_filename)
+        
+        # Convert data to subtitle objects
+        subtitles = []
+        for sub_data in subtitles_data:
+            subtitle = SubtitleSegment(
+                id=sub_data.get('id', 0),
+                text=sub_data.get('text', ''),
+                start_ms=sub_data.get('start_ms', 0),
+                end_ms=sub_data.get('end_ms', 1000),
+                confidence=sub_data.get('confidence', 1.0)
+            )
+            subtitles.append(subtitle)
+        
+        # Create subtitle style
+        style = SubtitleStyle(
+            font_family=style_data.get('font_family', 'Arial, sans-serif'),
+            font_size=style_data.get('font_size', 24),
+            font_weight=style_data.get('font_weight', 'bold'),
+            text_color=style_data.get('text_color', '#ffffff'),
+            background_color=style_data.get('background_color', '#000000'),
+            background_opacity=style_data.get('background_opacity', 0.7),
+            outline_color=style_data.get('outline_color', '#000000'),
+            outline_width=style_data.get('outline_width', 2),
+            vertical_position=style_data.get('vertical_position', 'bottom'),
+            horizontal_align=style_data.get('horizontal_align', 'center'),
+            max_width=style_data.get('max_width', 80)
+        )
+        
+        # Generate output filename
+        base_name = os.path.splitext(os.path.basename(video_filename))[0]
+        output_filename = f"{base_name}_with_subtitles.mp4"
+        output_path = os.path.join(app.config.get('UPLOAD_FOLDER', 'uploads'), output_filename)
+        
+        # Render subtitles on video
+        try:
+            renderer = SubtitleRenderer()
+            
+            # Get platform preset if specified
+            preset = None
+            if platform_preset != 'custom':
+                preset = renderer.platform_presets.get(platform_preset)
+            
+            # Render video with progress callback
+            def progress_callback(percent, message):
+                # Could use SSE to send progress updates
+                logger.info("Export progress: %s", message)
+            
+            result_path = renderer.render_subtitles_on_video(
+                input_video_path=video_path,
+                subtitles=subtitles,
+                style=style,
+                output_video_path=output_path,
+                preset=preset,
+                progress_callback=progress_callback
+            )
+            
+            if os.path.exists(result_path):
+                file_size = os.path.getsize(result_path) / (1024 * 1024)  # MB
+                
+                logger.info("Video export completed: %s (%.1f MB)", output_filename, file_size)
+                
+                return success_response({
+                    'output_filename': output_filename,
+                    'file_size_mb': round(file_size, 2),
+                    'download_url': f'/api/export/download/{output_filename}',
+                    'subtitles_count': len(subtitles),
+                    'platform_preset': platform_preset
+                })
+            else:
+                return error_response("Video export failed - output file not created", 500)
+                
+        except Exception as e:
+            logger.error("Video rendering failed: %s", e)
+            return error_response(f"Video rendering failed: {str(e)}", 500)
+            
+    except Exception as e:
+        logger.error("Unexpected error in video export: %s", e)
+        log_exception(logger, e)
+        return error_response("Internal server error", 500)
+
+
+@app.route('/api/subtitles/presets', methods=['GET'])
+def get_subtitle_presets():
+    """Get available platform presets for subtitle styling"""
+    try:
+        from subtitle_engine import SubtitleEngine
+        
+        engine = SubtitleEngine()
+        presets_data = {}
+        
+        for preset_name, preset in engine.platform_presets.items():
+            presets_data[preset_name] = {
+                'name': preset.name,
+                'aspect_ratio': preset.aspect_ratio,
+                'resolution': preset.resolution,
+                'max_duration': preset.max_duration,
+                'style': {
+                    'font_size': preset.style.font_size,
+                    'font_weight': preset.style.font_weight,
+                    'text_color': preset.style.text_color,
+                    'background_color': preset.style.background_color,
+                    'background_opacity': preset.style.background_opacity,
+                    'outline_width': preset.style.outline_width,
+                    'vertical_position': preset.style.vertical_position,
+                    'horizontal_align': preset.style.horizontal_align,
+                    'max_width': preset.style.max_width
+                }
+            }
+        
+        return success_response({
+            'presets': presets_data,
+            'default_preset': 'youtube-landscape'
+        })
+        
+    except ImportError:
+        return error_response("Subtitle presets not available", 503)
+    except Exception as e:
+        logger.error("Error getting subtitle presets: %s", e)
+        return error_response("Internal server error", 500)
+
+
+@app.route('/api/subtitles/generate-enhanced', methods=['POST'])
+def generate_enhanced_subtitles():
+    """Generate intelligent subtitles with platform optimization - Phase 2 Enhancement"""
+    try:
+        data = request.get_json()
+        if not data:
+            return error_response("No data provided", 400)
+        
+        alignment_result = data.get('alignment')
+        platform = data.get('platform', 'custom')
+        custom_options = data.get('custom_options', {})
+        
+        if not alignment_result:
+            return error_response("No alignment data provided", 400)
+        
+        # Try to import enhanced engine, fallback to regular engine
+        try:
+            from enhanced_subtitle_engine import EnhancedSubtitleEngine
+            engine = EnhancedSubtitleEngine()
+            
+            # Generate intelligent subtitles
+            segments = engine.generate_intelligent_subtitles(
+                alignment_result, 
+                platform,
+                custom_options
+            )
+            
+            # Get performance metrics
+            metrics = engine.get_performance_metrics()
+            
+            return success_response({
+                'segments': [{
+                    'id': seg.id,
+                    'text': seg.text,
+                    'start_time': seg.start_time,
+                    'end_time': seg.end_time,
+                    'confidence': seg.confidence,
+                    'word_count': seg.word_count,
+                    'reading_speed': seg.reading_speed,
+                    'platform_optimized': seg.platform_optimized,
+                    'style_overrides': seg.style_overrides
+                } for seg in segments],
+                'metrics': metrics,
+                'count': len(segments),
+                'enhanced': True
+            })
+            
+        except ImportError:
+            # Fallback to regular subtitle engine
+            logger.warning("Enhanced subtitle engine not available, using standard engine")
+            from subtitle_engine import SubtitleEngine
+            engine = SubtitleEngine()
+            
+            # Use standard generation
+            subtitles = engine.generate_subtitles_from_alignment(
+                alignment_result, 
+                {}  # Empty styling options
+            )
+            
+            return success_response({
+                'segments': subtitles,
+                'count': len(subtitles),
+                'enhanced': False,
+                'fallback': True
+            })
+        
+    except Exception as e:
+        logger.error("Enhanced subtitle generation failed: %s", e)
+        log_exception(logger, e)
+        return error_response("Enhanced subtitle generation failed", 500)
+
+
+@app.route('/api/subtitles/validate', methods=['POST'])
+def validate_subtitles():
+    """Validate subtitle timing and readability - Phase 2 Enhancement"""
+    try:
+        data = request.get_json()
+        if not data:
+            return error_response("No data provided", 400)
+        
+        segments_data = data.get('segments', [])
+        platform = data.get('platform', 'custom')
+        
+        if not segments_data:
+            return error_response("No subtitle segments provided", 400)
+        
+        validation_results = []
+        issues = []
+        
+        # Basic validation rules
+        platform_constraints = {
+            'instagram_story': {'max_chars_per_line': 35, 'max_lines': 2, 'max_duration': 15},
+            'instagram_reel': {'max_chars_per_line': 40, 'max_lines': 2, 'max_duration': 90},
+            'tiktok': {'max_chars_per_line': 38, 'max_lines': 2, 'max_duration': 60},
+            'youtube_shorts': {'max_chars_per_line': 42, 'max_lines': 2, 'max_duration': 60},
+            'custom': {'max_chars_per_line': 50, 'max_lines': 3, 'max_duration': 300}
+        }
+        
+        constraints = platform_constraints.get(platform, platform_constraints['custom'])
+        
+        for i, seg_data in enumerate(segments_data):
+            segment_issues = []
+            
+            # Check timing
+            start_time = float(seg_data.get('start_time', 0))
+            end_time = float(seg_data.get('end_time', 0))
+            duration = end_time - start_time
+            
+            if duration <= 0:
+                segment_issues.append('Invalid duration: end time must be after start time')
+            
+            if duration < 0.3:
+                segment_issues.append('Duration too short: minimum 0.3 seconds recommended')
+            
+            # Check text length
+            text = seg_data.get('text', '')
+            lines = text.split('\n')
+            
+            if len(lines) > constraints['max_lines']:
+                segment_issues.append(f'Too many lines: {len(lines)} > {constraints["max_lines"]}')
+            
+            for line in lines:
+                if len(line) > constraints['max_chars_per_line']:
+                    segment_issues.append(f'Line too long: {len(line)} > {constraints["max_chars_per_line"]} chars')
+            
+            # Check reading speed
+            word_count = len(text.replace('\n', ' ').split())
+            reading_speed = word_count / duration if duration > 0 else 0
+            
+            if reading_speed > 4.0:  # Too fast
+                segment_issues.append(f'Reading speed too fast: {reading_speed:.1f} > 4.0 words/sec')
+            elif reading_speed < 1.5 and word_count > 0:  # Too slow
+                segment_issues.append(f'Reading speed too slow: {reading_speed:.1f} < 1.5 words/sec')
+            
+            # Check overlap with next segment
+            if i < len(segments_data) - 1:
+                next_start = float(segments_data[i + 1].get('start_time', 0))
+                if end_time > next_start:
+                    segment_issues.append(f'Overlaps with next segment')
+            
+            validation_results.append({
+                'segment_id': seg_data.get('id', f'seg_{i}'),
+                'is_valid': len(segment_issues) == 0,
+                'issues': segment_issues,
+                'reading_speed': round(reading_speed, 2),
+                'duration': round(duration, 2),
+                'word_count': word_count
+            })
+            
+            issues.extend(segment_issues)
+        
+        overall_valid = len(issues) == 0
+        
+        return success_response({
+            'is_valid': overall_valid,
+            'total_issues': len(issues),
+            'segment_results': validation_results,
+            'platform_constraints': constraints
+        })
+        
+    except Exception as e:
+        logger.error("Subtitle validation failed: %s", e)
+        log_exception(logger, e)
+        return error_response("Subtitle validation failed", 500)
+
+
+@app.route('/api/subtitles/optimize', methods=['POST'])
+def optimize_subtitles_for_platform():
+    """Optimize existing subtitles for a specific platform - Phase 2 Enhancement"""
+    try:
+        data = request.get_json()
+        if not data:
+            return error_response("No data provided", 400)
+        
+        segments_data = data.get('segments', [])
+        target_platform = data.get('platform', 'custom')
+        
+        if not segments_data:
+            return error_response("No subtitle segments provided", 400)
+        
+        # Platform optimization logic
+        platform_settings = {
+            'instagram_story': {
+                'max_chars_per_line': 35, 'max_lines': 2,
+                'font_size': 48, 'position': 'bottom',
+                'style': {'font_weight': 'bold', 'color': '#FFFFFF', 'background_opacity': 0.7}
+            },
+            'instagram_reel': {
+                'max_chars_per_line': 40, 'max_lines': 2,
+                'font_size': 44, 'position': 'bottom',
+                'style': {'font_weight': 'bold', 'color': '#FFFFFF', 'background_opacity': 0.6}
+            },
+            'tiktok': {
+                'max_chars_per_line': 38, 'max_lines': 2,
+                'font_size': 46, 'position': 'bottom',
+                'style': {'font_weight': 'bold', 'color': '#FFFFFF', 'background_opacity': 0.8}
+            },
+            'youtube_shorts': {
+                'max_chars_per_line': 42, 'max_lines': 2,
+                'font_size': 42, 'position': 'bottom',
+                'style': {'font_weight': 'bold', 'color': '#FFFFFF', 'background_opacity': 0.75}
+            },
+            'custom': {
+                'max_chars_per_line': 50, 'max_lines': 3,
+                'font_size': 36, 'position': 'bottom',
+                'style': {'font_weight': 'normal', 'color': '#FFFFFF', 'background_opacity': 0.8}
+            }
+        }
+        
+        settings = platform_settings.get(target_platform, platform_settings['custom'])
+        optimized_segments = []
+        
+        for seg_data in segments_data:
+            # Apply text optimization (line breaking, character limits)
+            text = seg_data.get('text', '')
+            optimized_text = _optimize_text_for_platform(text, settings)
+            
+            optimized_segment = {
+                'id': seg_data.get('id'),
+                'text': optimized_text,
+                'start_time': seg_data.get('start_time'),
+                'end_time': seg_data.get('end_time'),
+                'confidence': seg_data.get('confidence', 1.0),
+                'platform_optimized': {
+                    target_platform: {
+                        'font_size': settings['font_size'],
+                        'position': settings['position'],
+                        'style_preset': settings['style']
+                    }
+                }
+            }
+            optimized_segments.append(optimized_segment)
+        
+        return success_response({
+            'optimized_segments': optimized_segments,
+            'platform': target_platform,
+            'settings_applied': settings
+        })
+        
+    except Exception as e:
+        logger.error("Subtitle optimization failed: %s", e)
+        log_exception(logger, e)
+        return error_response("Subtitle optimization failed", 500)
+
+
+def _optimize_text_for_platform(text, settings):
+    """Helper function to optimize text based on platform constraints"""
+    max_chars = settings['max_chars_per_line']
+    max_lines = settings['max_lines']
+    
+    # Split text into words
+    words = text.replace('\n', ' ').split()
+    lines = []
+    current_line = []
+    current_length = 0
+    
+    for word in words:
+        word_length = len(word) + (1 if current_line else 0)  # +1 for space
+        
+        if current_length + word_length <= max_chars:
+            current_line.append(word)
+            current_length += word_length
+        else:
+            # Finalize current line
+            if current_line:
+                lines.append(' '.join(current_line))
+            
+            # Check if we've reached max lines
+            if len(lines) >= max_lines:
+                break
+            
+            current_line = [word]
+            current_length = len(word)
+    
+    # Add the last line
+    if current_line and len(lines) < max_lines:
+        lines.append(' '.join(current_line))
+    
+    return '\n'.join(lines)
+
+
+@app.route('/api/video/upload', methods=['POST'])
+def upload_video():
+    """Upload video file for subtitle processing"""
+    try:
+        if 'video' not in request.files:
+            return error_response("No video file provided", 400)
+        
+        file = request.files['video']
+        if file.filename == '':
+            return error_response("No file selected", 400)
+        
+        # Check file type
+        allowed_extensions = {'.mp4', '.avi', '.mov', '.mkv', '.webm', '.m4v'}
+        file_ext = os.path.splitext(file.filename)[1].lower()
+        
+        if file_ext not in allowed_extensions:
+            return error_response(f"Unsupported video format: {file_ext}", 400)
+        
+        # Generate unique filename
+        timestamp = int(time.time())
+        safe_filename = secure_filename(file.filename)
+        unique_filename = f"video_{timestamp}_{safe_filename}"
+        
+        # Save video file
+        upload_folder = app.config.get('UPLOAD_FOLDER', 'uploads')
+        os.makedirs(upload_folder, exist_ok=True)
+        
+        video_path = os.path.join(upload_folder, unique_filename)
+        file.save(video_path)
+        
+        # Get video info
+        file_size = os.path.getsize(video_path)
+        
+        logger.info("Video uploaded: %s (%.1f MB)", unique_filename, file_size / (1024 * 1024))
+        
+        return success_response({
+            'filename': unique_filename,
+            'original_filename': file.filename,
+            'file_size_bytes': file_size,
+            'file_size_mb': round(file_size / (1024 * 1024), 2),
+            'file_extension': file_ext
+        })
+        
+    except Exception as e:
+        logger.error("Video upload failed: %s", e)
+        log_exception(logger, e)
+        return error_response("Video upload failed", 500)
 
 if __name__ == '__main__':
     app_logger.info("Starting Face Sequencer Pro web server...")

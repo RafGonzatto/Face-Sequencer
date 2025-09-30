@@ -4,7 +4,17 @@ class UXEnhancementManager {
     this.app = app;
     this.currentWizardStep = 0;
     this.wizardData = {};
-    this.isFirstTime = !localStorage.getItem("faceSequencer_hasUsed");
+
+    // Verificar se é a primeira vez mais cuidadosamente
+    const hasUsed = localStorage.getItem("faceSequencer_hasUsed");
+    this.isFirstTime = !hasUsed || hasUsed === "false";
+    console.log(
+      "First time user check:",
+      this.isFirstTime,
+      "hasUsed value:",
+      hasUsed
+    );
+
     this.init();
   }
 
@@ -140,7 +150,21 @@ class UXEnhancementManager {
     const prevBtn = document.getElementById("wizardPrev");
     const skipBtn = document.getElementById("wizardSkip");
 
-    nextBtn.addEventListener("click", () => this.nextWizardStep());
+    if (!wizard || !nextBtn || !prevBtn || !skipBtn) {
+      console.error("Wizard elements not found, retrying in 100ms");
+      setTimeout(() => this.bindWizardEvents(), 100);
+      return;
+    }
+
+    nextBtn.addEventListener("click", () => {
+      console.log(
+        "[Wizard] Next clicked (current step:",
+        this.currentWizardStep,
+        ") template=",
+        this.wizardData.template
+      );
+      this.nextWizardStep();
+    });
     prevBtn.addEventListener("click", () => this.prevWizardStep());
     skipBtn.addEventListener("click", () => this.closeWizard());
 
@@ -163,12 +187,26 @@ class UXEnhancementManager {
   }
 
   nextWizardStep() {
+    console.log("[Wizard] nextWizardStep start", this.currentWizardStep);
     if (this.currentWizardStep === 0 && !this.wizardData.template) {
-      this.showNotification(
-        "Please select a project type to continue",
-        "warning"
+      // UX aprimorada: auto-selecionar "basic" se usuário só clicar Next
+      const auto = document.querySelector(
+        '.quick-start-card[data-template="basic"]'
       );
-      return;
+      if (auto) {
+        auto.classList.add("selected");
+        this.wizardData.template = "basic";
+        this.showNotification(
+          'Default "Text Animation" template selected',
+          "info"
+        );
+      } else {
+        this.showNotification(
+          "Please select a project type to continue",
+          "warning"
+        );
+        return;
+      }
     }
 
     if (this.currentWizardStep < 3) {
@@ -177,6 +215,7 @@ class UXEnhancementManager {
     } else {
       this.completeWizard();
     }
+    console.log("[Wizard] nextWizardStep end -> now", this.currentWizardStep);
   }
 
   prevWizardStep() {
@@ -226,6 +265,85 @@ class UXEnhancementManager {
       this.generateContentStep();
     } else if (this.currentWizardStep === 3) {
       this.generateReviewStep();
+    } else if (this.currentWizardStep === 2) {
+      // Bind image drop zone for this step (wizardImageUpload)
+      if (this.currentWizardStep === 2) {
+        setTimeout(
+          () => this.bindSmartUpload("wizardImageUpload", "images"),
+          50
+        );
+      } else if (this.wizardData.template === "audio") {
+        setTimeout(
+          () => this.bindSmartUpload("wizardAudioUpload", "audio"),
+          50
+        );
+      }
+    }
+  }
+
+  generateReviewStep() {
+    const reviewEl = document.getElementById("wizardReviewContent");
+    if (!reviewEl) return;
+    const template = this.wizardData.template || "basic";
+    const textPreview = (this.wizardData.text || "").trim();
+    const textSummary = textPreview
+      ? textPreview.length > 140
+        ? textPreview.slice(0, 137) + "…"
+        : textPreview
+      : "<em>No text provided</em>";
+
+    const mappedCount = Object.keys(this.app?.state?.mappings || {}).length;
+    const hasImages = mappedCount > 0;
+
+    reviewEl.innerHTML = `
+      <div class="wizard-review-block">
+        <h4>Template</h4>
+        <p><strong>${template}</strong></p>
+      </div>
+      <div class="wizard-review-block">
+        <h4>Text Content</h4>
+        <p style="white-space:pre-wrap;font-size:12px;line-height:1.4;">${textSummary}</p>
+      </div>
+      <div class="wizard-review-block">
+        <h4>Images / Mappings</h4>
+        <p>${
+          hasImages ? mappedCount + " mapped characters" : "No mappings yet"
+        }</p>
+      </div>
+      <div class="wizard-review-block">
+        <h4>Status</h4>
+        <ul style="padding-left:16px;font-size:12px;">
+          <li>${template ? "✔ Template selected" : "✖ Template missing"}</li>
+          <li>${textPreview ? "✔ Text provided" : "✖ No text yet"}</li>
+          <li>${
+            hasImages ? "✔ Character images present" : "✖ No images mapped"
+          }</li>
+        </ul>
+      </div>
+      <div class="wizard-review-actions" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+        <button type="button" class="btn btn-outline btn-sm" id="wizardEditText">Edit Text</button>
+        <button type="button" class="btn btn-outline btn-sm" id="wizardEditImages">Add Images</button>
+      </div>
+    `;
+
+    // Quick edit handlers
+    const editTextBtn = document.getElementById("wizardEditText");
+    const editImagesBtn = document.getElementById("wizardEditImages");
+    editTextBtn?.addEventListener("click", () => {
+      this.currentWizardStep = 1;
+      this.updateWizardStep();
+    });
+    editImagesBtn?.addEventListener("click", () => {
+      this.currentWizardStep = 2;
+      this.updateWizardStep();
+    });
+  }
+
+  // Handle wizard text field persistence & general inputs (prevent missing function error)
+  onInputChange(e) {
+    const id = e.target.id;
+    if (id === "wizardTextInput") {
+      this.wizardData.text = e.target.value;
     }
   }
 
@@ -292,8 +410,44 @@ class UXEnhancementManager {
   }
 
   closeWizard() {
-    document.getElementById("welcomeWizard").style.display = "none";
-    document.body.style.overflow = "auto";
+    const wizard = document.getElementById("welcomeWizard");
+    if (wizard) {
+      wizard.style.display = "none";
+      document.body.style.overflow = "auto";
+
+      // Guardar na localStorage que o wizard foi visto
+      try {
+        localStorage.setItem("faceSequencer_hasUsed", "true");
+        console.log("Wizard preference saved to localStorage");
+      } catch (e) {
+        console.error("Failed to save wizard preference:", e);
+      }
+    } else {
+      console.error("welcomeWizard element not found");
+    }
+  }
+
+  // Public method to show wizard (can be called from console for debugging)
+  forceShowWizard() {
+    // Resetar wizard e localStorage para forçar exibição
+    try {
+      localStorage.removeItem("faceSequencer_hasUsed");
+    } catch (e) {
+      console.warn("Não foi possível limpar localStorage:", e);
+    }
+
+    this.isFirstTime = true;
+    this.resetWizard();
+    this.showWelcomeWizard();
+
+    // Registrar no console para debug
+    console.log("Wizard forçado a aparecer via forceShowWizard()");
+  }
+
+  resetWizard() {
+    this.currentWizardStep = 0;
+    this.wizardData = {};
+    this.updateWizardStep();
   }
 
   applyWizardSettings() {
@@ -371,11 +525,19 @@ class UXEnhancementManager {
 
   bindSmartUpload(zoneId, type) {
     const zone = document.getElementById(zoneId);
-    if (!zone) return;
+    if (!zone) {
+      console.warn(`Element with id ${zoneId} not found for bindSmartUpload`);
+      return;
+    }
 
     zone.addEventListener("click", () => {
       if (type === "audio") {
-        document.getElementById("audioFileInput").click();
+        const audioInput = document.getElementById("audioFileInput");
+        if (audioInput) {
+          audioInput.click();
+        } else {
+          console.error("audioFileInput element not found");
+        }
       } else if (type === "images") {
         // Create and trigger file input for multiple images
         const input = document.createElement("input");
@@ -420,15 +582,26 @@ class UXEnhancementManager {
   }
 
   handleAudioUpload(file) {
-    if (!file || !file.type.startsWith("audio/")) {
-      this.showNotification("Please upload a valid audio file", "error");
+    if (!file) {
+      this.showNotification("No audio file selected", "error");
       return;
     }
+
+    if (!file.type.startsWith("audio/")) {
+      this.showNotification(
+        `Invalid file type: ${file.type}. Please upload an audio file.`,
+        "error"
+      );
+      return;
+    }
+
+    console.log("Audio file being processed:", file.name, file.type, file.size);
 
     // Show processing status
     const status = document.getElementById("audioUploadStatus");
     if (status) {
       status.style.display = "flex";
+      status.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Processing ${file.name}...`;
     }
 
     // Trigger the app's audio upload
@@ -607,6 +780,49 @@ class UXEnhancementManager {
     this.addKeyboardShortcuts();
   }
 
+  addTouchGestures() {
+    // Add touch gesture support for mobile devices
+    const timeline = document.querySelector(".timeline-container");
+    if (timeline && "ontouchstart" in window) {
+      let startX = 0;
+      let startY = 0;
+
+      timeline.addEventListener(
+        "touchstart",
+        (e) => {
+          startX = e.touches[0].clientX;
+          startY = e.touches[0].clientY;
+        },
+        { passive: true }
+      );
+
+      timeline.addEventListener(
+        "touchmove",
+        (e) => {
+          if (!startX || !startY) return;
+
+          const xDiff = startX - e.touches[0].clientX;
+          const yDiff = startY - e.touches[0].clientY;
+
+          // Horizontal swipe for timeline navigation
+          if (Math.abs(xDiff) > Math.abs(yDiff)) {
+            if (xDiff > 0) {
+              // Swipe left - next frame
+              this.app?.nextFrame?.();
+            } else {
+              // Swipe right - previous frame
+              this.app?.previousFrame?.();
+            }
+          }
+
+          startX = 0;
+          startY = 0;
+        },
+        { passive: true }
+      );
+    }
+  }
+
   implementSmartPanels() {
     const panels = document.querySelectorAll(".panel");
 
@@ -707,8 +923,33 @@ class UXEnhancementManager {
 document.addEventListener("DOMContentLoaded", () => {
   // Wait for main app to initialize
   setTimeout(() => {
-    if (window.faceSequencerApp) {
-      window.uxEnhancer = new UXEnhancementManager(window.faceSequencerApp);
+    try {
+      if (window.faceSequencerApp) {
+        console.log("Initializing UX Enhancement Manager...");
+        window.uxEnhancer = new UXEnhancementManager(window.faceSequencerApp);
+        console.log("UX Enhancement Manager initialized successfully");
+        // Add a way to show wizard from console
+        window.showWelcomeWizard = () => window.uxEnhancer.forceShowWizard();
+      } else {
+        console.warn(
+          "Face Sequencer App not available, retrying UX enhancer initialization..."
+        );
+        // Retry after main app initialization
+        setTimeout(() => {
+          if (window.faceSequencerApp) {
+            try {
+              window.uxEnhancer = new UXEnhancementManager(
+                window.faceSequencerApp
+              );
+              console.log("UX Enhancement Manager initialized on retry");
+            } catch (error) {
+              console.error("UX Enhancement Manager retry failed:", error);
+            }
+          }
+        }, 1000);
+      }
+    } catch (error) {
+      console.error("UX Enhancement Manager initialization failed:", error);
     }
   }, 200);
 });
