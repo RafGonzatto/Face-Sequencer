@@ -6,16 +6,33 @@ class UXEnhancementManager {
     this.wizardData = {};
 
     // Verificar se é a primeira vez mais cuidadosamente
-    const hasUsed = localStorage.getItem("faceSequencer_hasUsed");
-    this.isFirstTime = !hasUsed || hasUsed === "false";
-    console.log(
-      "First time user check:",
-      this.isFirstTime,
-      "hasUsed value:",
-      hasUsed
-    );
+    // Usar sessionStorage para decisões durante esta sessão
+    // localStorage pode persistir entre sessões e causar problemas
+    this._checkFirstTimeStatus();
 
     this.init();
+  }
+
+  _checkFirstTimeStatus() {
+    try {
+      // Tentar acessar localStorage
+      const hasUsed = localStorage.getItem("faceSequencer_hasUsed");
+      this.isFirstTime = !hasUsed || hasUsed === "false";
+
+      // Log mais detalhado para debug
+      console.log("First time check - localStorage:", {
+        isFirstTime: this.isFirstTime,
+        hasUsed,
+        localStorageAvailable: true,
+      });
+
+      // Salvar em sessionStorage para garantir consistência nesta sessão
+      sessionStorage.setItem("wizardShownThisSession", "false");
+    } catch (e) {
+      console.warn("Erro ao acessar localStorage, usando fallback:", e);
+      // Fallback: se localStorage não estiver disponível, assume primeira vez
+      this.isFirstTime = true;
+    }
   }
 
   init() {
@@ -182,8 +199,25 @@ class UXEnhancementManager {
   }
 
   showWelcomeWizard() {
-    document.getElementById("welcomeWizard").style.display = "flex";
-    document.body.style.overflow = "hidden";
+    const wizardEl = document.getElementById("welcomeWizard");
+    if (wizardEl) {
+      // Marcar que o wizard foi mostrado nesta sessão
+      try {
+        sessionStorage.setItem("wizardShownThisSession", "true");
+      } catch (e) {
+        console.warn("Erro ao definir sessionStorage:", e);
+      }
+
+      // Aplicar estilos para exibir
+      wizardEl.style.display = "flex";
+      wizardEl.style.opacity = "1";
+      wizardEl.style.visibility = "visible";
+      document.body.style.overflow = "hidden";
+
+      console.log("Wizard exibido com sucesso");
+    } else {
+      console.error("Elemento welcomeWizard não encontrado");
+    }
   }
 
   nextWizardStep() {
@@ -412,28 +446,50 @@ class UXEnhancementManager {
   closeWizard() {
     const wizard = document.getElementById("welcomeWizard");
     if (wizard) {
-      wizard.style.display = "none";
-      document.body.style.overflow = "auto";
+      // Aplicar transição suave
+      wizard.style.opacity = "0";
 
-      // Guardar na localStorage que o wizard foi visto
+      // Após a transição, ocultar completamente
+      setTimeout(() => {
+        wizard.style.display = "none";
+        wizard.style.visibility = "hidden";
+        document.body.style.overflow = "auto";
+      }, 300);
+
+      // Guardar em múltiplos locais de armazenamento para maior confiabilidade
       try {
         localStorage.setItem("faceSequencer_hasUsed", "true");
-        console.log("Wizard preference saved to localStorage");
+        localStorage.removeItem("faceSequencer_forceWizard");
+        sessionStorage.setItem("wizardShownThisSession", "true");
+
+        // Também usar cookie como fallback
+        document.cookie =
+          "faceSequencer_hasUsed=true; path=/; max-age=31536000"; // 1 ano
+
+        console.log("Wizard preference saved to multiple storage mechanisms");
       } catch (e) {
         console.error("Failed to save wizard preference:", e);
       }
     } else {
       console.error("welcomeWizard element not found");
     }
-  }
-
-  // Public method to show wizard (can be called from console for debugging)
+  } // Public method to show wizard (can be called from console for debugging)
   forceShowWizard() {
-    // Resetar wizard e localStorage para forçar exibição
+    // Abordagem mais robusta para garantir que o wizard apareça
     try {
+      // Limpar tanto localStorage quanto sessionStorage
       localStorage.removeItem("faceSequencer_hasUsed");
+      localStorage.setItem("faceSequencer_forceWizard", "true");
+      sessionStorage.removeItem("wizardShownThisSession");
     } catch (e) {
-      console.warn("Não foi possível limpar localStorage:", e);
+      console.warn("Erro ao manipular storage:", e);
+    }
+
+    // Verificar se o elemento existe
+    const wizardEl = document.getElementById("welcomeWizard");
+    if (!wizardEl) {
+      console.error("welcomeWizard não encontrado! Tentando recriar...");
+      this.createWizardModal();
     }
 
     this.isFirstTime = true;
@@ -442,6 +498,8 @@ class UXEnhancementManager {
 
     // Registrar no console para debug
     console.log("Wizard forçado a aparecer via forceShowWizard()");
+
+    return "Wizard forçado a aparecer. Se não estiver visível, verifique o console para erros.";
   }
 
   resetWizard() {

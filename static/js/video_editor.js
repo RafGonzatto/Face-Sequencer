@@ -11,6 +11,17 @@ class VideoEditorModule extends EventTarget {
     this.currentPreset = null;
     this.isVideoLoaded = false;
     this.isDragging = false;
+    // History / undo-redo
+    this._undoStack = [];
+    this._redoStack = [];
+    this._maxHistory = 60;
+    // Snapping configuration
+    this._snapThresholdMs = 120;
+    this._frameRate = 30;
+    // External audio support placeholder
+    this.externalAudioBlob = null;
+    // Bind shortcuts later after DOM ready
+    setTimeout(() => this.attachUndoRedoShortcuts(), 0);
 
     // Initialize UI elements
     this.initializeElements();
@@ -54,6 +65,7 @@ class VideoEditorModule extends EventTarget {
     this.exportVideoWithSubtitles = document.getElementById(
       "exportVideoWithSubtitles"
     );
+    this.externalAudioInput = document.getElementById("externalAudioInput");
 
     // Initialize enhanced timeline
     this.enhancedTimeline = null;
@@ -123,6 +135,14 @@ class VideoEditorModule extends EventTarget {
     );
     this.playPauseBtn?.addEventListener("click", () => this.togglePlayPause());
     this.stopVideoBtn?.addEventListener("click", () => this.stopVideo());
+    this.externalAudioInput?.addEventListener("change", (e) => {
+      const file = e.target.files?.[0];
+      if (file) {
+        this.externalAudioBlob = file;
+        this.app?.showStatus?.("External audio attached");
+        this.updateGenerateButton();
+      }
+    });
 
     // Subtitle controls
     this.generateSubtitlesBtn?.addEventListener("click", () =>
@@ -452,22 +472,45 @@ class VideoEditorModule extends EventTarget {
     const text = this.videoTranscript.value.trim();
 
     try {
+      this._cancelRequested = false;
+      this._enterGeneratingState();
       console.log("🎬 Generating enhanced subtitles for video...");
       this.app.showStatus(
         "Generating intelligent subtitles from video audio..."
       );
 
       // Extract audio from video and use existing alignment system
-      const audioBlob = await this.extractAudioFromVideo(this.videoFile);
+      let audioBlob = null;
+      if (this.externalAudioBlob) {
+        this._updateProgressDetail("Using external audio track...");
+        audioBlob = this.externalAudioBlob;
+      } else {
+        this._updateProgressDetail("Extracting audio...");
+        audioBlob = await this.extractAudioFromVideo(this.videoFile);
+      }
+      if (this._cancelRequested) throw new Error("Generation cancelled");
 
       // Use the existing audio alignment system
-      const alignmentResult = await this.alignAudioWithText(audioBlob, text);
+      this._updateProgressDetail("Uploading & aligning audio...");
+      const alignmentResult = await this.alignAudioWithText(
+        audioBlob,
+        text,
+        (phase) => {
+          if (!this._cancelRequested) this._updateProgressDetail(phase);
+        }
+      );
+      if (this._cancelRequested) throw new Error("Generation cancelled");
 
       if (alignmentResult && alignmentResult.alignment) {
         // Try enhanced subtitle generation first
+        this._updateProgressDetail("Enhancing segments...");
         const enhancedResult = await this.generateEnhancedSubtitles(
-          alignmentResult.alignment
+          alignmentResult.alignment,
+          (phase) => {
+            if (!this._cancelRequested) this._updateProgressDetail(phase);
+          }
         );
+        if (this._cancelRequested) throw new Error("Generation cancelled");
 
         if (enhancedResult && enhancedResult.enhanced) {
           this.subtitles = enhancedResult.segments;
@@ -489,13 +532,84 @@ class VideoEditorModule extends EventTarget {
         this.app.showStatus(
           `Generated ${this.subtitles.length} subtitle segments`
         );
+        this.previewWithSubtitles();
       } else {
         throw new Error("Failed to generate subtitle alignment");
       }
     } catch (error) {
       console.error("❌ Subtitle generation failed:", error);
-      this.app.showError(`Subtitle generation failed: ${error.message}`);
+      if (error.message === "Generation cancelled") {
+        this.app.showStatus("Generation cancelled");
+      } else if (/MediaRecorder/i.test(error.message)) {
+        this.app.showError(
+          "Audio extraction not supported in this browser. Provide an external audio track or try a different browser."
+        );
+      } else {
+        this.app.showError(`Subtitle generation failed: ${error.message}`);
+      }
+    } finally {
+      this._exitGeneratingState();
     }
+  }
+
+  _enterGeneratingState() {
+    if (this._isGenerating) return;
+    this._isGenerating = true;
+    if (this.generateSubtitlesBtn) {
+      this._originalGenerateText = this.generateSubtitlesBtn.innerHTML;
+      this.generateSubtitlesBtn.disabled = true;
+      this.generateSubtitlesBtn.classList.add("loading");
+      this.generateSubtitlesBtn.innerHTML = `<span class="spinner" style="display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;margin-right:6px;animation:spin .7s linear infinite;vertical-align:middle;"></span>Generating...`;
+    }
+    this._createProgressOverlay("Analyzing audio & aligning text...");
+  }
+
+  _exitGeneratingState() {
+    this._isGenerating = false;
+    if (this.generateSubtitlesBtn) {
+      this.generateSubtitlesBtn.disabled = false;
+      this.generateSubtitlesBtn.classList.remove("loading");
+      if (this._originalGenerateText) {
+        this.generateSubtitlesBtn.innerHTML = this._originalGenerateText;
+      } else {
+        this.generateSubtitlesBtn.textContent = "Generate";
+      }
+    }
+    this._removeProgressOverlay();
+  }
+
+  _createProgressOverlay(message) {
+    if (document.getElementById("videoGenProgressOverlay")) return;
+    const container = this.videoPreview?.parentElement || document.body;
+    const overlay = document.createElement("div");
+    overlay.id = "videoGenProgressOverlay";
+    overlay.style.cssText = `position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,0.55);backdrop-filter:blur(2px);color:#fff;font-family:system-ui,sans-serif;z-index:50;gap:12px;text-align:center;padding:16px;`;
+    overlay.innerHTML = `
+      <div style="display:flex;flex-direction:column;align-items:center;gap:10px;max-width:260px;">
+        <div class="spinner-lg" style="width:42px;height:42px;border:4px solid rgba(255,255,255,0.85);border-right-color:transparent;border-radius:50%;animation:spin .9s linear infinite;"></div>
+        <div style="font-size:14px;line-height:1.4;">${message}</div>
+        <div id="genProgressDetail" style="font-size:11px;opacity:.85;">Starting...</div>
+        <button id="cancelGenerationBtn" style="margin-top:4px;background:#dc2626;border:none;color:#fff;padding:6px 12px;border-radius:4px;font-size:12px;cursor:pointer;">Cancel</button>
+      </div>`;
+    container.style.position = "relative";
+    container.appendChild(overlay);
+    overlay
+      .querySelector("#cancelGenerationBtn")
+      .addEventListener("click", () => {
+        this._cancelRequested = true;
+        this._updateProgressDetail("Cancelling (may take a moment)...");
+      });
+  }
+
+  _updateProgressDetail(text) {
+    const el = document.getElementById("genProgressDetail");
+    if (el) el.textContent = text;
+  }
+
+  _removeProgressOverlay() {
+    const overlay = document.getElementById("videoGenProgressOverlay");
+    if (overlay) overlay.remove();
+    this._cancelRequested = false;
   }
 
   async generateEnhancedSubtitles(alignmentResult) {
@@ -694,44 +808,187 @@ class VideoEditorModule extends EventTarget {
   }
 
   async extractAudioFromVideo(videoFile) {
-    // Create a temporary audio element to extract audio
+    // Extração de áudio com múltiplos fallbacks para evitar falha do MediaRecorder
     return new Promise((resolve, reject) => {
-      const video = document.createElement("video");
-      const canvas = document.createElement("canvas");
-      const ctx = canvas.getContext("2d");
+      try {
+        // Primeiro: tentar criar um elemento <audio> diretamente se arquivo já contém áudio
+        const directAudio = document.createElement("audio");
+        directAudio.preload = "auto";
+        directAudio.src = URL.createObjectURL(videoFile);
 
-      video.addEventListener("loadedmetadata", async () => {
-        try {
-          // Use MediaRecorder to extract audio
-          const stream = canvas.captureStream();
-          const mediaRecorder = new MediaRecorder(stream, {
-            mimeType: "audio/webm",
-          });
-          const chunks = [];
+        directAudio.addEventListener(
+          "error",
+          () => {
+            console.warn(
+              "[VideoEditor] Direct audio element could not play file, trying video fallback"
+            );
+          },
+          { once: true }
+        );
 
-          mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
-          mediaRecorder.onstop = () => {
-            const audioBlob = new Blob(chunks, { type: "audio/webm" });
-            resolve(audioBlob);
-          };
+        // Se conseguirmos metadata, podemos usar o blob diretamente
+        directAudio.addEventListener(
+          "loadedmetadata",
+          () => {
+            // Nem sempre conseguimos extrair diretamente, então partimos para fallback completo
+          },
+          { once: true }
+        );
 
-          mediaRecorder.start();
-          video.play();
+        // Fallback principal usando elemento <video>
+        const video = document.createElement("video");
+        video.preload = "auto";
+        video.muted = true; // Evita autoplay restrictions
+        video.src = URL.createObjectURL(videoFile);
 
-          // Stop after video ends
-          video.addEventListener("ended", () => {
-            mediaRecorder.stop();
-          });
-        } catch (error) {
-          reject(error);
-        }
-      });
+        // Timeout de segurança
+        const timeoutId = setTimeout(() => {
+          console.warn(
+            "[VideoEditor] Timeout loading video for audio extraction"
+          );
+        }, 15000);
 
-      video.src = URL.createObjectURL(videoFile);
+        video.addEventListener(
+          "loadedmetadata",
+          async () => {
+            clearTimeout(timeoutId);
+            try {
+              // Verificar se o navegador suporta MediaRecorder e se há trilha de áudio
+              const hasAudioTrack =
+                video.mozHasAudio ||
+                video.webkitAudioDecodedByteCount > 0 ||
+                (video.audioTracks && video.audioTracks.length);
+
+              // Melhor abordagem: criar um MediaElementAudioSourceNode para ler a trilha
+              if (window.AudioContext || window.webkitAudioContext) {
+                try {
+                  const AudioCtx =
+                    window.AudioContext || window.webkitAudioContext;
+                  const ctx = new AudioCtx();
+                  const source = ctx.createMediaElementSource(video);
+                  const dest = ctx.createMediaStreamDestination();
+                  source.connect(dest);
+                  source.connect(ctx.destination); // opcional para ouvir
+
+                  if (
+                    window.MediaRecorder &&
+                    dest.stream.getAudioTracks().length
+                  ) {
+                    const options = this._chooseAudioMimeType();
+                    const mr = new MediaRecorder(dest.stream, options);
+                    const chunks = [];
+                    mr.ondataavailable = (e) => {
+                      if (e.data.size) chunks.push(e.data);
+                    };
+                    mr.onstop = () => {
+                      if (chunks.length) {
+                        const blob = new Blob(chunks, {
+                          type: options.mimeType || "audio/webm",
+                        });
+                        resolve(blob);
+                      } else {
+                        reject(new Error("No audio data captured"));
+                      }
+                    };
+                    mr.start();
+                    video.play().catch(() => {});
+                    video.addEventListener(
+                      "ended",
+                      () => mr.state !== "inactive" && mr.stop(),
+                      { once: true }
+                    );
+                    return; // Sucesso – aguardando stop
+                  }
+                } catch (ctxErr) {
+                  console.warn(
+                    "[VideoEditor] Web Audio extraction failed:",
+                    ctxErr
+                  );
+                }
+              }
+
+              // Fallback secundário: tentar MediaRecorder diretamente no elemento (Chrome não permite, mas mantemos por completude)
+              if (window.MediaRecorder && video.captureStream) {
+                try {
+                  const stream = video.captureStream();
+                  if (stream.getAudioTracks().length) {
+                    const options = this._chooseAudioMimeType();
+                    const mr2 = new MediaRecorder(stream, options);
+                    const chunks2 = [];
+                    mr2.ondataavailable = (e) => {
+                      if (e.data.size) chunks2.push(e.data);
+                    };
+                    mr2.onstop = () => {
+                      const blob = new Blob(chunks2, {
+                        type: options.mimeType || "audio/webm",
+                      });
+                      resolve(blob);
+                    };
+                    mr2.start();
+                    video.play().catch(() => {});
+                    video.addEventListener(
+                      "ended",
+                      () => mr2.state !== "inactive" && mr2.stop(),
+                      { once: true }
+                    );
+                    return;
+                  }
+                } catch (mrErr) {
+                  console.warn(
+                    "[VideoEditor] Direct captureStream() MediaRecorder failed:",
+                    mrErr
+                  );
+                }
+              }
+
+              // Fallback final: retornar erro mais claro
+              reject(
+                new Error(
+                  "Audio extraction not supported in this browser/environment."
+                )
+              );
+            } catch (err) {
+              reject(err);
+            }
+          },
+          { once: true }
+        );
+
+        video.addEventListener(
+          "error",
+          (e) => {
+            clearTimeout(timeoutId);
+            reject(new Error("Failed to load video for audio extraction"));
+          },
+          { once: true }
+        );
+      } catch (outerErr) {
+        reject(outerErr);
+      }
     });
   }
 
-  async alignAudioWithText(audioBlob, text) {
+  // Escolhe o melhor mime type suportado pelo navegador para áudio
+  _chooseAudioMimeType() {
+    const candidates = [
+      "audio/webm;codecs=opus",
+      "audio/webm",
+      "audio/ogg;codecs=opus",
+      "audio/ogg",
+    ];
+    for (const c of candidates) {
+      if (
+        MediaRecorder &&
+        MediaRecorder.isTypeSupported &&
+        MediaRecorder.isTypeSupported(c)
+      ) {
+        return { mimeType: c };
+      }
+    }
+    return {}; // Deixa o navegador decidir
+  }
+
+  async alignAudioWithText(audioBlob, text, progressCallback) {
     // Convert blob to file for upload
     const formData = new FormData();
     formData.append("audio", audioBlob, "extracted_audio.webm");
@@ -740,9 +997,14 @@ class VideoEditorModule extends EventTarget {
 
     try {
       // Upload audio file first
+      if (progressCallback) progressCallback("Uploading audio...");
+      const uploadController = new AbortController();
+      this._activeAbortControllers = this._activeAbortControllers || [];
+      this._activeAbortControllers.push(uploadController);
       const uploadResponse = await fetch("/api/audio/upload", {
         method: "POST",
         body: formData,
+        signal: uploadController.signal,
       });
 
       if (!uploadResponse.ok) {
@@ -756,6 +1018,9 @@ class VideoEditorModule extends EventTarget {
       }
 
       // Use existing alignment endpoint
+      if (progressCallback) progressCallback("Requesting alignment...");
+      const alignController = new AbortController();
+      this._activeAbortControllers.push(alignController);
       const alignResponse = await fetch("/api/audio/align-enhanced", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -766,13 +1031,16 @@ class VideoEditorModule extends EventTarget {
           method: "auto",
           language: "pt-BR",
         }),
+        signal: alignController.signal,
       });
 
       if (!alignResponse.ok) {
         throw new Error(`Alignment failed: ${alignResponse.statusText}`);
       }
 
-      return await alignResponse.json();
+      const result = await alignResponse.json();
+      if (progressCallback) progressCallback("Alignment complete");
+      return result;
     } catch (error) {
       console.error("❌ Audio alignment failed:", error);
       throw error;
@@ -785,37 +1053,49 @@ class VideoEditorModule extends EventTarget {
     const subtitles = [];
     let currentSubtitle = null;
     const maxDuration = 3000; // 3 seconds max per subtitle
-    const maxChars = 40; // Max characters per line
+    const maxChars = 40; // Max characters per subtitle chunk (single line heuristic)
+    const gapBreakMs = 400; // Pause threshold to force new subtitle
+    const minSegmentChars = 12; // Only break on punctuation if we have at least this many chars
+    let prevEnd = null;
 
     for (const token of alignment.tokens) {
-      if (token.type === "word" && token.text.trim()) {
-        if (
-          !currentSubtitle ||
-          token.start_ms - currentSubtitle.start_ms > maxDuration ||
-          currentSubtitle.text.length + token.text.length > maxChars
-        ) {
-          // Start new subtitle
-          if (currentSubtitle) {
-            subtitles.push(currentSubtitle);
-          }
+      const text = (token.text || "").trim();
+      if (!text) continue;
+      if (token.start_ms == null || token.end_ms == null) continue;
 
-          currentSubtitle = {
-            id: subtitles.length,
-            text: token.text,
+      // Determine if this token should trigger a new subtitle
+      const longGap = prevEnd !== null && token.start_ms - prevEnd > gapBreakMs;
+      const needsNew =
+        !currentSubtitle ||
+        (token.start_ms - currentSubtitle.start_ms > maxDuration) ||
+        (currentSubtitle.text.length + text.length + 1 > maxChars) ||
+        longGap;
+
+      if (needsNew) {
+        if (currentSubtitle) subtitles.push(currentSubtitle);
+        currentSubtitle = {
+          id: subtitles.length,
+            text: text,
             start_ms: token.start_ms,
             end_ms: token.end_ms,
             confidence: token.confidence || 1.0,
-          };
-        } else {
-          // Extend current subtitle
-          currentSubtitle.text += " " + token.text;
-          currentSubtitle.end_ms = token.end_ms;
-          currentSubtitle.confidence = Math.min(
-            currentSubtitle.confidence,
-            token.confidence || 1.0
-          );
-        }
+        };
+      } else {
+        currentSubtitle.text += " " + text;
+        currentSubtitle.end_ms = token.end_ms;
+        currentSubtitle.confidence = Math.min(
+          currentSubtitle.confidence,
+          token.confidence || 1.0
+        );
       }
+
+      // If token ends with strong punctuation and segment is sufficiently long, close subtitle early
+      if (/[,.;!?…]$/.test(text) && currentSubtitle && currentSubtitle.text.length >= minSegmentChars) {
+        subtitles.push(currentSubtitle);
+        currentSubtitle = null;
+      }
+
+      prevEnd = token.end_ms;
     }
 
     // Add final subtitle
@@ -890,13 +1170,104 @@ class VideoEditorModule extends EventTarget {
             (subtitle.start_ms || 0) / 1000
           )}</span>
         </div>
+        <div class="segment-handle handle-start" data-handle="start"></div>
+        <div class="segment-handle handle-end" data-handle="end"></div>
       `;
 
       // Add click handler for editing
       segment.addEventListener("click", () => this.editSubtitle(subtitle.id));
+      // Duplo clique abre edição imediata (seleciona input correspondente)
+      segment.addEventListener("dblclick", (e) => {
+        e.stopPropagation();
+        this.editSubtitle(subtitle.id);
+      });
 
       timeline.appendChild(segment);
     });
+
+    // Scrubbing click on timeline background
+    timeline.addEventListener("click", (e) => {
+      if (
+        e.target.classList.contains("subtitle-segment") ||
+        e.target.closest(".subtitle-segment")
+      )
+        return; // ignore clicks on segments themselves
+      const rect = timeline.getBoundingClientRect();
+      const pct = (e.clientX - rect.left) / rect.width;
+      const totalDuration = Math.max(
+        ...this.subtitles.map((s) => s.end_ms || 0)
+      );
+      const targetMs = pct * totalDuration;
+      if (this.videoPreview) {
+        this.videoPreview.currentTime = targetMs / 1000;
+      }
+    });
+
+    // Drag handles for timing adjustment
+    let dragData = null;
+    const startDrag = (e, segmentEl, handle) => {
+      e.stopPropagation();
+      const id = parseInt(segmentEl.dataset.id, 10);
+      const sub = this.subtitles.find((s) => s.id === id);
+      if (!sub) return;
+      const rect = timeline.getBoundingClientRect();
+      const totalDuration = Math.max(
+        ...this.subtitles.map((s) => s.end_ms || 0)
+      );
+      dragData = {
+        id,
+        sub,
+        rect,
+        totalDuration,
+        handle,
+        origStart: sub.start_ms,
+        origEnd: sub.end_ms,
+      };
+      document.body.style.userSelect = "none";
+      this._pushHistory();
+      this._ensureSnapMarkersLayer();
+    };
+    const onMove = (e) => {
+      if (!dragData) return;
+      const { rect, totalDuration, handle, sub, origStart, origEnd } = dragData;
+      const pct = Math.min(
+        1,
+        Math.max(0, (e.clientX - rect.left) / rect.width)
+      );
+      const ms = pct * totalDuration;
+      if (handle === "start") {
+        sub.start_ms = Math.min(ms, sub.end_ms - 100); // keep minimum length 100ms
+      } else {
+        sub.end_ms = Math.max(ms, sub.start_ms + 100);
+      }
+      // Prevent overlap with neighbors
+      const idx = this.subtitles.indexOf(sub);
+      const prev = this.subtitles[idx - 1];
+      const next = this.subtitles[idx + 1];
+      if (prev && sub.start_ms < prev.end_ms) sub.start_ms = prev.end_ms + 10;
+      if (next && sub.end_ms > next.start_ms) sub.end_ms = next.start_ms - 10;
+      this._updateSnapMarkers(sub);
+      // Live update
+      this.renderSubtitleTimeline();
+      const overlay = document.getElementById("subtitleOverlay");
+      if (overlay) this.updateSubtitleOverlay(overlay);
+    };
+    const endDrag = () => {
+      if (dragData) {
+        dragData = null;
+        document.body.style.userSelect = "";
+        this._clearSnapMarkers();
+      }
+    };
+    timeline.addEventListener("mousedown", (e) => {
+      const handle = e.target.closest(".segment-handle");
+      if (handle) {
+        const segmentEl = handle.closest(".subtitle-segment");
+        startDrag(e, segmentEl, handle.dataset.handle);
+      }
+    });
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", endDrag);
 
     this.subtitleTimeline.appendChild(timeline);
   }
@@ -944,6 +1315,10 @@ class VideoEditorModule extends EventTarget {
       textInput.addEventListener("change", () => {
         this.updateSubtitleText(subtitle.id, textInput.value);
       });
+      // Atualização ao vivo enquanto digita
+      textInput.addEventListener("input", () => {
+        this.updateSubtitleTextLive(subtitle.id, textInput.value);
+      });
 
       this.segmentsList.appendChild(segmentDiv);
     });
@@ -965,11 +1340,139 @@ class VideoEditorModule extends EventTarget {
     }
   }
 
+  _maybeSnap(valueMs, frameMs, id, edge) {
+    // snap to frame
+    const frameSnap = Math.round(valueMs / frameMs) * frameMs;
+    if (Math.abs(frameSnap - valueMs) < this._snapThresholdMs)
+      valueMs = frameSnap;
+    // snap to neighbor edges
+    for (const s of this.subtitles) {
+      if (s.id === id) continue;
+      if (Math.abs(s.start_ms - valueMs) < this._snapThresholdMs)
+        valueMs = s.start_ms;
+      if (Math.abs(s.end_ms - valueMs) < this._snapThresholdMs)
+        valueMs = s.end_ms;
+    }
+    return valueMs;
+  }
+
+  _ensureSnapMarkersLayer() {
+    if (!this.subtitleTimeline) return;
+    let layer = this.subtitleTimeline.querySelector('.snap-markers-layer');
+    if (!layer) {
+      layer = document.createElement('div');
+      layer.className = 'snap-markers-layer';
+      Object.assign(layer.style, {
+        position: 'absolute',
+        inset: '0',
+        pointerEvents: 'none'
+      });
+      this.subtitleTimeline.appendChild(layer);
+    }
+    this._snapLayer = layer;
+  }
+
+  _clearSnapMarkers() {
+    if (this._snapLayer) this._snapLayer.innerHTML = '';
+  }
+
+  _updateSnapMarkers(activeSub) {
+    if (!this._snapLayer || !this.subtitles.length) return;
+    const totalDuration = Math.max(...this.subtitles.map(s=>s.end_ms||0));
+    const points = new Set();
+    // Frame grid (sparser: every 10 frames)
+    const frameMs = 1000/this._frameRate;
+    const frameStep = frameMs * 10;
+    for (let t=0; t<= totalDuration; t+= frameStep) {
+      if (Math.abs(t - activeSub.start_ms) < this._snapThresholdMs || Math.abs(t - activeSub.end_ms) < this._snapThresholdMs) {
+        points.add(t);
+      }
+    }
+    // Neighbor edges
+    for (const s of this.subtitles) {
+      if (s===activeSub) continue;
+      if (Math.abs(s.start_ms - activeSub.start_ms) < this._snapThresholdMs || Math.abs(s.start_ms - activeSub.end_ms) < this._snapThresholdMs)
+        points.add(s.start_ms);
+      if (Math.abs(s.end_ms - activeSub.start_ms) < this._snapThresholdMs || Math.abs(s.end_ms - activeSub.end_ms) < this._snapThresholdMs)
+        points.add(s.end_ms);
+    }
+    this._snapLayer.innerHTML = '';
+    points.forEach(ms=>{
+      const line = document.createElement('div');
+      const leftPct = (ms/totalDuration)*100;
+      Object.assign(line.style, {
+        position: 'absolute',
+        top: 0,
+        bottom: 0,
+        width: '2px',
+        background: 'rgba(255,215,0,0.7)',
+        left: leftPct+'%',
+        transform: 'translateX(-1px)'
+      });
+      this._snapLayer.appendChild(line);
+    });
+  }
+
+  _pushHistory() {
+    const snapshot = JSON.stringify(this.subtitles.map((s) => ({ ...s })));
+    this._undoStack.push(snapshot);
+    if (this._undoStack.length > this._maxHistory) this._undoStack.shift();
+    this._redoStack = [];
+  }
+
+  undo() {
+    if (!this._undoStack.length) return;
+    const current = JSON.stringify(this.subtitles.map((s) => ({ ...s })));
+    this._redoStack.push(current);
+    const prev = this._undoStack.pop();
+    this.subtitles = JSON.parse(prev);
+    this.renderSubtitleTimeline();
+    this.renderSubtitleSegments();
+  }
+
+  redo() {
+    if (!this._redoStack.length) return;
+    const current = JSON.stringify(this.subtitles.map((s) => ({ ...s })));
+    this._undoStack.push(current);
+    const next = this._redoStack.pop();
+    this.subtitles = JSON.parse(next);
+    this.renderSubtitleTimeline();
+    this.renderSubtitleSegments();
+  }
+
+  attachUndoRedoShortcuts() {
+    if (this._undoBound) return;
+    this._undoBound = true;
+    window.addEventListener("keydown", (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        if (e.shiftKey) this.redo();
+        else this.undo();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") {
+        e.preventDefault();
+        this.redo();
+      }
+    });
+  }
+
   updateSubtitleText(id, newText) {
     const subtitle = this.subtitles.find((s) => s.id === id);
     if (subtitle) {
+      this._pushHistory();
       subtitle.text = newText;
       this.renderSubtitleTimeline(); // Update timeline display
+    }
+  }
+
+  updateSubtitleTextLive(id, newText) {
+    const subtitle = this.subtitles.find((s) => s.id === id);
+    if (subtitle) {
+      subtitle.text = newText;
+      // Atualiza apenas overlay atual sem redesenhar toda timeline para performance
+      const overlay = document.getElementById("subtitleOverlay");
+      if (overlay && overlay.style.display !== "none") {
+        this.updateSubtitleOverlay(overlay);
+      }
     }
   }
 
@@ -1189,17 +1692,70 @@ class VideoEditorModule extends EventTarget {
         text-align: ${style.horizontalAlign};
         max-width: ${style.maxWidth}%;
         position: absolute;
-        ${style.verticalPosition}: 20px;
+        ${this._computeDynamicVerticalPosition(style)}: 20px;
         left: 50%;
         transform: translateX(-50%);
         padding: 8px 16px;
         border-radius: 4px;
         word-wrap: break-word;
         z-index: 10;
-      ">${currentSubtitle.text}</div>`;
+      ">${this._formatSubtitleLines(currentSubtitle.text, style)}</div>`;
     } else {
       overlay.style.display = "none";
     }
+  }
+
+  _computeDynamicVerticalPosition(style) {
+    // Simple heuristic: if controls bar (e.g., with class .video-controls) overlaps bottom 25%, lift subtitles
+    const controls = document.querySelector(
+      ".video-controls, .player-controls"
+    );
+    if (controls && this.videoPreview) {
+      const videoRect = this.videoPreview.getBoundingClientRect();
+      const controlsRect = controls.getBoundingClientRect();
+      if (
+        controlsRect.top < videoRect.bottom &&
+        controlsRect.top > videoRect.bottom - videoRect.height * 0.25
+      ) {
+        return "top";
+      }
+    }
+    return style.verticalPosition || "bottom";
+  }
+
+  _formatSubtitleLines(text, style) {
+    // Basic intelligent wrapping: split by spaces trying to keep lines balanced
+    if (!text) return "";
+    const words = text.split(/\s+/);
+    if (words.length <= 6) return this._escapeHtml(text);
+    const targetChars = Math.ceil(text.length / 2);
+    let line1 = "";
+    let line2 = "";
+    let acc = 0;
+    for (const w of words) {
+      if (acc + w.length + 1 < targetChars || line1.length === 0) {
+        line1 += (line1 ? " " : "") + w;
+        acc += w.length + 1;
+      } else {
+        line2 += (line2 ? " " : "") + w;
+      }
+    }
+    if (!line2) return this._escapeHtml(line1);
+    return `${this._escapeHtml(line1)}<br/>${this._escapeHtml(line2)}`;
+  }
+
+  _escapeHtml(str) {
+    return str.replace(
+      /[&<>"']/g,
+      (c) =>
+        ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#39;",
+        }[c])
+    );
   }
 
   hexToRgba(hex, alpha) {

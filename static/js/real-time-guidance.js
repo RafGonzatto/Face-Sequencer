@@ -53,7 +53,7 @@ class RealTimeGuidance {
       </div>
     `;
 
-    // Position panel
+    // Position panel with higher z-index to garantir clicabilidade
     this.guidancePanel.style.cssText = `
       position: fixed;
       bottom: 20px;
@@ -64,13 +64,35 @@ class RealTimeGuidance {
       border: 1px solid #e5e7eb;
       border-radius: 12px;
       box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
-      z-index: 1000;
+      z-index: 10000;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       overflow: hidden;
       transition: all 0.3s ease;
+      pointer-events: auto !important;
     `;
 
-    document.body.appendChild(this.guidancePanel);
+    // Criar um container especial para garantir que o painel fique acima de outros elementos
+    let guidancePanelContainer = document.getElementById(
+      "guidance-panel-container"
+    );
+
+    if (!guidancePanelContainer) {
+      guidancePanelContainer = document.createElement("div");
+      guidancePanelContainer.id = "guidance-panel-container";
+      guidancePanelContainer.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        pointer-events: none;
+        z-index: 9999;
+      `;
+      document.body.appendChild(guidancePanelContainer);
+    }
+
+    // O container não recebe eventos de clique, mas o painel sim
+    guidancePanelContainer.appendChild(this.guidancePanel);
 
     // Bind toggle
     this.guidancePanel
@@ -87,6 +109,9 @@ class RealTimeGuidance {
 
     // Monitor button clicks
     document.addEventListener("click", (e) => this.onButtonClick(e));
+
+    // Adicionar manipuladores para todos os botões de navegação de arquivos
+    this._addFileNavigationHandlers();
 
     // Monitor file operations
     if (this.app) {
@@ -293,14 +318,22 @@ class RealTimeGuidance {
     container.innerHTML = topSuggestions
       .map(
         (suggestion, index) => `
-      <div class="suggestion-item priority-${suggestion.priority}" data-type="${suggestion.type}" data-index="${index}" tabindex="0" role="button">
+      <div class="suggestion-item priority-${suggestion.priority}" data-type="${
+          suggestion.type
+        }" data-index="${index}" data-action="${
+          suggestion.action ? suggestion.type : "browse_folder"
+        }" tabindex="0" role="button">
         <div class="suggestion-icon">
           <i class="${suggestion.icon}"></i>
         </div>
         <div class="suggestion-content">
           <div class="suggestion-title">${suggestion.title}</div>
           <div class="suggestion-message">${suggestion.message}</div>
-          <button class="suggestion-action btn btn-sm btn-primary" data-type="${suggestion.type}" data-index="${index}">
+          <button class="suggestion-action btn btn-sm btn-primary" data-type="${
+            suggestion.type
+          }" data-index="${index}" data-action="${
+          suggestion.action ? suggestion.type : "browse_folder"
+        }">
             ${suggestion.actionText}
           </button>
         </div>
@@ -335,8 +368,25 @@ class RealTimeGuidance {
         // Handle button clicks
         const button = item.querySelector(".suggestion-action");
         if (button) {
-          button.addEventListener("click", () => {
-            this.executeSuggestionByIndex(suggestionIndex);
+          button.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log("Button clicked:", suggestion.type);
+
+            if (suggestion.type === "setup") {
+              // Forçar o clique no botão browse folder
+              const browseBtn = document.getElementById("browseFolderBtn");
+              if (browseBtn) {
+                console.log("Auto-clicking browse folder button");
+                browseBtn.click();
+              } else {
+                console.warn("Browse folder button not found");
+                // Tenta encontrar alternativas
+                this._executeFallbackAction("setup");
+              }
+            } else {
+              this.executeSuggestionByIndex(suggestionIndex);
+            }
           });
         }
       });
@@ -351,6 +401,75 @@ class RealTimeGuidance {
     } else {
       this.executeSuggestion(suggestion?.type || "setup");
     }
+  }
+
+  /**
+   * Adiciona manipuladores de eventos para todos os botões de navegação de arquivos
+   * que possam existir na aplicação
+   */
+  _addFileNavigationHandlers() {
+    // Esta função é chamada quando a classe é inicializada
+    console.log("[RealTimeGuidance] Setting up file navigation handlers");
+
+    // Usar um MutationObserver para detectar quando novos botões são adicionados ao DOM
+    const observer = new MutationObserver((mutations) => {
+      this._detectAndBindFileBrowserButtons();
+    });
+
+    // Observar todo o documento para mudanças na estrutura do DOM
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+    });
+
+    // Também fazer uma verificação inicial
+    setTimeout(() => this._detectAndBindFileBrowserButtons(), 500);
+
+    // E verificar novamente em intervalos regulares
+    setInterval(() => this._detectAndBindFileBrowserButtons(), 2000);
+  }
+
+  /**
+   * Detecta e vincula manipuladores de eventos a todos os botões de navegação de arquivos
+   */
+  _detectAndBindFileBrowserButtons() {
+    // Seletores para possíveis botões de navegação de arquivos
+    const selectors = [
+      "#browseFolderBtn",
+      "button.browse-btn",
+      "button.browse-folder-btn",
+      "button.file-select-btn",
+      ".browse-container .btn",
+      "button.btn-outline-primary:has(i.fa-folder)",
+      "button:has(i.fa-folder-open)",
+      "button:has(i.fa-file-upload)",
+    ];
+
+    // Combinar seletores
+    const combinedSelector = selectors.join(", ");
+    const buttons = document.querySelectorAll(combinedSelector);
+
+    buttons.forEach((button) => {
+      // Verificar se já adicionamos um handler
+      if (!button.dataset.guidanceHandlerAdded) {
+        console.log("[RealTimeGuidance] Found file browser button:", button);
+
+        // Marcar como processado
+        button.dataset.guidanceHandlerAdded = "true";
+
+        // Adicionar evento de clique
+        button.addEventListener("click", (e) => {
+          console.log(
+            "[RealTimeGuidance] File browser button clicked:",
+            button
+          );
+        });
+
+        // Tornar mais visível
+        button.style.position = "relative";
+        button.style.zIndex = "10001";
+      }
+    });
   }
 
   updateProgress(progress) {
@@ -372,13 +491,76 @@ class RealTimeGuidance {
 
   // Action methods
   executeSuggestion(type) {
+    console.log("[RealTimeGuidance] Executing suggestion:", type);
+
     const suggestion = this.currentSuggestions.find((s) => s.type === type);
     if (suggestion && suggestion.action) {
-      suggestion.action();
+      try {
+        suggestion.action();
+        console.log("[RealTimeGuidance] Suggestion action executed");
+      } catch (e) {
+        console.error(
+          "[RealTimeGuidance] Error executing suggestion action:",
+          e
+        );
+      }
+    } else {
+      // Fallback para ações comuns se a ação específica não for encontrada
+      this._executeFallbackAction(type);
+    }
+  }
+
+  _executeFallbackAction(type) {
+    console.log("[RealTimeGuidance] Using fallback action for:", type);
+
+    switch (type) {
+      case "setup":
+        // Tentar abrir o diálogo de seleção de pasta
+        const browseBtn = document.getElementById("browseFolderBtn");
+        if (browseBtn) {
+          console.log("[RealTimeGuidance] Clicking browse folder button");
+          browseBtn.click();
+          return true;
+        } else {
+          // Tente encontrar por seletor CSS
+          const altBtn = document
+            .querySelector(
+              'button[id="browseFolderBtn"], button.btn-outline-primary i.fa-folder, button.browse-btn, button.browse-folder-btn, button.file-select-btn, .browse-container .btn'
+            )
+            ?.closest("button");
+          if (altBtn) {
+            console.log(
+              "[RealTimeGuidance] Clicking alternative browse button"
+            );
+            altBtn.click();
+            return true;
+          }
+          // Tentar acionar o input de arquivo diretamente
+          const folderInput = document.querySelector(
+            "input[type=file]#folderInput"
+          );
+          if (folderInput) {
+            console.log("[RealTimeGuidance] Clicking folder input directly");
+            folderInput.click();
+          }
+        }
+        break;
+
+      case "content":
+        const textInput = document.getElementById("textInput");
+        if (textInput) {
+          textInput.focus();
+          textInput.scrollIntoView({ behavior: "smooth" });
+        }
+        break;
+
+      default:
+        console.log("[RealTimeGuidance] No fallback action for type:", type);
     }
   }
 
   focusElement(selector) {
+    console.log("[RealTimeGuidance] Focusing element:", selector);
     const element = document.querySelector(selector);
     if (element) {
       element.focus();
@@ -387,6 +569,20 @@ class RealTimeGuidance {
       // Add temporary highlight
       element.classList.add("guidance-highlight");
       setTimeout(() => element.classList.remove("guidance-highlight"), 2000);
+
+      // Se o elemento for folderPath, também acionar o browseFolderBtn
+      if (selector === "#folderPath") {
+        const browseBtn = document.getElementById("browseFolderBtn");
+        if (browseBtn) {
+          console.log("[RealTimeGuidance] Auto-clicking browse folder button");
+          setTimeout(() => browseBtn.click(), 300);
+        }
+      }
+
+      return true;
+    } else {
+      console.warn("[RealTimeGuidance] Element not found:", selector);
+      return false;
     }
   }
 
@@ -416,6 +612,71 @@ class RealTimeGuidance {
       : "fas fa-chevron-down";
 
     this.isActive = isCollapsed;
+  }
+
+  /**
+   * Exibe uma mensagem de orientação contextual.
+   * Evita quebrar se chamada por outros módulos que esperam este método.
+   * @param {string} key - Chave única da dica (para evitar spam repetido)
+   * @param {{title?: string, message: string, type?: 'info'|'warning'|'tip'}} data
+   */
+  showGuidance(key, data) {
+    try {
+      if (!this.guidancePanel) return;
+      if (!this._shownGuidanceKeys) this._shownGuidanceKeys = new Set();
+
+      // Ignorar mensagens vazias
+      if (!data || !data.message) return;
+
+      // Evitar repetir a mesma dica em sequência curta
+      if (this._shownGuidanceKeys.has(key)) return;
+      this._shownGuidanceKeys.add(key);
+      setTimeout(() => this._shownGuidanceKeys.delete(key), 15000); // expira após 15s
+
+      // Container onde vamos inserir as mensagens
+      let msgHost = this.guidancePanel.querySelector(".guidance-suggestions");
+      if (!msgHost) return;
+
+      // Criar elemento visual da dica
+      const wrapper = document.createElement("div");
+      wrapper.className = `guidance-inline-msg guidance-${data.type || "info"}`;
+      wrapper.style.cssText = `
+        border: 1px solid #e5e7eb;
+        background: #f8fafc;
+        padding: 8px 10px; border-radius: 6px; font-size: 12px; line-height: 1.4; margin-bottom: 8px;
+        position: relative; animation: fadeIn 0.25s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+      `;
+      const titleHtml = data.title
+        ? `<div style="font-weight:600; margin-bottom:4px;">${data.title}</div>`
+        : "";
+      const icon =
+        data.type === "warning"
+          ? "fa-triangle-exclamation"
+          : data.type === "tip"
+          ? "fa-lightbulb"
+          : "fa-info-circle";
+      wrapper.innerHTML = `
+        <div style="display:flex; gap:8px; align-items:flex-start;">
+          <i class="fas ${icon}" style="color:#2563eb; font-size:14px; margin-top:2px;"></i>
+          <div style="flex:1;">
+            ${titleHtml}
+            <div>${data.message}</div>
+          </div>
+          <button aria-label="Fechar" style="background:none;border:none;color:#6b7280;cursor:pointer;font-size:14px;padding:0 4px;line-height:1;">×</button>
+        </div>`;
+
+      const closeBtn = wrapper.querySelector("button");
+      closeBtn.addEventListener("click", () => wrapper.remove());
+
+      msgHost.prepend(wrapper);
+
+      // Auto-remover após 12s
+      setTimeout(() => {
+        if (wrapper.isConnected) wrapper.remove();
+      }, 12000);
+    } catch (err) {
+      console.warn("[RealTimeGuidance] showGuidance fallback log:", key, data);
+    }
   }
 
   showPerformanceTips() {
@@ -456,8 +717,46 @@ class RealTimeGuidance {
     if (!button) return;
 
     // Provide guidance based on button type
-    const buttonId = button.id || button.className;
+    const buttonId = button.id || "";
+    const buttonClasses = button.className || "";
     const buttonText = button.textContent?.toLowerCase() || "";
+
+    console.log("[RealTimeGuidance] Button clicked:", {
+      id: buttonId,
+      text: buttonText,
+      classes: buttonClasses,
+      element: button,
+    });
+
+    // Detectar se é um botão de navegação de arquivos
+    if (
+      buttonId === "browseFolderBtn" ||
+      buttonText.includes("browse") ||
+      buttonText.includes("folder") ||
+      buttonText.includes("select file") ||
+      buttonText.includes("upload") ||
+      buttonClasses.includes("browse-btn") ||
+      buttonClasses.includes("file-select") ||
+      button.querySelector("i.fa-folder, i.fa-folder-open, i.fa-file-upload")
+    ) {
+      console.log("[RealTimeGuidance] File browser button detected");
+
+      // Verificar se o botão está funcionando corretamente
+      setTimeout(() => {
+        // Se nenhum diálogo de arquivo foi aberto, tentar encontrar inputs de arquivo e acioná-los
+        const fileInputs = document.querySelectorAll('input[type="file"]');
+        if (fileInputs.length > 0) {
+          console.log("[RealTimeGuidance] Found file inputs:", fileInputs);
+          // Tentar clicar no primeiro input de arquivo
+          try {
+            fileInputs[0].click();
+            console.log("[RealTimeGuidance] Clicked file input");
+          } catch (e) {
+            console.error("[RealTimeGuidance] Error clicking file input:", e);
+          }
+        }
+      }, 100);
+    }
 
     // Upload button guidance
     if (buttonText.includes("upload") || buttonId.includes("upload")) {

@@ -231,7 +231,11 @@
                   id="folderPath"
                   placeholder="Enter folder path or browse..."
                 />
-                <button class="btn btn-outline" id="browseFolderBtn">
+                <button
+                  class="btn btn-outline browse-btn"
+                  id="browseFolderBtn"
+                  data-action="browse_folder"
+                >
                   <i class="fas fa-folder"></i> Browse
                 </button>
               </div>
@@ -652,6 +656,23 @@
             <button class="btn btn-secondary" id="loadVideoBtn">
               <i class="fas fa-upload"></i> Upload Video
             </button>
+            <label
+              class="btn btn-secondary"
+              style="position: relative; overflow: hidden; cursor: pointer"
+            >
+              <i class="fas fa-music"></i> External Audio
+              <input
+                id="externalAudioInput"
+                type="file"
+                accept="audio/*"
+                style="
+                  position: absolute;
+                  inset: 0;
+                  opacity: 0;
+                  cursor: pointer;
+                "
+              />
+            </label>
             <button
               class="btn btn-primary"
               id="exportVideoWithSubtitles"
@@ -1448,10 +1469,86 @@
     </script>
     <script src="{{ url_for('static', filename='js/interactive-onboarding.js') }}"></script>
     <script src="{{ url_for('static', filename='js/real-time-guidance.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/file-browser-helper.js') }}"></script>
     <script src="{{ url_for('static', filename='js/expandable-timeline.js') }}"></script>
     <script src="{{ url_for('static', filename='js/timeline-integration.js') }}"></script>
     <script src="{{ url_for('static', filename='js/enhanced_subtitle_timeline.js') }}"></script>
     <script src="{{ url_for('static', filename='js/video_editor.js') }}"></script>
+    <style>
+      @keyframes spin {
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      button.loading {
+        position: relative;
+      }
+      #subtitleOverlay {
+        pointer-events: none;
+      }
+      .subtitle-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        pointer-events: none;
+      }
+      .subtitle-text {
+        text-shadow: 0 2px 4px rgba(0, 0, 0, 0.6);
+      }
+      /* Subtitle timeline segment enhancements */
+      .subtitle-segment {
+        position: absolute;
+        top: 0;
+        height: 28px;
+        background: #2563eb22;
+        border: 1px solid #2563eb66;
+        border-radius: 4px;
+        cursor: pointer;
+        box-sizing: border-box;
+        overflow: hidden;
+      }
+      .subtitle-segment:hover {
+        background: #2563eb33;
+      }
+      .subtitle-segment .segment-handle {
+        position: absolute;
+        top: 0;
+        width: 6px;
+        height: 100%;
+        background: rgba(37, 99, 235, 0.55);
+        cursor: ew-resize;
+        opacity: 0;
+        transition: opacity 0.15s;
+      }
+      .subtitle-segment:hover .segment-handle {
+        opacity: 1;
+      }
+      .subtitle-segment .handle-start {
+        left: 0;
+        border-top-left-radius: 4px;
+        border-bottom-left-radius: 4px;
+      }
+      .subtitle-segment .handle-end {
+        right: 0;
+        border-top-right-radius: 4px;
+        border-bottom-right-radius: 4px;
+      }
+      .subtitle-segment .segment-content {
+        pointer-events: none;
+        font-size: 10px;
+        padding: 2px 4px;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      .subtitle-text {
+        line-height: 1.15;
+      }
+    </style>
 
     <!-- Phase 3 Advanced Features -->
     <!-- SocketIO for real-time collaboration -->

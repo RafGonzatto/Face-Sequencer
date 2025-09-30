@@ -1,9 +1,29 @@
 /* Real-time Guidance Panel Styles */
 
+/* Container especial para garantir que o painel fique acima de outros elementos */
+#guidance-panel-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 9999;
+}
+
 .guidance-panel {
   font-size: 14px;
   line-height: 1.4;
   transform: translateY(0);
+  pointer-events: auto !important;
+}
+
+/* Garantir que todos os elementos dentro do painel são clicáveis */
+.guidance-panel *,
+.guidance-panel button,
+.guidance-panel .suggestion-item,
+.guidance-panel .suggestion-action {
+  pointer-events: auto !important;
 }
 
 .guidance-panel.collapsed .guidance-content {
@@ -76,6 +96,8 @@
   cursor: pointer;
   position: relative;
   outline: none;
+  pointer-events: auto !important;
+  z-index: 10001;
 }
 
 .suggestion-item:hover {
@@ -157,8 +179,11 @@
   font-weight: 500;
   border-radius: 4px;
   border: none;
-  cursor: pointer;
+  cursor: pointer !important;
   transition: all 0.2s ease;
+  position: relative;
+  z-index: 10001 !important;
+  pointer-events: auto !important;
 }
 
 .suggestion-action.btn-primary {
