@@ -21,6 +21,7 @@ class VideoEditorModule extends EventTarget {
   this._frameSnapStep = 10; // default: consider every 10 frames for visual markers
   this._snappingEnabled = true;
   this._showFrameGrid = true; // will be overridden by persisted value if present
+  this._strictSnapMode = false;
     this._snapTooltip = null;
     // Restore persisted snap step if available
     try {
@@ -172,6 +173,48 @@ class VideoEditorModule extends EventTarget {
         if (this._snappingEnabled) this.app?.showStatus?.(`Snap step: every ${v} frame(s)`);
       }
     });
+    // Snapping preference panel bindings
+    const toggleSnapping = document.getElementById('toggleSnapping');
+    const toggleFrameGrid = document.getElementById('toggleFrameGrid');
+    const toggleStrictSnap = document.getElementById('toggleStrictSnap');
+    const snapThresholdRange = document.getElementById('snapThresholdRange');
+    if (toggleSnapping) {
+      toggleSnapping.checked = this._snappingEnabled;
+      toggleSnapping.addEventListener('change', ()=>{
+        this._snappingEnabled = toggleSnapping.checked;
+        this.app?.showStatus?.(this._snappingEnabled? 'Snapping ON':'Snapping OFF');
+      });
+    }
+    if (toggleFrameGrid) {
+      try { const saved = localStorage.getItem('showFrameGrid'); if (saved) this._showFrameGrid = saved==='1'; } catch(e) {}
+      toggleFrameGrid.checked = this._showFrameGrid;
+      toggleFrameGrid.addEventListener('change', ()=>{
+        this._showFrameGrid = toggleFrameGrid.checked;
+        try { localStorage.setItem('showFrameGrid', this._showFrameGrid? '1':'0'); } catch(e) {}
+        this.app?.showStatus?.(this._showFrameGrid? 'Frame grid ON':'Frame grid OFF');
+        if (this._snapLayer) this._clearSnapMarkers();
+      });
+    }
+    if (toggleStrictSnap) {
+      try { const saved = localStorage.getItem('strictSnapMode'); if (saved) this._strictSnapMode = saved==='1'; } catch(e) {}
+      toggleStrictSnap.checked = this._strictSnapMode;
+      toggleStrictSnap.addEventListener('change', ()=>{
+        this._strictSnapMode = toggleStrictSnap.checked;
+        try { localStorage.setItem('strictSnapMode', this._strictSnapMode? '1':'0'); } catch(e) {}
+        this.app?.showStatus?.(this._strictSnapMode? 'Strict snap ON':'Strict snap OFF');
+      });
+    }
+    if (snapThresholdRange) {
+      try { const saved = localStorage.getItem('snapThresholdMs'); if (saved) { const p=parseInt(saved,10); if(!isNaN(p)) this._snapThresholdMs=p; } } catch(e) {}
+      snapThresholdRange.value = this._snapThresholdMs;
+      snapThresholdRange.addEventListener('input', ()=>{
+        const v = parseInt(snapThresholdRange.value,10);
+        if (!isNaN(v)) {
+          this._snapThresholdMs = v;
+          try { localStorage.setItem('snapThresholdMs', String(v)); } catch(e) {}
+        }
+      });
+    }
     this.previewSubtitles?.addEventListener("click", () =>
       this.previewWithSubtitles()
     );
@@ -1371,23 +1414,31 @@ class VideoEditorModule extends EventTarget {
 
   _maybeSnap(valueMs, frameMs, id, edge) {
     if (!this._snappingEnabled) return valueMs;
-    // snap to frame
+    const original = valueMs;
+    this._lastSnapMeta = null;
+    const threshold = this._snapThresholdMs;
+    const strict = this._strictSnapMode;
+    const considerSnap = (candidate, type)=>{
+      const delta = candidate - original;
+      if (Math.abs(delta) < threshold) {
+        if (!strict || Math.abs(delta) < threshold) {
+          this._lastSnapMeta = { type, edge, target: candidate, deltaMs: delta, deltaFrames: Math.round(delta / frameMs) };
+          return candidate;
+        }
+      }
+      return null;
+    };
+    // frame snap
     const frameSnap = Math.round(valueMs / frameMs) * frameMs;
-    if (Math.abs(frameSnap - valueMs) < this._snapThresholdMs) {
-      valueMs = frameSnap;
-      this._lastSnapMeta = { type: 'frame', edge, target: frameSnap };
-    }
-    // snap to neighbor edges
+    const snappedFrame = considerSnap(frameSnap, 'frame');
+    if (snappedFrame != null) valueMs = snappedFrame;
+    // neighbor edges
     for (const s of this.subtitles) {
       if (s.id === id) continue;
-      if (Math.abs(s.start_ms - valueMs) < this._snapThresholdMs) {
-        valueMs = s.start_ms;
-        this._lastSnapMeta = { type: 'neighbor', edge, target: s.start_ms };
-      }
-      if (Math.abs(s.end_ms - valueMs) < this._snapThresholdMs) {
-        valueMs = s.end_ms;
-        this._lastSnapMeta = { type: 'neighbor', edge, target: s.end_ms };
-      }
+      const startCandidate = considerSnap(s.start_ms, 'neighbor');
+      if (startCandidate != null) valueMs = startCandidate;
+      const endCandidate = considerSnap(s.end_ms, 'neighbor');
+      if (endCandidate != null) valueMs = endCandidate;
     }
     return valueMs;
   }
@@ -1474,13 +1525,9 @@ class VideoEditorModule extends EventTarget {
     if (target == null) return;
     const leftPct = (target / totalDuration) * 100;
     const line = document.createElement('div');
-    Object.assign(line.style, {
-      position: 'absolute', top: 0, bottom: 0, width: '3px',
-      left: leftPct + '%', transform: 'translateX(-1.5px)',
-      background: 'linear-gradient(to bottom, rgba(255,215,0,0.15), rgba(255,215,0,0.9), rgba(255,215,0,0.15))',
-      boxShadow: '0 0 6px 2px rgba(255,215,0,0.6)',
-      opacity: '1', transition: 'opacity .4s ease'
-    });
+    line.className = 'snap-edge-line';
+    line.style.left = leftPct + '%';
+    line.style.transform = 'translateX(-1.5px)';
     guideLayer.appendChild(line);
     // fade out after short time (on mouseup this stays then fades)
     requestAnimationFrame(()=>{
@@ -1499,12 +1546,6 @@ class VideoEditorModule extends EventTarget {
     if (!this._snapTooltip) {
       this._snapTooltip = document.createElement('div');
       this._snapTooltip.className = 'snap-tooltip';
-      Object.assign(this._snapTooltip.style, {
-        position:'absolute', pointerEvents:'none', padding:'2px 6px', fontSize:'11px',
-        background:'rgba(30,30,35,0.9)', color:'#ffd700', border:'1px solid rgba(255,215,0,0.5)',
-        borderRadius:'4px', transform:'translate(-50%, -100%)', zIndex:50,
-        fontFamily:'monospace', whiteSpace:'nowrap', transition:'opacity .15s ease', opacity:'0'
-      });
       this.subtitleTimeline.appendChild(this._snapTooltip);
     }
     const frameMs = 1000/this._frameRate;
@@ -1512,10 +1553,25 @@ class VideoEditorModule extends EventTarget {
     const leftPct = (targetMs / totalDuration) * 100;
     this._snapTooltip.style.left = leftPct+'%';
     this._snapTooltip.style.top = '6px';
-    this._snapTooltip.innerHTML = `${Math.round(targetMs)}ms (f${frameIndex}) <span style="color:#999;">${edge}</span>`;
+    const abs = this._formatAbsoluteTime(targetMs/1000);
+    let deltaHtml = '';
+    if (this._lastSnapMeta && typeof this._lastSnapMeta.deltaMs === 'number') {
+      const d = this._lastSnapMeta.deltaMs;
+      const df = this._lastSnapMeta.deltaFrames;
+      deltaHtml = ` <span class="snap-delta">${d>=0?'+':''}${d}ms (${df}f)</span>`;
+    }
+    this._snapTooltip.innerHTML = `${Math.round(targetMs)}ms (${abs}) <span class="snap-frame">f${frameIndex}</span> <span class="snap-edge">${edge}</span>${deltaHtml}`;
     requestAnimationFrame(()=>{ this._snapTooltip.style.opacity='1'; });
     clearTimeout(this._snapTooltip._hideTimer);
     this._snapTooltip._hideTimer = setTimeout(()=>{ this._snapTooltip.style.opacity='0'; }, 900);
+  }
+
+  _formatAbsoluteTime(seconds) {
+    if (!isFinite(seconds)) return '00:00.000';
+    const m = Math.floor(seconds/60);
+    const s = Math.floor(seconds % 60);
+    const ms = Math.round((seconds - Math.floor(seconds))*1000);
+    return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(ms).padStart(3,'0')}`;
   }
 
   _updateEdgeDelta(segmentEl, edge, deltaMs) {
@@ -1524,11 +1580,6 @@ class VideoEditorModule extends EventTarget {
     if (!badge) {
       badge = document.createElement('div');
       badge.className = 'edge-delta';
-      Object.assign(badge.style, {
-        position:'absolute', top:'-14px', padding:'1px 4px', fontSize:'10px',
-        background:'rgba(0,0,0,0.7)', color:'#fff', borderRadius:'3px',
-        fontFamily:'monospace', pointerEvents:'none'
-      });
       segmentEl.appendChild(badge);
     }
     badge.textContent = (deltaMs>=0?'+':'') + deltaMs + 'ms';
@@ -1593,6 +1644,10 @@ class VideoEditorModule extends EventTarget {
         if (this.frameSnapStepSelect) this.frameSnapStepSelect.value = String(this._frameSnapStep);
         try { localStorage.setItem('frameSnapStep', String(this._frameSnapStep)); } catch(err) {}
         this.app?.showStatus?.(`Snap step: every ${this._frameSnapStep} frame(s)`);
+      } else if (e.key.toLowerCase() === 's' && !e.ctrlKey && !e.metaKey) {
+        this._strictSnapMode = !this._strictSnapMode;
+        try { localStorage.setItem('strictSnapMode', this._strictSnapMode? '1':'0'); } catch(e) {}
+        this.app?.showStatus?.(this._strictSnapMode? 'Strict snap ON':'Strict snap OFF');
       } else if (e.shiftKey && (e.key === '/' || e.key === '?')) {
         this._frameSnapStep = Math.max(this._frameSnapStep - 1, 1);
         if (this.frameSnapStepSelect) this.frameSnapStepSelect.value = String(this._frameSnapStep);

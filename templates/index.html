@@ -765,6 +765,13 @@
               class="subtitle-timeline-container"
               id="subtitleTimelineContainer"
             >
+              <div class="snapping-preferences" id="snappingPreferences">
+                <label><input type="checkbox" id="toggleSnapping" checked /> Snapping</label>
+                <label><input type="checkbox" id="toggleFrameGrid" checked /> Frame Grid</label>
+                <label><input type="checkbox" id="toggleStrictSnap" /> Strict Mode</label>
+                <label>Threshold(ms): <input type="range" min="20" max="250" value="120" id="snapThresholdRange" /></label>
+                <span class="hotkeys-hint" title="Hotkeys:\nAlt = Temp disable\nF = Toggle frame grid\nShift+. / Shift+/ = Step +/-\nStrict Mode: snaps only if delta < threshold">?</span>
+              </div>
               <div class="subtitle-timeline" id="subtitleTimeline">
                 <!-- Enhanced timeline will be rendered here -->
                 <div class="timeline-placeholder">
