@@ -1748,6 +1748,116 @@ def align_audio_enhanced():
     # Call the wrapped function
     return process_enhanced_alignment()
 
+@app.route('/api/audio/align-enhanced/stream', methods=['POST'])
+def align_audio_enhanced_stream():  # pragma: no cover - streaming path
+    """Server-Sent Events (SSE) streaming variant of enhanced alignment.
+
+    Emits JSON events with shape: {"event": phase, "data": {...}, "timestamp": iso}.
+    Phases (typical): start, precheck, load_audio, decode, transcribe, align, enhance, build_sequence, complete, error.
+    Falls back to standard align_audio_enhanced logic if enhanced path unavailable.
+    """
+    from audio_exceptions import AlignmentError
+    from flask import Response, stream_with_context
+    import json, datetime
+
+    def _event(phase: str, data: dict | None = None):
+        payload = {
+            'event': phase,
+            'data': data or {},
+            'timestamp': datetime.datetime.utcnow().isoformat() + 'Z'
+        }
+        return f"data: {json.dumps(payload)}\n\n"
+
+    @stream_with_context
+    def generate():  # noqa: PLR0912 - linear phase emission
+        try:
+            yield _event('start', {'message': 'Enhanced alignment starting'})
+            # Basic JSON body
+            data = request.get_json(silent=True) or {}
+            audio_filename = data.get('filename')
+            text = data.get('text', '')
+            language = data.get('language', 'pt-BR')
+            fps = float(data.get('fps', 30.0))
+            method = data.get('method', 'auto')
+            yield _event('precheck', {'enhanced_available': ENHANCED_ALIGNMENT_AVAILABLE, 'audio_alignment_available': AUDIO_ALIGNMENT_AVAILABLE})
+            if not AUDIO_ALIGNMENT_AVAILABLE:
+                raise AlignmentError('Audio alignment system not available', details={'phase': 'precheck'})
+            if not audio_filename:
+                raise AlignmentError('No audio filename provided', details={'phase': 'precheck'})
+            if not text.strip():
+                raise AlignmentError('No text provided', details={'phase': 'precheck'})
+            audio_path = os.path.join(app.config['AUDIO_FOLDER'], audio_filename)
+            if not os.path.exists(audio_path):
+                raise AlignmentError('Audio file not found', details={'filename': audio_filename, 'phase': 'precheck'})
+            yield _event('load_audio', {'filename': audio_filename})
+            aligner = get_audio_aligner()
+            if not aligner:
+                raise AlignmentError('Audio aligner not available', details={'phase': 'precheck'})
+            if not ENHANCED_ALIGNMENT_AVAILABLE or not hasattr(aligner, 'align_audio_to_text_enhanced'):
+                # Fallback: run standard alignment and emit complete
+                yield _event('fallback', {'reason': 'enhanced_unavailable'})
+                with app.test_request_context(json={'filename': audio_filename, 'text': text, 'language': language, 'fps': fps, 'method': method}):
+                    standard_resp = align_audio()
+                yield _event('complete', {'fallback': True, 'result': standard_resp.get_json() if hasattr(standard_resp, 'get_json') else None})
+                return
+            # Begin enhanced phases
+            yield _event('decode', {'message': 'Decoding & preparing models'})
+            # Actual call
+            try:
+                alignment_result, timeline, frame_states = aligner.align_audio_to_text_enhanced(
+                    audio_path, text, language=language, fps=fps, method=method
+                )
+            except Exception as dec_err:  # noqa: BLE001
+                raise AlignmentError(f'Enhanced alignment failed early: {dec_err}', details={'phase': 'decode'})
+            yield _event('transcribe', {'message': 'Transcribing & tokenizing', 'tokens': len(getattr(alignment_result, 'tokens', []) or [])})
+            yield _event('align', {'message': 'Refining alignment', 'language': getattr(alignment_result, 'language', language)})
+            # Build JSON friendly result (reuse existing logic/lightweight duplicate)
+            tokens_json = [
+                {
+                    'type': t.type.value,
+                    'text': t.text,
+                    'viseme': t.viseme,
+                    'start_ms': t.start_ms,
+                    'end_ms': t.end_ms,
+                    'confidence': t.confidence,
+                    'lang': t.lang,
+                    'duration_ms': t.end_ms - t.start_ms
+                } for t in getattr(alignment_result, 'tokens', [])
+            ]
+            yield _event('enhance', {'message': 'Applying enhancement & frame states'})
+            frame_states_json = [
+                {
+                    'frame_number': fs.frame_number,
+                    'timestamp': fs.timestamp,
+                    'active_word': fs.active_word,
+                    'word_progress': fs.word_progress,
+                    'opacity': fs.opacity,
+                    'viseme': fs.viseme,
+                    'confidence': fs.confidence
+                } for fs in (frame_states or [])
+            ]
+            result_dict = {
+                'method': 'enhanced',
+                'language': getattr(alignment_result, 'language', language),
+                'sample_rate': getattr(alignment_result, 'sample_rate', None),
+                'fps': fps,
+                'tokens': tokens_json,
+                'frame_states': frame_states_json,
+                'stats': {
+                    'audio_ms': getattr(getattr(alignment_result, 'stats', None), 'audio_ms', None),
+                    'avg_confidence': getattr(getattr(alignment_result, 'stats', None), 'avg_confidence', None),
+                },
+                'total_duration_ms': getattr(getattr(alignment_result, 'stats', None), 'audio_ms', None)
+            }
+            yield _event('build_sequence', {'message': 'Finalizing sequence', 'token_count': len(tokens_json)})
+            yield _event('complete', {'success': True, 'alignment': result_dict})
+        except AlignmentError as ae:  # noqa: BLE001
+            yield _event('error', {'error': str(ae), 'details': getattr(ae, 'details', {}), 'error_type': 'alignment_error'})
+        except Exception as e:  # noqa: BLE001
+            yield _event('error', {'error': str(e), 'error_type': 'unexpected_error'})
+
+    return Response(generate(), mimetype='text/event-stream')
+
 def validate_and_correct_frame_timing(frame_states, audio_duration_ms=None, fps=30.0):
     """
     ROBUST TIMING CORRECTION - ALWAYS ACTIVE

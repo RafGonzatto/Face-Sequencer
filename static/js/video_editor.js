@@ -1112,11 +1112,11 @@ class VideoEditorModule extends EventTarget {
           if (e.lengthComputable && progressCallback) {
             const pct = Math.min(99, Math.round((e.loaded / e.total) * 100));
             progressCallback(`Uploading audio (${pct}%)...`);
-            this._updateInlineProgressBar(pct);
+            window.UploadProgress?.updateProgress(pct, this.videoPreview?.parentElement);
           }
         };
         xhr.onload = () => {
-          this._updateInlineProgressBar(100);
+          window.UploadProgress?.updateProgress(100, this.videoPreview?.parentElement);
           if (xhr.status >= 200 && xhr.status < 300) {
             const json = xhr.response || {};
             if (!json.success) {
@@ -1131,6 +1131,9 @@ class VideoEditorModule extends EventTarget {
               const maybe = bodyText ? JSON.parse(bodyText) : null;
               if (maybe && maybe.error_type) {
                 msg = `${maybe.error || maybe.message || msg} (${maybe.error_type})`;
+                if (maybe.error_type === 'format_error' && this.app?.errorToasts) {
+                  this.app.errorToasts.show(`Formato não suportado. Aceitos: wav, mp3, ogg, flac, m4a, aac, webm`, { level: 'warning', autoDismiss: true });
+                }
               }
             } catch (_) {}
             reject(new Error(msg));
@@ -1145,63 +1148,95 @@ class VideoEditorModule extends EventTarget {
       }
 
       // Use existing alignment endpoint
-      if (progressCallback) progressCallback("Requesting alignment...");
-      const alignController = new AbortController();
-      this._activeAbortControllers.push(alignController);
-      const alignResponse = await fetch("/api/audio/align-enhanced", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          filename: uploadResult.filename,
-          text: text,
-          fps: 30,
-          method: "auto",
-          language: "pt-BR",
-        }),
-        signal: alignController.signal,
-      });
-
-      if (!alignResponse.ok) {
-        let detail = alignResponse.statusText;
-        try {
-          const errJson = await alignResponse.json();
-          if (errJson && errJson.error_type) {
-            detail = `${errJson.error || errJson.message || detail} (${errJson.error_type})`;
-          }
-        } catch (_) {}
-        throw new Error(`Alignment failed: ${detail}`);
+      // Attempt SSE streaming version first for richer progress
+      const sseSupported = !!window.EventSource;
+      const useStreaming = sseSupported;
+      if (useStreaming) {
+        if (progressCallback) progressCallback('Starting streaming alignment...');
+        return await this._streamingEnhancedAlignment(uploadResult.filename, text, progressCallback);
+      } else {
+        if (progressCallback) progressCallback("Requesting alignment...");
+        const alignController = new AbortController();
+        this._activeAbortControllers.push(alignController);
+        const alignResponse = await fetch("/api/audio/align-enhanced", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            filename: uploadResult.filename,
+            text: text,
+            fps: 30,
+            method: "auto",
+            language: "pt-BR",
+          }),
+          signal: alignController.signal,
+        });
+        if (!alignResponse.ok) {
+          let detail = alignResponse.statusText;
+          try {
+            const errJson = await alignResponse.json();
+            if (errJson && errJson.error_type) {
+              detail = `${errJson.error || errJson.message || detail} (${errJson.error_type})`;
+            }
+          } catch (_) {}
+          throw new Error(`Alignment failed: ${detail}`);
+        }
+        const result = await alignResponse.json();
+        if (progressCallback) progressCallback("Alignment complete");
+        return result;
       }
-
-      const result = await alignResponse.json();
-      if (progressCallback) progressCallback("Alignment complete");
-      return result;
     } catch (error) {
       console.error("❌ Audio alignment failed:", error);
       throw error;
     }
   }
 
-  _updateInlineProgressBar(pct) {
-    let bar = document.getElementById('inlineUploadProgress');
-    if (!bar) {
-      const container = this.videoPreview?.parentElement || document.body;
-      const wrapper = document.createElement('div');
-      wrapper.style.cssText = 'position:absolute;left:0;right:0;bottom:0;height:4px;background:rgba(255,255,255,0.15);z-index:60;';
-      const inner = document.createElement('div');
-      inner.id = 'inlineUploadProgress';
-      inner.style.cssText = 'height:100%;width:0%;background:#3b82f6;transition:width .15s linear;';
-      wrapper.appendChild(inner);
-      container.style.position = 'relative';
-      container.appendChild(wrapper);
-      bar = inner;
-    }
-    if (bar) bar.style.width = `${pct}%`;
-    if (pct >= 100) {
-      setTimeout(() => {
-        const w = bar?.parentElement;
-        if (w && w.parentElement) w.parentElement.removeChild(w);
-      }, 750);
-    }
+  _streamingEnhancedAlignment(filename, text, progressCallback){
+    return new Promise((resolve, reject) => {
+      try {
+        const es = new EventSource('/api/audio/align-enhanced/stream');
+        // We need to POST initial data; SSE GET can't carry body. Fallback quickly.
+        // Strategy: if server returns 200 but no data for 1s, fallback via fetch POST.
+        // Simpler: close and fallback immediately because we can't send POST body via EventSource.
+        es.close();
+        // Fallback approach: use fetch with POST to a streaming endpoint by query param.
+        fetch('/api/audio/align-enhanced/stream', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename, text, fps:30, method:'auto', language:'pt-BR' })
+        }).then(resp => {
+          if(!resp.ok){
+            throw new Error('Streaming request failed '+resp.status);
+          }
+          const reader = resp.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer='';
+          const parseChunk = () => reader.read().then(({done, value})=>{
+            if(done){ return; }
+            buffer += decoder.decode(value, {stream:true});
+            const parts = buffer.split('\n\n');
+            buffer = parts.pop();
+            for(const part of parts){
+              if(!part.startsWith('data:')) continue;
+              try {
+                const json = JSON.parse(part.slice(5).trim());
+                const ev = json.event; const data = json.data;
+                if(progressCallback){
+                  const phaseMap = { start:'Iniciando', precheck:'Verificando', load_audio:'Carregando áudio', decode:'Decodificando', transcribe:'Transcrevendo', align:'Alinhando', enhance:'Aprimorando', build_sequence:'Finalizando', complete:'Concluído' };
+                  progressCallback(phaseMap[ev] || ev);
+                }
+                if(ev==='complete'){
+                  resolve({ alignment: data.alignment || data.result?.data?.alignment || data });
+                } else if(ev==='error'){
+                  reject(new Error(data?.error || 'Streaming alignment error'));
+                }
+              } catch(e){ console.warn('SSE chunk parse error', e); }
+            }
+            return parseChunk();
+          });
+          return parseChunk();
+        }).catch(err=>reject(err));
+      } catch (e){ reject(e); }
+    });
   }
 
   convertAlignmentToSubtitles(alignment) {
