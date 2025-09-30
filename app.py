@@ -752,135 +752,6 @@ def validate_mp4_file(file_path):
     print(f"MP4 validation passed for {file_path}")
     return True, f"Valid MP4 file ({file_size} bytes)", file_size
 
-@app.route('/api/export/validate/<task_id>', methods=['GET'])
-def validate_export(task_id):
-    """Validate that an exported MP4 file is proper"""
-    try:
-        if task_id not in app_state['export_tasks']:
-            return jsonify(error_response('Task not found', error_type='not_found', status=404)), 404
-        
-        task = app_state['export_tasks'][task_id]
-        
-        if task['status'] != 'completed':
-            return jsonify(error_response('Export not completed', error_type='invalid_state', status=400, details={'status': task['status'], 'progress': task['progress'], 'message': task['message']})), 400
-        
-        is_valid, error_msg, filesize = validate_mp4_file(task['path'])
-        
-        if not is_valid:
-            app_state['export_tasks'][task_id]['status'] = 'error'
-            app_state['export_tasks'][task_id]['error'] = error_msg
-            return jsonify(error_response(error_msg, error_type='validation_failed', status=400, details={'valid': False, 'fileSize': filesize, 'filename': task['filename']})), 400
-        
-        return jsonify(success_response(error_msg, valid=True, fileSize=filesize, filename=task['filename']))
-    
-    except Exception as e:
-        return jsonify(error_response(str(e), error_type='unexpected_error', status=400)), 400
-
-@app.route('/api/export/download/<task_id>', methods=['GET'])
-def download_export(task_id):
-    """Download completed export"""
-    try:
-        if task_id not in app_state['export_tasks']:
-            return jsonify(error_response('Task not found', error_type='not_found', status=404)), 404
-        
-        task = app_state['export_tasks'][task_id]
-        
-        if task['status'] != 'completed':
-            return jsonify(error_response('Export not completed', error_type='invalid_state', status=400)), 400
-        
-        if not os.path.exists(task['path']):
-            return jsonify(error_response('Export file not found', error_type='not_found', status=404)), 404
-        
-        # Always validate the MP4 file before downloading
-        print(f"Validating file before download: {task['path']}")
-        is_valid, error_msg, filesize = validate_mp4_file(task['path'])
-        
-        if not is_valid:
-            print(f"Validation failed: {error_msg}")
-            app_state['export_tasks'][task_id]['status'] = 'error'
-            app_state['export_tasks'][task_id]['error'] = error_msg
-            return jsonify(error_response(error_msg, error_type='validation_failed', status=400, details={'fileSize': filesize})), 400
-            
-        print(f"Validation passed: {error_msg}, size: {filesize} bytes")
-        
-        # If validation passes, try different approaches to serve the file
-        file_path = os.path.abspath(task['path'])
-        directory = os.path.dirname(file_path)
-        filename = os.path.basename(file_path)
-        
-        # Define common headers for all response methods
-        headers = {
-            'Content-Disposition': f'attachment; filename="{task["filename"]}"',
-            'Content-Type': 'video/mp4',
-            'Content-Length': str(filesize),
-            'Cache-Control': 'no-cache, no-store, must-revalidate',
-            'Pragma': 'no-cache',
-            'Expires': '0',
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'GET',
-            'Access-Control-Allow-Headers': 'Content-Type'
-        }
-        
-        # Try different methods to send the file
-        try:
-            # Method 1: Flask's send_file
-            response = send_file(
-                task['path'], 
-                as_attachment=True,
-                download_name=task['filename'],
-                mimetype='video/mp4'
-            )
-            
-            # Add custom headers
-            for header, value in headers.items():
-                response.headers[header] = value
-                
-            print(f"Using send_file method to serve {task['filename']} ({filesize} bytes)")
-            return response
-            
-        except Exception as e1:
-            print(f"send_file failed: {str(e1)}, trying alternate method...")
-            
-            try:
-                # Method 2: send_from_directory
-                response = send_from_directory(
-                    directory, 
-                    filename,
-                    as_attachment=True,
-                    download_name=task['filename'],
-                    mimetype='video/mp4'
-                )
-                
-                # Add custom headers
-                for header, value in headers.items():
-                    response.headers[header] = value
-                    
-                print(f"Using send_from_directory method to serve {task['filename']}")
-                return response
-                
-            except Exception as e2:
-                print(f"send_from_directory failed: {str(e2)}, using direct Response...")
-                
-                # Method 3: Direct response with file data
-                try:
-                    with open(file_path, 'rb') as file_data:
-                        response = Response(
-                            file_data.read(),
-                            mimetype='video/mp4',
-                            headers=headers
-                        )
-                        print(f"Using direct Response method to serve {task['filename']}")
-                        return response
-                        
-                except Exception as e3:
-                    print(f"Direct Response method failed: {str(e3)}")
-                    return jsonify(error_response(f"All file serving methods failed: {str(e3)}", error_type='download_error', status=500)), 500
-    
-    except Exception as e:
-        error_msg = f"Error downloading export: {str(e)}"
-        app.logger.error(error_msg)
-        return jsonify(error_response(error_msg, error_type='unexpected_error', status=400)), 400
-
 ## Project & template endpoints moved to project_endpoints.project_bp and templates_endpoints.templates_bp
 
 # ============================================================================
@@ -1350,7 +1221,12 @@ def upload_audio():
         timestamp = int(time.time())
         safe_filename = secure_filename(audio.filename)
         unique_filename = f"{timestamp}_{safe_filename}"
-        audio_path = os.path.join(app.config['AUDIO_FOLDER'], unique_filename)
+        
+        # Ensure audio folder exists
+        audio_folder = app.config['AUDIO_FOLDER']
+        os.makedirs(audio_folder, exist_ok=True)
+        
+        audio_path = os.path.join(audio_folder, unique_filename)
         
         try:
             # Save file
@@ -1395,10 +1271,361 @@ def upload_audio():
                 raise AlignmentError(f'Audio processing failed: {str(e)}', details={'legacy_error_type': 'processing_timeout', 'error': str(e)})
             raise
         
-        return jsonify(success_response('Audio uploaded and validated successfully', audio=audio_info))
+        # Backward compatibility: older frontend expects top-level 'filename'
+        return jsonify(
+            success_response(
+                'Audio uploaded and validated successfully',
+                filename=audio_info['filename'],  # legacy field expected by video_editor.js
+                original_filename=audio_info.get('original_filename', audio.filename),
+                audio=audio_info,
+            )
+        )
     
     # Call the wrapped function
     return process_audio_upload()
+
+# ---------------------------------------------------------------------------
+# Video export with burned-in subtitles (overlay positioning)
+# ---------------------------------------------------------------------------
+@app.route('/api/_legacy/export/video-with-subtitles', methods=['POST'])
+def export_video_with_subtitles():  # DEPRECATED PLACEHOLDER kept for backward imports; real route moved to routes_export.export_legacy_bp
+    """Burn subtitles directly into a provided video using ASS styling.
+
+    Accepts multipart/form-data:
+      - video: video file (mp4, mov, mkv, webm, etc.)
+      - payload: JSON with:
+          subtitles: [ { text, start_ms, end_ms, optional words:[{text,start_ms,end_ms}] } ]
+          style: { fontFamily, fontSize, textColor, outlineColor, outlineWidth, backgroundColor, backgroundOpacity, effects:{ fadeInMs, fadeOutMs, karaoke, cacheTtlSeconds } }
+          overlayPosition: { xPercent, yPercent }
+
+    Returns JSON { download_url, export_filename, width, height, cached }
+    """
+    try:
+        import threading, hashlib, re, subprocess
+        from pathlib import Path as _Path
+
+        # ---------------------------------------------
+        # Verify ffmpeg availability
+        # ---------------------------------------------
+        try:
+            subprocess.run(['ffmpeg', '-version'], capture_output=True, timeout=5, check=False)
+        except FileNotFoundError:
+            return jsonify(error_response('ffmpeg não encontrado no sistema. Instale ffmpeg para exportar.'))
+
+        if 'video' not in request.files:
+            return jsonify(error_response('Arquivo de vídeo não enviado (campo video).'))
+        video_file = request.files['video']
+        if not video_file.filename:
+            return jsonify(error_response('Nome de arquivo de vídeo inválido.'))
+
+        raw_payload = request.form.get('payload') or '{}'
+        try:
+            payload = json.loads(raw_payload)
+        except Exception:
+            return jsonify(error_response('Payload JSON inválido.'))
+
+        subtitles = payload.get('subtitles') or []
+        style = payload.get('style') or {}
+        overlay = payload.get('overlayPosition') or {}
+        effects = (style.get('effects') or {}) if isinstance(style, dict) else {}
+
+        if not subtitles:
+            return jsonify(error_response('Nenhuma legenda fornecida.'))
+
+        upload_dir = _Path(app.config['UPLOAD_FOLDER'])
+        upload_dir.mkdir(parents=True, exist_ok=True)
+
+        base_video_name = f"vid_{uuid.uuid4().hex[:10]}_{secure_filename(video_file.filename)}"
+        input_path = upload_dir / base_video_name
+        video_file.save(str(input_path))
+
+        # ---------------------------------------------
+        # Cleanup thread (removes old burned_*.mp4 & sub_*.ass)
+        # ---------------------------------------------
+        CLEANUP_TTL_SECONDS = int(effects.get('cacheTtlSeconds') or 3600)
+        def _cleanup_old_exports():  # pragma: no cover - best effort
+            try:
+                now = time.time()
+                removed = 0
+                for p in upload_dir.glob('burned_*.mp4'):
+                    if removed > 50:
+                        break
+                    try:
+                        if now - p.stat().st_mtime > CLEANUP_TTL_SECONDS:
+                            p.unlink(missing_ok=True)
+                            removed += 1
+                    except Exception:
+                        continue
+                # remove stale .ass files
+                for a in upload_dir.glob('sub_*.ass'):
+                    try:
+                        if now - a.stat().st_mtime > CLEANUP_TTL_SECONDS:
+                            a.unlink(missing_ok=True)
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+        threading.Thread(target=_cleanup_old_exports, daemon=True).start()
+
+        # ---------------------------------------------
+        # Hashing for export cache
+        # ---------------------------------------------
+        video_hasher = hashlib.sha256()
+        try:
+            with open(input_path, 'rb') as vf:
+                for chunk in iter(lambda: vf.read(1024 * 1024), b''):
+                    video_hasher.update(chunk)
+        except Exception:
+            pass
+        video_hash = video_hasher.hexdigest()
+        try:
+            normalized_payload = {'subtitles': subtitles, 'style': style, 'overlay': overlay}
+            payload_hash = hashlib.sha256(json.dumps(normalized_payload, sort_keys=True, ensure_ascii=False).encode('utf-8')).hexdigest()
+        except Exception:
+            payload_hash = uuid.uuid4().hex
+        combined_hash = hashlib.sha256(f"{video_hash}:{payload_hash}".encode('utf-8')).hexdigest()
+        out_name = f"burned_{combined_hash[:16]}.mp4"
+        out_path = upload_dir / out_name
+        if out_path.exists() and out_path.stat().st_size > 0:
+            return jsonify(success_response('Export reutilizado do cache', export_filename=out_name, download_url=f"/api/export/video/burned/{out_name}", cached=True))
+
+        # ---------------------------------------------
+        # Probe resolution
+        # ---------------------------------------------
+        width = height = None
+        try:
+            probe = subprocess.run([
+                'ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'json', str(input_path)
+            ], capture_output=True, text=True, timeout=10)
+            if probe.returncode == 0:
+                try:
+                    _pd = json.loads(probe.stdout or '{}')
+                    streams = _pd.get('streams') or []
+                    if streams:
+                        width = streams[0].get('width')
+                        height = streams[0].get('height')
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        if not width or not height:
+            width, height = width or 1280, height or 720
+
+        # ---------------------------------------------
+        # Color helper
+        # ---------------------------------------------
+        def _hex_to_ass_color(hex_color, alpha_percent=None):
+            try:
+                if not hex_color:
+                    hex_color = '#FFFFFF'
+                hex_color = hex_color.strip()
+                if hex_color.startswith('#'):
+                    hex_color = hex_color[1:]
+                if len(hex_color) == 3:
+                    hex_color = ''.join(c * 2 for c in hex_color)
+                if len(hex_color) != 6:
+                    return '&H00FFFFFF'
+                r = int(hex_color[0:2], 16)
+                g = int(hex_color[2:4], 16)
+                b = int(hex_color[4:6], 16)
+                if alpha_percent is None:
+                    alpha = 0
+                else:
+                    try:
+                        alpha_f = max(0, min(100, float(alpha_percent))) / 100.0
+                        alpha = int(alpha_f * 255)
+                    except Exception:
+                        alpha = 0
+                return f"&H{alpha:02X}{b:02X}{g:02X}{r:02X}"
+            except Exception:
+                return '&H00FFFFFF'
+
+        # Font scaling (baseline 1920 width)
+        base_font_size_user = style.get('fontSize')
+        try:
+            if base_font_size_user is not None:
+                base_font_size_user = float(base_font_size_user)
+        except Exception:
+            base_font_size_user = None
+        if base_font_size_user is None:
+            base_font_size_user = 48.0
+        font_size = int(max(12, round(base_font_size_user * (width / 1920.0))))
+
+        font_name = style.get('fontFamily') or 'Arial'
+        outline_w = int(style.get('outlineWidth') or 3)
+        primary_color = _hex_to_ass_color(style.get('textColor') or '#FFFFFF')
+        outline_color = _hex_to_ass_color(style.get('outlineColor') or '#000000')
+        back_color = _hex_to_ass_color(style.get('backgroundColor') or '#000000', style.get('backgroundOpacity'))
+
+        # Position
+        x_pct = float(overlay.get('xPercent', 50.0)) / 100.0
+        y_pct = float(overlay.get('yPercent', 80.0)) / 100.0
+        pos_x = int(width * x_pct)
+        pos_y = int(height * y_pct)
+
+        # Adaptive wrapping target
+        avg_char_px = font_size * 0.55
+        target_line_chars = max(8, int(width * 0.75 / avg_char_px))
+
+        def _wrap_text_if_needed(raw_text: str) -> str:
+            if not raw_text:
+                return ''
+            raw_text_norm = raw_text.replace('\r\n', '\n')
+            raw_text_norm = re.sub(r'<br\s*/?>', '\n', raw_text_norm, flags=re.IGNORECASE)
+            if '\n' in raw_text_norm:
+                parts = [p.strip() for p in raw_text_norm.split('\n') if p.strip()]
+            else:
+                words = raw_text_norm.split()
+                parts = []
+                line = []
+                count = 0
+                for w in words:
+                    wlen = len(w)
+                    if count + wlen + (1 if line else 0) > target_line_chars and line:
+                        parts.append(' '.join(line))
+                        line = [w]
+                        count = wlen
+                    else:
+                        line.append(w)
+                        count += wlen + (1 if line[:-1] else 0)
+                if line:
+                    parts.append(' '.join(line))
+            return '\n'.join(parts)
+
+        def _build_karaoke_line(sub):
+            words = sub.get('words') or []
+            if not words:
+                return None
+            line_start = sub.get('start_ms', 0)
+            fragments = []
+            for w in words:
+                w_start = w.get('start_ms', line_start)
+                w_end = w.get('end_ms', w_start)
+                if w_end < w_start:
+                    w_end = w_start
+                dur_cs = max(1, int((w_end - w_start) / 10))
+                text_w = w.get('text') or w.get('word') or ''
+                fragments.append(f"{{\\k{dur_cs}}}{text_w} ")
+            return ''.join(fragments).strip()
+
+        ass_name = f"sub_{combined_hash[:12]}.ass"
+        ass_path = upload_dir / ass_name
+        with open(ass_path, 'w', encoding='utf-8') as ass:
+            ass.write('[Script Info]\n')
+            ass.write('ScriptType: v4.00+\n')
+            ass.write('ScaledBorderAndShadow: yes\n')
+            ass.write(f'PlayResX: {width}\n')
+            ass.write(f'PlayResY: {height}\n')
+            ass.write('WrapStyle: 2\n')
+            ass.write('\n[V4+ Styles]\n')
+            ass.write('Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, ')
+            ass.write('Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n')
+            style_line = (
+                f"Style: Default,{font_name},{font_size},{primary_color},&H000000FF,{outline_color},{back_color},"
+                f"0,0,0,0,100,100,0,0,3,{outline_w},0,5,10,10,10,1"
+            )
+            ass.write(style_line + '\n')
+            ass.write('\n[Events]\n')
+            ass.write('Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n')
+
+            def _fmt_ts(ms):
+                if ms is None:
+                    ms = 0
+                ms = max(0, int(ms))
+                h = ms // 3600000
+                ms -= h * 3600000
+                m = ms // 60000
+                ms -= m * 60000
+                s = ms // 1000
+                cs = int((ms - s * 1000) / 10)
+                return f"{h:d}:{m:02d}:{s:02d}.{cs:02d}"
+
+            fade_in = int(effects.get('fadeInMs') or 0)
+            fade_out = int(effects.get('fadeOutMs') or 0)
+            karaoke_enabled = bool(effects.get('karaoke'))
+
+            for sub in subtitles:
+                start_ms = sub.get('start_ms') or sub.get('start') or 0
+                end_ms = sub.get('end_ms') or sub.get('end') or (start_ms + 2000)
+                if end_ms <= start_ms:
+                    end_ms = start_ms + 1
+                raw_text = sub.get('text') or sub.get('line') or ''
+                karaoke_line = _build_karaoke_line(sub) if karaoke_enabled else None
+                wrapped_text = karaoke_line if karaoke_line else _wrap_text_if_needed(raw_text)
+                wrapped_text = wrapped_text.replace('\n', '\\N')
+                # Basic brace sanitization
+                wrapped_text = wrapped_text.replace('{', '（').replace('}', '）')
+                effect_tags = ''
+                if fade_in or fade_out:
+                    effect_tags += f"{{\\fad({fade_in},{fade_out})}}"
+                pos_tag = f"{{\\pos({pos_x},{pos_y})}}"
+                final_text = f"{pos_tag}{effect_tags}{wrapped_text}"
+                ass.write(f"Dialogue: 0,{_fmt_ts(start_ms)},{_fmt_ts(end_ms)},Default,,0,0,0,,{final_text}\n")
+
+        # Build a subtitles filter that is safer on Windows paths & MOV inputs
+        sub_filter_path = ass_path.as_posix()
+        # ffmpeg filter syntax prefers filename= when path contains ':' (e.g. C:/) or special chars
+        sub_filter = f"subtitles=filename='{sub_filter_path}'"
+        ffmpeg_cmd = [
+            'ffmpeg', '-y', '-i', str(input_path), '-vf', sub_filter, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-c:a', 'copy', str(out_path)
+        ]
+        run = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
+        if run.returncode != 0 or not out_path.exists():
+            # Retry without -c:a copy (re-encode audio) sometimes needed for certain .mov codecs
+            fallback_cmd = [
+                'ffmpeg', '-y', '-i', str(input_path), '-vf', sub_filter, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-c:a', 'aac', '-b:a', '192k', str(out_path)
+            ]
+            fallback_run = subprocess.run(fallback_cmd, capture_output=True, text=True)
+            if fallback_run.returncode != 0 or not out_path.exists():
+                err_tail = (fallback_run.stderr or run.stderr or '') .splitlines()[-15:]
+                return jsonify(error_response('Falha ao processar export com legendas (mov/ffmpeg)', stderr=err_tail, ffmpeg_cmd=fallback_cmd))
+
+        return jsonify(success_response('Export concluído', export_filename=out_name, download_url=f"/api/export/video/burned/{out_name}", width=width, height=height, cached=False))
+    except Exception as e:  # noqa: BLE001
+        return jsonify(error_response('Erro inesperado no export', exception=str(e)))
+        out_path = upload_dir / out_name
+        ffmpeg_cmd = [
+            'ffmpeg','-y','-i', str(input_path), '-vf', f"subtitles='{ass_path.as_posix()}'", '-c:v','libx264','-preset','veryfast','-crf','20','-c:a','copy', str(out_path)
+        ]
+        run = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
+        if run.returncode != 0 or not out_path.exists():
+            return jsonify(error_response('Falha ao processar export com legendas', stderr=run.stderr.splitlines()[-10:]))
+
+        return jsonify(success_response('Export concluído', export_filename=out_name, download_url=f"/api/export/video/burned/{out_name}", width=width, height=height))
+    except Exception as e:  # noqa: BLE001
+        return jsonify(error_response('Erro inesperado no export', exception=str(e)))
+
+@app.route('/api/_legacy/export/video/burned/<path:filename>', methods=['GET'])
+def download_burned_video(filename):  # DEPRECATED PLACEHOLDER; real route in blueprint
+    return jsonify(error_response('Legacy path deprecated. Use /api/export/video/burned/<filename> via blueprint.'))
+
+@app.route('/api/audio/debug/decode', methods=['POST'])
+def debug_decode_audio():  # pragma: no cover - diagnostic helper
+    """Decode an already uploaded audio file and return basic diagnostics.
+
+    JSON body: {"filename": "<stored_filename>"}
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        filename = data.get('filename')
+        if not filename:
+            return jsonify(error_response('No filename provided', error_type='validation_error', status=400)), 400
+        audio_path = os.path.join(app.config['AUDIO_FOLDER'], filename)
+        if not os.path.exists(audio_path):
+            return jsonify(error_response('File not found', error_type='not_found', status=404)), 404
+        from config import config as _cfg
+        import librosa, numpy as np
+        sr_target = _cfg.audio.sample_rate()
+        diag = {'filename': filename, 'size_bytes': os.path.getsize(audio_path)}
+        try:
+            y, sr = librosa.load(audio_path, sr=sr_target, mono=True)
+            rms = float(np.sqrt(np.mean(y**2))) if y.size else 0.0
+            diag.update({'decoded': True, 'sample_rate': sr, 'rms': rms, 'duration_sec': round(len(y)/sr if sr else 0, 3)})
+        except Exception as e:
+            diag.update({'decoded': False, 'error': str(e)})
+        return jsonify(success_response('Decode diagnostics', **diag))
+    except Exception as e:  # noqa: BLE001
+        return jsonify(error_response(str(e), error_type='unexpected_error', status=500)), 500
 
 @app.route('/api/audio/align', methods=['POST'])
 def align_audio():
@@ -1748,362 +1975,43 @@ def align_audio_enhanced():
     # Call the wrapped function
     return process_enhanced_alignment()
 
-@app.route('/api/audio/align-enhanced/stream', methods=['POST'])
-def align_audio_enhanced_stream():  # pragma: no cover - streaming path
-    """Server-Sent Events (SSE) streaming variant of enhanced alignment.
+## Streaming alignment & related maintenance endpoints moved to
+## app_core/routes_alignment_stream.py (Blueprint: alignment_stream_bp)
+## The original implementations have been removed to avoid duplication.
+## If legacy imports expect these view function names, consider providing
+## thin delegating wrappers that import and register the blueprint instead.
+try:  # Register extracted streaming alignment blueprint if factory pattern not yet adopted
+    from app_core.routes_alignment_stream import stream_alignment_bp  # type: ignore
+    if 'stream_alignment_bp' not in [bp.name for bp in app.blueprints.values()]:  # type: ignore[name-defined]
+        app.register_blueprint(stream_alignment_bp)  # type: ignore[name-defined]
+except Exception:
+    pass  # safe no-op if running in contexts where app not yet defined
 
-    Emits JSON events with shape: {"event": phase, "data": {...}, "timestamp": iso}.
-    Phases (typical): start, precheck, load_audio, decode, transcribe, align, enhance, build_sequence, complete, error.
-    Falls back to standard align_audio_enhanced logic if enhanced path unavailable.
+# ---------------------------------------------------------------------------
+# EXTRACTED: Timing correction & sequence building moved to app_core/routes_sequence.py
+# Provide lightweight re-exports to preserve test imports: from app import validate_and_correct_frame_timing
+# ---------------------------------------------------------------------------
+try:  # type: ignore[use-before-def]
+    from app_core.routes_sequence import (
+        validate_and_correct_frame_timing,  # noqa: F401
+        build_text_driven_sequence_enhanced,  # noqa: F401
+        tokenize_word_enhanced,  # noqa: F401
+        sequence_bp,  # noqa: F401
+    )
+    if 'sequence' not in [bp.name for bp in app.blueprints.values()]:  # type: ignore[name-defined]
+        app.register_blueprint(sequence_bp)  # type: ignore[name-defined]
+except Exception:
+    # Safe to ignore during certain import orders (e.g., schema generation)
+    pass
+
+def legacy_sequence_definitions_removed():
+    """Placeholder to keep line number references stable in PR review.
+
+    The actual implementations of timing & sequence functions were moved to
+    app_core/routes_sequence.py and re-exported above. This stub will be
+    removed after downstream references are updated.
     """
-    from audio_exceptions import AlignmentError
-    from flask import Response, stream_with_context
-    import json, datetime
-
-    PHASE_WEIGHTS = {
-        'start': 0,
-        'precheck': 5,
-        'load_audio': 10,
-        'decode': 25,
-        'transcribe': 55,
-        'align': 75,
-        'enhance': 85,
-        'build_sequence': 95,
-        'complete': 100,
-    }
-    ACTIVE_ALIGNMENT_JOBS: dict[str, dict] = getattr(app, '_active_alignment_jobs', {})  # type: ignore[attr-defined]
-    setattr(app, '_active_alignment_jobs', ACTIVE_ALIGNMENT_JOBS)
-
-    def _event(phase: str, data: dict | None = None):
-        pct = PHASE_WEIGHTS.get(phase, min(PHASE_WEIGHTS.values()))
-        payload = {
-            'event': phase,
-            'data': {**(data or {}), 'progress_percent': pct},
-            'timestamp': datetime.datetime.utcnow().isoformat() + 'Z'
-        }
-        return f"data: {json.dumps(payload)}\n\n"
-
-    @stream_with_context
-    def generate():  # noqa: PLR0912 - linear phase emission
-        try:
-            import time, uuid
-            job_id = f"aln_{uuid.uuid4().hex[:10]}"
-            ACTIVE_ALIGNMENT_JOBS[job_id] = {'cancel': False, 'started': time.time()}
-            last_heartbeat = time.time()
-            yield _event('start', {'message': 'Enhanced alignment starting', 'job_id': job_id})
-            # Basic JSON body
-            data = request.get_json(silent=True) or {}
-            audio_filename = data.get('filename')
-            text = data.get('text', '')
-            language = data.get('language', 'pt-BR')
-            fps = float(data.get('fps', 30.0))
-            method = data.get('method', 'auto')
-            yield _event('precheck', {'enhanced_available': ENHANCED_ALIGNMENT_AVAILABLE, 'audio_alignment_available': AUDIO_ALIGNMENT_AVAILABLE})
-            if ACTIVE_ALIGNMENT_JOBS[job_id]['cancel']:
-                yield _event('cancelled', {'job_id': job_id, 'phase': 'precheck'})
-                return
-            if not AUDIO_ALIGNMENT_AVAILABLE:
-                raise AlignmentError('Audio alignment system not available', details={'phase': 'precheck'})
-            if not audio_filename:
-                raise AlignmentError('No audio filename provided', details={'phase': 'precheck'})
-            if not text.strip():
-                raise AlignmentError('No text provided', details={'phase': 'precheck'})
-            audio_path = os.path.join(app.config['AUDIO_FOLDER'], audio_filename)
-            if not os.path.exists(audio_path):
-                raise AlignmentError('Audio file not found', details={'filename': audio_filename, 'phase': 'precheck'})
-            yield _event('load_audio', {'filename': audio_filename})
-            aligner = get_audio_aligner()
-            if not aligner:
-                raise AlignmentError('Audio aligner not available', details={'phase': 'precheck'})
-            if not ENHANCED_ALIGNMENT_AVAILABLE or not hasattr(aligner, 'align_audio_to_text_enhanced'):
-                # Fallback: run standard alignment and emit complete
-                yield _event('fallback', {'reason': 'enhanced_unavailable'})
-                with app.test_request_context(json={'filename': audio_filename, 'text': text, 'language': language, 'fps': fps, 'method': method}):
-                    standard_resp = align_audio()
-                yield _event('complete', {'fallback': True, 'result': standard_resp.get_json() if hasattr(standard_resp, 'get_json') else None})
-                ACTIVE_ALIGNMENT_JOBS.pop(job_id, None)
-                return
-            # Begin enhanced phases
-            if ACTIVE_ALIGNMENT_JOBS[job_id]['cancel']:
-                yield _event('cancelled', {'job_id': job_id, 'phase': 'decode'})
-                ACTIVE_ALIGNMENT_JOBS.pop(job_id, None)
-                return
-            yield _event('decode', {'message': 'Decoding & preparing models', 'job_id': job_id})
-            # Actual call
-            try:
-                alignment_result, timeline, frame_states = aligner.align_audio_to_text_enhanced(
-                    audio_path, text, language=language, fps=fps, method=method
-                )
-            except Exception as dec_err:  # noqa: BLE001
-                raise AlignmentError(f'Enhanced alignment failed early: {dec_err}', details={'phase': 'decode'})
-            # Heartbeat check mid stream
-            def _heartbeat():
-                nonlocal last_heartbeat
-                now = time.time()
-                if now - last_heartbeat > 8:
-                    last_heartbeat = now
-                    return True
-                return False
-
-            tokens_full = getattr(alignment_result, 'tokens', []) or []
-            # Emit partial token chunks while "transcribe" phase (simulate incremental reveal)
-            chunk_size = 40
-            for i in range(0, len(tokens_full), chunk_size):
-                if ACTIVE_ALIGNMENT_JOBS[job_id]['cancel']:
-                    yield _event('cancelled', {'job_id': job_id, 'phase': 'transcribe'})
-                    ACTIVE_ALIGNMENT_JOBS.pop(job_id, None)
-                    return
-                subset = tokens_full[i:i+chunk_size]
-                subset_json = [
-                    {
-                        'type': t.type.value,
-                        'text': t.text,
-                        'start_ms': t.start_ms,
-                        'end_ms': t.end_ms,
-                        'confidence': t.confidence,
-                        'lang': t.lang,
-                    } for t in subset
-                ]
-                phase_evt = 'transcribe' if i == 0 else 'tokens_partial'
-                yield _event(phase_evt, {
-                    'message': 'Transcribing & tokenizing' if i == 0 else 'More tokens',
-                    'chunk_index': i // chunk_size,
-                    'token_chunk': subset_json,
-                    'sent_tokens': min(i+chunk_size, len(tokens_full)),
-                    'total_tokens': len(tokens_full),
-                    'job_id': job_id
-                })
-                if _heartbeat():
-                    yield _event('heartbeat', {'job_id': job_id, 'uptime_ms': int((time.time()-ACTIVE_ALIGNMENT_JOBS[job_id]['started'])*1000)})
-            if ACTIVE_ALIGNMENT_JOBS[job_id]['cancel']:
-                yield _event('cancelled', {'job_id': job_id, 'phase': 'align'})
-                ACTIVE_ALIGNMENT_JOBS.pop(job_id, None)
-                return
-            yield _event('align', {'message': 'Refining alignment', 'language': getattr(alignment_result, 'language', language), 'job_id': job_id})
-            # Build JSON friendly result (reuse existing logic/lightweight duplicate)
-            tokens_json = [
-                {
-                    'type': t.type.value,
-                    'text': t.text,
-                    'viseme': t.viseme,
-                    'start_ms': t.start_ms,
-                    'end_ms': t.end_ms,
-                    'confidence': t.confidence,
-                    'lang': t.lang,
-                    'duration_ms': t.end_ms - t.start_ms
-                } for t in getattr(alignment_result, 'tokens', [])
-            ]
-            if ACTIVE_ALIGNMENT_JOBS[job_id]['cancel']:
-                yield _event('cancelled', {'job_id': job_id, 'phase': 'enhance'})
-                ACTIVE_ALIGNMENT_JOBS.pop(job_id, None)
-                return
-            yield _event('enhance', {'message': 'Applying enhancement & frame states', 'job_id': job_id})
-            frame_states_json = [
-                {
-                    'frame_number': fs.frame_number,
-                    'timestamp': fs.timestamp,
-                    'active_word': fs.active_word,
-                    'word_progress': fs.word_progress,
-                    'opacity': fs.opacity,
-                    'viseme': fs.viseme,
-                    'confidence': fs.confidence
-                } for fs in (frame_states or [])
-            ]
-            result_dict = {
-                'method': 'enhanced',
-                'language': getattr(alignment_result, 'language', language),
-                'sample_rate': getattr(alignment_result, 'sample_rate', None),
-                'fps': fps,
-                'tokens': tokens_json,
-                'frame_states': frame_states_json,
-                'stats': {
-                    'audio_ms': getattr(getattr(alignment_result, 'stats', None), 'audio_ms', None),
-                    'avg_confidence': getattr(getattr(alignment_result, 'stats', None), 'avg_confidence', None),
-                },
-                'total_duration_ms': getattr(getattr(alignment_result, 'stats', None), 'audio_ms', None)
-            }
-            if ACTIVE_ALIGNMENT_JOBS[job_id]['cancel']:
-                yield _event('cancelled', {'job_id': job_id, 'phase': 'build_sequence'})
-                ACTIVE_ALIGNMENT_JOBS.pop(job_id, None)
-                return
-            yield _event('build_sequence', {'message': 'Finalizing sequence', 'token_count': len(tokens_json), 'job_id': job_id})
-            yield _event('complete', {'success': True, 'alignment': result_dict, 'job_id': job_id})
-            ACTIVE_ALIGNMENT_JOBS.pop(job_id, None)
-        except AlignmentError as ae:  # noqa: BLE001
-            yield _event('error', {'error': str(ae), 'details': getattr(ae, 'details', {}), 'error_type': 'alignment_error'})
-        except Exception as e:  # noqa: BLE001
-            yield _event('error', {'error': str(e), 'error_type': 'unexpected_error'})
-
-    return Response(generate(), mimetype='text/event-stream')
-
-@app.route('/api/audio/align-enhanced/cancel', methods=['POST'])
-def cancel_alignment_stream():  # pragma: no cover - simple control
-    try:
-        data = request.get_json(silent=True) or {}
-        job_id = data.get('job_id')
-        ACTIVE_ALIGNMENT_JOBS: dict[str, dict] = getattr(app, '_active_alignment_jobs', {})  # type: ignore[attr-defined]
-        if job_id in ACTIVE_ALIGNMENT_JOBS:
-            ACTIVE_ALIGNMENT_JOBS[job_id]['cancel'] = True
-            return jsonify(success_response('Cancellation requested', job_id=job_id))
-        return jsonify(error_response('Job not found', error_type='not_found', status=404)), 404
-    except Exception as e:  # noqa: BLE001
-        return jsonify(error_response(str(e), error_type='unexpected_error', status=500)), 500
-
-def validate_and_correct_frame_timing(frame_states, audio_duration_ms=None, fps=30.0):
-    """
-    ROBUST TIMING CORRECTION - ALWAYS ACTIVE
-    
-    This function ALWAYS applies timing correction to ensure consistent lip sync
-    throughout the entire video, regardless of audio duration (1min to 30min+).
-    
-    FIXES: Timing drift that causes perfect first 40s, then broken sync after.
-    
-    Args:
-        frame_states: Frame states from audio alignment
-        audio_duration_ms: Total audio duration (optional)
-        fps: Target frame rate (default 30 FPS)
-        
-    Returns:
-        Frame states with mathematically perfect timing
-    """
-    if not frame_states:
-        return frame_states
-    
-    print(f"🎯 ROBUST TIMING CORRECTION: Processing {len(frame_states)} frames for {fps} FPS")
-    
-    # ALWAYS apply correction - don't trust original timing data
-    target_frame_duration_ms = 1000.0 / fps
-    
-    # Store original data for analysis
-    ms_values = [frame.get('ms', 33.33) for frame in frame_states]
-    avg_ms_original = sum(ms_values) / len(ms_values) if ms_values else 33.33
-    
-    print(f"📊 Original avg frame duration: {avg_ms_original:.2f}ms")
-    print(f"� Target frame duration: {target_frame_duration_ms:.2f}ms")
-    
-    # FORCE perfect timing for ALL frames
-    corrected_frames = []
-    
-    for i, frame in enumerate(frame_states):
-        corrected_frame = frame.copy()
-        
-        # Preserve original data for debugging
-        corrected_frame['ms_original'] = frame.get('ms', 33.33)
-        if 'timestamp' in frame:
-            corrected_frame['timestamp_original'] = frame['timestamp']
-        
-        # FORCE mathematically perfect timing with maximum precision
-        corrected_frame['ms'] = target_frame_duration_ms
-        # Use precise calculation to avoid float accumulation errors in long videos
-        corrected_frame['timestamp'] = round(i / fps, 6)  # 6 decimal precision
-        
-        # Validation every 1000 frames (~33s @ 30fps) to catch any drift
-        if i > 0 and i % 1000 == 0:
-            expected_time = i / fps
-            actual_time = corrected_frame['timestamp']
-            drift_ms = abs(actual_time - expected_time) * 1000
-            
-            if drift_ms > 1.0:  # More than 1ms drift (should be impossible)
-                print(f"⚠️  WARNING: Drift detected at frame {i}: {drift_ms:.2f}ms")
-                # Force correction with maximum precision
-                corrected_frame['timestamp'] = round(i / fps, 6)
-        
-        corrected_frames.append(corrected_frame)
-    
-    # Final validation
-    total_frames = len(corrected_frames)
-    expected_duration = total_frames / fps
-    actual_duration = corrected_frames[-1]['timestamp'] if corrected_frames else 0
-    final_drift_ms = abs(actual_duration - expected_duration) * 1000
-    
-    print(f"✅ CORRECTION COMPLETE:")
-    print(f"   Total frames: {total_frames}")
-    print(f"   Expected duration: {expected_duration:.3f}s")
-    print(f"   Actual duration: {actual_duration:.3f}s")
-    print(f"   Final timing error: {final_drift_ms:.1f}ms")
-    
-    if final_drift_ms > 50:  # More than 50ms error
-        print(f"⚠️  WARNING: Significant timing error still present!")
-    else:
-        print(f"🎯 Perfect timing achieved - lip sync guaranteed for entire video")
-    
-    return corrected_frames
-
-def build_text_driven_sequence_enhanced(frame_states, text, project):
-    """
-    Enhanced text-driven sequence builder with 100% accuracy target
-    Uses all available alignment data for perfect synchronization
-    
-    TIMING CORRECTION: This function now automatically detects and fixes timing drift
-    to prevent the issue where first 20s are perfect, next 20s are accelerated,
-    and final 20s are very slow.
-    """
-    # CRITICAL FIX: ALWAYS apply robust timing correction to prevent drift
-    # This correction is MANDATORY for consistent lip sync in videos of any duration
-    original_frame_count = len(frame_states) if frame_states else 0
-    
-    print(f"🎬 APPLYING MANDATORY TIMING CORRECTION for lip sync consistency")
-    frame_states = validate_and_correct_frame_timing(frame_states)
-    
-    if original_frame_count > 0 and len(frame_states) != original_frame_count:
-        print(f"🔧 Frame count changed during timing correction: {original_frame_count} → {len(frame_states)}")
-    
-    # Additional validation for long sequences
-    if len(frame_states) > 1800:  # More than 1 minute @ 30fps
-        print(f"📏 Long sequence detected ({len(frame_states)} frames = {len(frame_states)/30:.1f}s)")
-        print(f"   → Enhanced validation will be applied throughout processing")
-    
-    # DEBUG: Check if this is where the error is coming from
-    if not frame_states:
-        print("🚨 DEBUG: frame_states is empty in build_text_driven_sequence_enhanced!")
-        # Instead of returning an error, let's create a basic sequence from text
-        sequence = []
-        letter_map = project.get('letter_map', {})
-        fallback_image = project.get('fallback_image_abs') or project.get('fallback_image')
-        
-        # Create a basic sequence from text when no frame_states available
-        for char in text:
-            if char == ' ':
-                # Add pause for spaces
-                sequence.append({
-                    'char': ' ',
-                    'img': fallback_image,
-                    'ms': 100,  # Short pause
-                    'is_pause': True,
-                    'source': 'text_fallback'
-                })
-            else:
-                # Add character frame
-                char_upper = char.upper()
-                img = letter_map.get(char_upper, fallback_image)
-                sequence.append({
-                    'char': char,
-                    'img': img or fallback_image,
-                    'ms': 80,  # Standard duration
-                    'is_pause': False,
-                    'source': 'text_fallback'
-                })
-        
-        print(f"✅ Generated fallback sequence: {len(sequence)} frames from text")
-        return sequence
-    
-    sequence = []
-    letter_map = project.get('letter_map', {})
-    special_tokens = project.get('special_tokens', {})
-    fallback_image = project.get('fallback_image_abs') or project.get('fallback_image')
-    pause_image = project.get('pause_image_abs') or project.get('pause_image')
-    
-    # Extract alignment tokens if available (from enhanced alignment)
-    alignment_tokens = []
-    last_alignment = project.get('last_alignment')
-    if last_alignment and 'tokens' in last_alignment:
-        alignment_tokens = last_alignment['tokens']
-    
-    # Extract word boundaries from frame_states with proper timestamp calculation
-    word_boundaries = []
-    current_word_start_frame = None
-    current_word_start_time = None
-    current_word = ""
+    return None
     
     # Calculate cumulative timestamps for accurate timing
     # NOTE: After timing correction, all frames should have consistent 'ms' values
@@ -2486,6 +2394,28 @@ def build_text_driven_sequence_enhanced(frame_states, text, project):
                         'is_pause': False
                     })
     
+    # ------------------------------------------------------------------
+    # PROPORTIONAL DURATION PRESERVATION
+    # If the generated sequence lost significant total duration compared to
+    # the original frame_states (common when pauses are collapsed), scale
+    # frame durations so overall timing matches original within 10ms.
+    # ------------------------------------------------------------------
+    try:
+        original_total_ms_precise = sum(fs.get('ms', 0) for fs in frame_states)
+        sequence_total_ms = sum(f.get('ms', 0) for f in sequence)
+        if sequence and original_total_ms_precise and abs(sequence_total_ms - original_total_ms_precise) > 50:
+            scale = original_total_ms_precise / sequence_total_ms if sequence_total_ms > 0 else 1.0
+            for f in sequence:
+                f['ms'] = f.get('ms', 33.33) * scale
+            # Final small adjustment on last frame for rounding error
+            adjusted_total = sum(f.get('ms', 0) for f in sequence)
+            diff = original_total_ms_precise - adjusted_total
+            if abs(diff) > 1 and sequence:
+                sequence[-1]['ms'] += diff
+            print(f"🔧 PROPORTIONAL SCALING APPLIED: scale={scale:.4f} diff corrected={diff:.2f}ms")
+    except Exception as _e:
+        print(f"⚠️  Duration scaling skipped due to error: {_e}")
+
     # FINAL VALIDATION: Ensure no timing issues remain in the output sequence
     if sequence:
         total_duration_ms = sum(frame.get('ms', 33.33) for frame in sequence)
@@ -2542,67 +2472,7 @@ def build_text_driven_sequence_enhanced(frame_states, text, project):
     else:
         print(f"⚠️  WARNING: Empty sequence generated")
     
-    return sequence
-
-def tokenize_word_enhanced(word, special_tokens, is_word_start=False, project=None):
-    """
-    Enhanced word tokenizer with special token support
-    Returns list of {'token': str, 'img': str or None}
-    """
-    tokens = []
-    i = 0
-    letter_map = project.get('letter_map', {}) if project else {}
-    fallback_image = project.get('fallback_image_abs') or project.get('fallback_image') if project else None
-    
-    while i < len(word):
-        matched = False
-        
-        # Try to match digraphs first (CH, SH, etc.)
-        if i + 1 < len(word):
-            digraph = word[i:i+2].upper()
-            if digraph in special_tokens:
-                tokens.append({
-                    'token': word[i:i+2],
-                    'img': special_tokens[digraph]
-                })
-                i += 2
-                matched = True
-        
-        if not matched:
-            # Check for vowel at word start with special variant
-            char = word[i]
-            char_upper = char.upper()
-            
-            # Normalize accented vowels
-            vowel_map = {'Á': 'A', 'À': 'A', 'Ã': 'A', 'Â': 'A',
-                        'É': 'E', 'È': 'E', 'Ê': 'E',
-                        'Í': 'I', 'Ì': 'I', 'Î': 'I',
-                        'Ó': 'O', 'Ò': 'O', 'Õ': 'O', 'Ô': 'O',
-                        'Ú': 'U', 'Ù': 'U', 'Û': 'U'}
-            
-            normalized = vowel_map.get(char_upper, char_upper)
-            
-            if is_word_start and i == 0 and normalized in 'AEIOU':
-                # Try word-initial vowel variant
-                variant_key = f"{normalized}a"  # Aa, Ea, Ia, Oa, Ua
-                if variant_key in special_tokens:
-                    tokens.append({
-                        'token': char,
-                        'img': special_tokens[variant_key]
-                    })
-                    i += 1
-                    matched = True
-            
-            if not matched:
-                # Use regular letter mapping
-                img = letter_map.get(char_upper, fallback_image)
-                tokens.append({
-                    'token': char,
-                    'img': img
-                })
-                i += 1
-    
-    return tokens
+    # removed logic
 
 @app.route('/api/sequence/build-from-audio', methods=['POST'])
 def build_sequence_from_audio():
@@ -2655,7 +2525,10 @@ def build_sequence_from_audio():
                 return jsonify({
                     'success': True,
                     'sequence': existing_sequence,
-                    'message': 'Using existing sequence (no frame states available)'
+                    'message': 'Using existing sequence (no frame states available)',
+                    'stats': {
+                        'total_frames': len(existing_sequence)
+                    }
                 })
             else:
                 print("❌ No frame states or existing sequence available")
@@ -2716,7 +2589,10 @@ def build_sequence_from_audio():
         
         return jsonify({
             'success': True,
-            'sequence': sequence
+            'sequence': sequence,
+            'stats': {
+                'total_frames': len(sequence)
+            }
         })
         
     except Exception as e:
@@ -2837,67 +2713,69 @@ def analyze_audio():
 
 
 # Blueprint registrations (deferred until after core initialization)
-try:  # pragma: no cover - defensive
-    from util_endpoints import util_bp
-    from audio_endpoints import audio_bp
-    from export_endpoints import export_bp
-    from model_endpoints import model_bp
-    from sequence_endpoints import sequence_bp
-    from system_endpoints import system_bp
-    from project_endpoints import project_bp
-    from templates_endpoints import templates_bp
-    # Phase 3 Advanced Features
-    from phase3_api_endpoints import phase3_bp, register_phase3_blueprint
-    # Phase 4 Enhanced Export Features
-    from phase4_export_endpoints import register_phase4_export_blueprint
-    
-    # Register if not already present
-    existing = {bp.name for bp in app.blueprints.values()}
-    if 'util' not in existing:
-        app.register_blueprint(util_bp)
-    if 'audio' not in existing:
-        app.register_blueprint(audio_bp)
-    if 'export' not in existing:
-        app.register_blueprint(export_bp)
-    if 'models' not in existing:
-        app.register_blueprint(model_bp)
-    if 'sequence' not in existing:
-        app.register_blueprint(sequence_bp)
-    if 'system' not in existing:
-        app.register_blueprint(system_bp)
-    if 'project' not in existing:
-        app.register_blueprint(project_bp)
-    if 'templates' not in existing:
-        app.register_blueprint(templates_bp)
-    # Register Phase 3 advanced features
-    if 'phase3' not in existing:
-        register_phase3_blueprint(app)
-        
-        # Initialize Phase 3 components
-        if socketio:
-            from phase3_api_endpoints import register_socketio_events
-            register_socketio_events(socketio)
-            app_logger.info("Phase 3 real-time collaboration features initialized")
-        
-        # Start batch processor if needed
-        try:
-            from batch_subtitle_processor import BatchSubtitleProcessor
-            batch_processor = BatchSubtitleProcessor()
-            # Note: Batch processor will be started on-demand via API calls
-            app_logger.info("Phase 3 batch processing system ready")
-        except Exception as batch_err:
-            app_logger.warning(f"Batch processor initialization failed: {batch_err}")
-    
-    # Register Phase 4 enhanced export features
-    if 'phase4_export' not in existing:
-        register_phase4_export_blueprint(app)
-        app_logger.info("Phase 4 enhanced export features initialized")
-        
-except Exception as _bp_err:  # noqa: BLE001
+def _safe_import(name, attr=None):  # pragma: no cover - helper
     try:
-        app_logger.warning("Failed to register blueprints: %s", _bp_err)
-    except Exception:
-        pass
+        module = __import__(name, fromlist=[attr] if attr else [])
+        return getattr(module, attr) if attr else module
+    except Exception as e:  # noqa: BLE001
+        app_logger.warning(f"Optional module import failed: {name}.{attr or ''} -> {e}")
+        return None
+
+existing = {bp.name for bp in app.blueprints.values()}
+
+_bp_map = [
+    ('util',  'util_endpoints', 'util_bp'),
+    ('audio', 'audio_endpoints', 'audio_bp'),
+    ('export','export_endpoints','export_bp'),
+    ('models','model_endpoints','model_bp'),
+    ('sequence','sequence_endpoints','sequence_bp'),
+    ('system','system_endpoints','system_bp'),
+    ('project','project_endpoints','project_bp'),
+    ('templates','templates_endpoints','templates_bp'),
+]
+for name, mod, attr in _bp_map:
+    if name in existing:
+        continue
+    bp = _safe_import(mod, attr)
+    if bp is not None:
+        try:
+            app.register_blueprint(bp)
+            existing.add(name)
+        except Exception as e:  # noqa: BLE001
+            app_logger.warning(f"Failed to register blueprint {name}: {e}")
+
+# Phase 3
+if 'phase3' not in existing:
+    register_phase3_blueprint = _safe_import('phase3_api_endpoints', 'register_phase3_blueprint')
+    if register_phase3_blueprint:
+        try:
+            register_phase3_blueprint(app)
+            existing.add('phase3')
+            if socketio:
+                register_socketio_events = _safe_import('phase3_api_endpoints', 'register_socketio_events')
+                if register_socketio_events:
+                    register_socketio_events(socketio)
+                    app_logger.info("Phase 3 real-time collaboration features initialized")
+            try:
+                BatchSubtitleProcessor = _safe_import('batch_subtitle_processor', 'BatchSubtitleProcessor')
+                if BatchSubtitleProcessor:
+                    batch_processor = BatchSubtitleProcessor()
+                    app_logger.info("Phase 3 batch processing system ready")
+            except Exception as batch_err:  # noqa: BLE001
+                app_logger.warning(f"Batch processor initialization failed: {batch_err}")
+        except Exception as e:  # noqa: BLE001
+            app_logger.warning(f"Phase 3 registration failed: {e}")
+
+# Phase 4
+if 'phase4_export' not in existing:
+    register_phase4_export_blueprint = _safe_import('phase4_export_endpoints', 'register_phase4_export_blueprint')
+    if register_phase4_export_blueprint:
+        try:
+            register_phase4_export_blueprint(app)
+            existing.add('phase4_export')
+            app_logger.info("Phase 4 enhanced export features initialized")
+        except Exception as e:  # noqa: BLE001
+            app_logger.warning(f"Phase 4 registration failed: {e}")
 
 # ============================================================================
 # SUBTITLE API ENDPOINTS - Video Editor Feature
@@ -3032,9 +2910,14 @@ def generate_subtitles():
         return error_response("Internal server error", 500)
 
 
-@app.route('/api/subtitles/export', methods=['POST'])
-def export_video_with_subtitles():
-    """Export video with burned-in subtitles"""
+@app.route('/api/subtitles/export', methods=['POST'], endpoint='subtitles_export')
+def export_subtitles_export():
+    """(Legacy JSON pipeline) Export video with burned-in subtitles.
+
+    NOTE: Function renamed from export_video_with_subtitles to avoid Flask endpoint
+    collision with the newer /api/export/video-with-subtitles multipart route.
+    Tests referencing the old JSON path should still POST to /api/subtitles/export.
+    """
     try:
         data = request.get_json()
         if not data:
