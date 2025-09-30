@@ -1102,25 +1102,46 @@ class VideoEditorModule extends EventTarget {
     formData.append("language", "pt-BR"); // Could be configurable
 
     try {
-      // Upload audio file first
-      if (progressCallback) progressCallback("Uploading audio...");
-      const uploadController = new AbortController();
-      this._activeAbortControllers = this._activeAbortControllers || [];
-      this._activeAbortControllers.push(uploadController);
-      const uploadResponse = await fetch("/api/audio/upload", {
-        method: "POST",
-        body: formData,
-        signal: uploadController.signal,
+      // Upload audio file first (with progress)
+      if (progressCallback) progressCallback("Uploading audio (0%)...");
+      const uploadResult = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", "/api/audio/upload");
+        xhr.responseType = "json";
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable && progressCallback) {
+            const pct = Math.min(99, Math.round((e.loaded / e.total) * 100));
+            progressCallback(`Uploading audio (${pct}%)...`);
+            this._updateInlineProgressBar(pct);
+          }
+        };
+        xhr.onload = () => {
+          this._updateInlineProgressBar(100);
+          if (xhr.status >= 200 && xhr.status < 300) {
+            const json = xhr.response || {};
+            if (!json.success) {
+              reject(new Error(json.error || json.message || `Upload failed (${xhr.status})`));
+            } else {
+              resolve(json);
+            }
+          } else {
+            let msg = `Upload failed (${xhr.status})`;
+            try {
+              const bodyText = xhr.responseText || '';
+              const maybe = bodyText ? JSON.parse(bodyText) : null;
+              if (maybe && maybe.error_type) {
+                msg = `${maybe.error || maybe.message || msg} (${maybe.error_type})`;
+              }
+            } catch (_) {}
+            reject(new Error(msg));
+          }
+        };
+        xhr.onerror = () => reject(new Error("Network error during upload"));
+        xhr.send(formData);
       });
 
-      if (!uploadResponse.ok) {
-        throw new Error(`Upload failed: ${uploadResponse.statusText}`);
-      }
-
-      const uploadResult = await uploadResponse.json();
-
-      if (!uploadResult.success || !uploadResult.filename) {
-        throw new Error("Audio upload failed");
+      if (!uploadResult || !uploadResult.filename) {
+        throw new Error("Audio upload failed (no filename returned)");
       }
 
       // Use existing alignment endpoint
@@ -1141,7 +1162,14 @@ class VideoEditorModule extends EventTarget {
       });
 
       if (!alignResponse.ok) {
-        throw new Error(`Alignment failed: ${alignResponse.statusText}`);
+        let detail = alignResponse.statusText;
+        try {
+          const errJson = await alignResponse.json();
+          if (errJson && errJson.error_type) {
+            detail = `${errJson.error || errJson.message || detail} (${errJson.error_type})`;
+          }
+        } catch (_) {}
+        throw new Error(`Alignment failed: ${detail}`);
       }
 
       const result = await alignResponse.json();
@@ -1150,6 +1178,29 @@ class VideoEditorModule extends EventTarget {
     } catch (error) {
       console.error("❌ Audio alignment failed:", error);
       throw error;
+    }
+  }
+
+  _updateInlineProgressBar(pct) {
+    let bar = document.getElementById('inlineUploadProgress');
+    if (!bar) {
+      const container = this.videoPreview?.parentElement || document.body;
+      const wrapper = document.createElement('div');
+      wrapper.style.cssText = 'position:absolute;left:0;right:0;bottom:0;height:4px;background:rgba(255,255,255,0.15);z-index:60;';
+      const inner = document.createElement('div');
+      inner.id = 'inlineUploadProgress';
+      inner.style.cssText = 'height:100%;width:0%;background:#3b82f6;transition:width .15s linear;';
+      wrapper.appendChild(inner);
+      container.style.position = 'relative';
+      container.appendChild(wrapper);
+      bar = inner;
+    }
+    if (bar) bar.style.width = `${pct}%`;
+    if (pct >= 100) {
+      setTimeout(() => {
+        const w = bar?.parentElement;
+        if (w && w.parentElement) w.parentElement.removeChild(w);
+      }, 750);
     }
   }
 

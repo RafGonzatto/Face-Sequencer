@@ -44,6 +44,7 @@ _stored_coverage = _fix_coverage_conflict()
 
 from logger import get_logger, log_exception
 from audio_exceptions import AlignmentError, map_audio_processing_error
+from config import config  # use configured allowed extensions
 
 # Get logger for this module
 audio_logger = get_logger('audio')
@@ -251,7 +252,12 @@ def validate_audio_file(file):
     filename = file.filename
     ext = os.path.splitext(filename)[1].lower().replace('.', '')
     
-    allowed_extensions = {'wav', 'mp3', 'ogg', 'flac', 'm4a'}
+    # Use centrally configured set (includes webm/aac by default)
+    try:
+        allowed_extensions = set(config.limits.allowed_audio_extensions())  # type: ignore[arg-type]
+    except Exception:
+        # Fallback to a superset that includes webm to avoid false negatives
+        allowed_extensions = {'wav', 'mp3', 'ogg', 'flac', 'm4a', 'aac', 'webm'}
     if ext not in allowed_extensions:
         raise AlignmentError("Unsupported audio format", details={"format": ext, "allowed_formats": list(allowed_extensions), 'legacy_error_type': 'format_error'})
     
