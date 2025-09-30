@@ -41,6 +41,12 @@ def util_error_demo_v2():  # pragma: no cover (covered indirectly in tests)
     ok_body = success_response('OK', mode=mode)
     return jsonify(ok_body), 200
 
+# Backward compatibility: legacy endpoint expected by older tests
+@util_bp.route('/api/util/error-demo', methods=['GET'])
+def util_error_demo_legacy():  # pragma: no cover - thin wrapper
+    # Delegate to the v2 logic without forcing clients to upgrade immediately
+    return util_error_demo_v2()
+
 __all__ = [
     'util_bp',
 ]

@@ -201,6 +201,8 @@ class FileBrowserHelper {
       // Criar um input de arquivo temporário
       const tempInput = document.createElement("input");
       tempInput.type = "file";
+      // Permitir vídeos comuns incluindo .mov; se não for necessário para outros fluxos não causa problema
+      tempInput.accept = ".mp4,.mov,.mkv,.webm,.avi,.m4v,video/*";
       tempInput.style.position = "fixed";
       tempInput.style.top = "0";
       tempInput.style.left = "0";

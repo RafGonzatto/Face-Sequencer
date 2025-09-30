@@ -128,18 +128,20 @@ def test_real_world_scenario():
         print(f"  ✅ Gerado: {actual_total/1000:.3f}s")
         print(f"  📊 Diferença: {timing_error:.1f}ms")
         
-        if timing_error < 50:  # Tolerância de 50ms
+        timing_ok = timing_error < 50  # Tolerância de 50ms
+        if timing_ok:
             print(f"  🎉 TIMING PRECISO!")
         else:
             print(f"  ⚠️  Divergência significativa no timing")
-            
-        return len(missing_words) == 0 and timing_error < 50
+
+        assert len(missing_words) == 0, f"Palavras não processadas: {missing_words}"
+        assert timing_ok, f"Timing fora da tolerância: {timing_error:.1f}ms"
         
     except Exception as e:
         print(f"❌ ERRO: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        raise
 
 def test_edge_cases():
     """Testa casos extremos que causavam problemas"""
@@ -210,7 +212,7 @@ def test_edge_cases():
             print(f"  ❌ Erro: {e}")
             all_passed = False
     
-    return all_passed
+    assert all_passed, "Alguns casos extremos falharam"
 
 if __name__ == '__main__':
     print("🚀 INICIANDO VALIDAÇÃO FINAL DAS MELHORIAS")

@@ -7,4 +7,5 @@
       Demonstrates standardized error envelope variations based on the ``mode`` query parameter.
       Accepted modes: ``value`` (400), ``missing`` (404), ``timeout`` (504), ``classified`` (422), any other -> 200.
     responses:
-      "200": { description: OK success envelope or error envelope depending on mode }
+      "200":
+        { description: OK success envelope or error envelope depending on mode }

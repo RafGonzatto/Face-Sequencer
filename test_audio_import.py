@@ -33,23 +33,25 @@ def test_audio_import():
         except Exception as e:
             print(f"⚠️ librosa com problema: {e}")
             print("📦 Testando fallback...")
-            
             try:
-                import soundfile as sf
-                import scipy
+                import soundfile as sf  # noqa: F401
+                import scipy  # noqa: F401
                 print("✅ Fallback (soundfile + scipy) disponível")
             except Exception as fallback_e:
                 print(f"❌ Fallback também falhou: {fallback_e}")
-        
+
         print("\n🎯 TESTE COMPLETO")
-        return True
-        
+
     except Exception as e:
         print(f"❌ Erro na importação: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        raise
 
 if __name__ == '__main__':
-    success = test_audio_import()
-    print(f"\n🏁 RESULTADO: {'✅ SUCESSO' if success else '❌ FALHOU'}")
+    try:
+        test_audio_import()
+        print(f"\n🏁 RESULTADO: ✅ SUCESSO")
+    except Exception:
+        print(f"\n🏁 RESULTADO: ❌ FALHOU")
+        sys.exit(1)

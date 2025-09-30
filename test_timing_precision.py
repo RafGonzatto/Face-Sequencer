@@ -75,14 +75,18 @@ def test_timing_precision():
                     extra_frame = sequence[i]
                     print(f"    Extra {i}: {extra_frame.get('char', '?')} ({extra_frame.get('ms', 0)}ms)")
         
-        return abs(expected_total - actual_total) < 1.0  # Tolerância de 1ms
+        assert abs(expected_total - actual_total) < 1.0, f"Timing fora da tolerância: {abs(expected_total - actual_total)}ms"
         
     except Exception as e:
         print(f"❌ Erro: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        raise
 
 if __name__ == '__main__':
-    success = test_timing_precision()
-    print(f"\n🏁 RESULTADO: {'✅ SUCESSO' if success else '❌ FALHOU'}")
+    try:
+        test_timing_precision()
+        print(f"\n🏁 RESULTADO: ✅ SUCESSO")
+    except Exception:
+        print(f"\n🏁 RESULTADO: ❌ FALHOU")
+        sys.exit(1)

@@ -59,10 +59,18 @@ def test_detect_speech_activity():
                     else:
                         print(f"  ❌ {key}: AUSENTE")
                 
-                # Limpa arquivo temporário
-                os.unlink(tmp_filename)
-                
-                return True
+                # Limpa arquivo temporário (Windows needs handle closed first)
+                try:
+                    # Ensure file descriptor is closed before deletion
+                    tmp_file.flush()
+                    tmp_file.close()
+                except Exception:
+                    pass
+                try:
+                    os.unlink(tmp_filename)
+                except PermissionError:
+                    # On Windows the file may still be locked briefly; retry after context
+                    pass
                 
             except ImportError as sf_error:
                 print(f"⚠️ soundfile não disponível: {sf_error}")
@@ -85,20 +93,37 @@ def test_detect_speech_activity():
                     result = detect_speech_activity(tmp_filename)
                     print("✅ Função executada com sucesso (fallback)!")
                     
-                    os.unlink(tmp_filename)
-                    return True
+                    try:
+                        tmp_file.flush(); tmp_file.close()
+                    except Exception:
+                        pass
+                    try:
+                        os.unlink(tmp_filename)
+                    except PermissionError:
+                        pass
                     
                 except Exception as scipy_error:
-                    print(f"❌ Falhou para criar arquivo de teste: {scipy_error}")
-                    os.unlink(tmp_filename)
-                    return False
+                    print(f"❌ Falhou para criar arquivo de teste (scipy): {scipy_error}")
+                    try:
+                        tmp_file.flush(); tmp_file.close()
+                    except Exception:
+                        pass
+                    try:
+                        os.unlink(tmp_filename)
+                    except PermissionError:
+                        pass
+                    raise
                     
     except Exception as e:
         print(f"❌ Erro: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        raise
 
 if __name__ == '__main__':
-    success = test_detect_speech_activity()
-    print(f"\n🏁 RESULTADO: {'✅ SUCESSO' if success else '❌ FALHOU'}")
+    try:
+        test_detect_speech_activity()
+        print(f"\n🏁 RESULTADO: ✅ SUCESSO")
+    except Exception:
+        print(f"\n🏁 RESULTADO: ❌ FALHOU")
+        sys.exit(1)

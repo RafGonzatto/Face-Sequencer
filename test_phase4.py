@@ -191,6 +191,13 @@ class TestPhase4APIEndpoints(unittest.TestCase):
         self.client = app.test_client()
         self.app_context = app.app_context()
         self.app_context.push()
+        # Ensure blueprint registered (some dynamic import paths may skip original registration block)
+        if 'phase4_export' not in app.blueprints:
+            try:
+                from phase4_export_endpoints import register_phase4_export_blueprint
+                register_phase4_export_blueprint(app)
+            except Exception as _e:  # noqa: BLE001
+                print(f"Warning: failed to register phase4 blueprint in test setup: {_e}")
     
     def tearDown(self):
         """Clean up test environment."""
@@ -440,13 +447,13 @@ def main():
     print(f"Optimization: {benchmarks['optimization_time']*1000:.1f}ms")
     print(f"ASS Generation: {benchmarks['ass_generation_time']*1000:.1f}ms")
     
-    if result.failures or result.errors:
+    all_passed = not (result.failures or result.errors)
+    if not all_passed:
         print("\n❌ Some tests failed. Please review the output above.")
-        return False
     else:
         print("\n🎉 All Phase 4 tests passed successfully!")
         print("✅ Enhanced social media export system is ready for production use.")
-        return True
+    return all_passed
 
 if __name__ == '__main__':
     success = main()

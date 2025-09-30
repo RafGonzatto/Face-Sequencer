@@ -22,15 +22,10 @@ def test_no_elevenlabs_hardcoding():
     
     # Verificar status do sistema de áudio
     response = requests.get(f"{BASE_URL}/api/audio/status")
-    if response.status_code == 200:
-        data = response.json()
-        print(f"✅ Sistema de áudio disponível: {data.get('data', {}).get('available', False)}")
-    else:
-        print("❌ Erro ao verificar status do sistema de áudio")
-        return False
-        
+    assert response.status_code == 200, f"Status inesperado: {response.status_code}"
+    data = response.json()
+    print(f"✅ Sistema de áudio disponível: {data.get('data', {}).get('available', False)}")
     print("✅ Teste 1 passou: Sistema não faz mais detecção hardcoded")
-    return True
 
 def test_build_sequence_without_frame_states():
     """Testa se build sequence funciona mesmo sem frame_states"""
@@ -52,33 +47,22 @@ def test_build_sequence_without_frame_states():
         
         if response.status_code == 200:
             data = response.json()
-            if data.get('success'):
-                sequence = data.get('sequence', [])
-                print(f"✅ Build sequence funcionou: {len(sequence)} frames gerados")
-                return True
-            else:
-                print(f"❌ Build sequence falhou: {data.get('error', 'Erro desconhecido')}")
-                return False
+            assert data.get('success'), f"Build sequence falhou: {data.get('error', 'Erro desconhecido')}"
+            sequence = data.get('sequence', [])
+            print(f"✅ Build sequence funcionou: {len(sequence)} frames gerados")
         elif response.status_code == 400:
             # Esperamos este erro, mas com uma mensagem mais útil
             data = response.json()
             error_msg = data.get('error', '')
-            if 'Please run audio alignment first' in error_msg:
-                print(f"✅ Erro esperado com mensagem útil: {error_msg}")
-                return True
-            else:
-                print(f"⚠️ Erro não esperado: {error_msg}")
-                return False
+            assert 'Please run audio alignment first' in error_msg, f"Erro não esperado: {error_msg}"
+            print(f"✅ Erro esperado com mensagem útil: {error_msg}")
         else:
-            print(f"❌ Código de status inesperado: {response.status_code}")
-            return False
+            raise AssertionError(f"Código de status inesperado: {response.status_code}")
             
     except requests.exceptions.ConnectionError:
-        print("⚠️ Servidor não está rodando. Inicie o servidor para executar os testes.")
-        return False
+        raise AssertionError("Servidor não está rodando. Inicie o servidor para executar os testes.")
     except Exception as e:
-        print(f"❌ Erro no teste: {e}")
-        return False
+        raise AssertionError(f"Erro no teste: {e}")
 
 def test_basic_endpoints():
     """Testa endpoints básicos para garantir que o sistema ainda funciona"""
@@ -87,28 +71,18 @@ def test_basic_endpoints():
     try:
         # Teste de health check
         response = requests.get(f"{BASE_URL}/api/health")
-        if response.status_code == 200:
-            print("✅ Health check funcionando")
-        else:
-            print(f"❌ Health check falhou: {response.status_code}")
-            return False
-            
+        assert response.status_code == 200, f"Health check falhou: {response.status_code}"
+        print("✅ Health check funcionando")
+
         # Teste de cache stats
         response = requests.get(f"{BASE_URL}/api/cache/stats")
-        if response.status_code == 200:
-            print("✅ Cache stats funcionando")
-        else:
-            print(f"❌ Cache stats falhou: {response.status_code}")
-            return False
-            
-        return True
+        assert response.status_code == 200, f"Cache stats falhou: {response.status_code}"
+        print("✅ Cache stats funcionando")
         
     except requests.exceptions.ConnectionError:
-        print("⚠️ Servidor não está rodando")
-        return False
+        raise AssertionError("Servidor não está rodando")
     except Exception as e:
-        print(f"❌ Erro no teste: {e}")
-        return False
+        raise AssertionError(f"Erro no teste: {e}")
 
 def main():
     """Executa todos os testes"""
@@ -125,8 +99,8 @@ def main():
     
     for test_name, test_func in tests:
         try:
-            result = test_func()
-            results.append((test_name, result))
+            test_func()
+            results.append((test_name, True))
         except Exception as e:
             print(f"❌ Erro executando {test_name}: {e}")
             results.append((test_name, False))

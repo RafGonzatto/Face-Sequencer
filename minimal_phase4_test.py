@@ -204,7 +204,7 @@ def test_phase4_data_structures():
         print(f"\n⚠️ Phase 4 validation incomplete ({len(missing_files)} issues)")
         print("📋 Review missing files and fix implementation")
     
-    return success
+    assert success, "Missing Phase 4 expected files"
 
 if __name__ == '__main__':
     success = test_phase4_data_structures()

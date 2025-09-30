@@ -115,25 +115,26 @@ def test_optimized_scenario():
             print(f"\n🎯 Palavra 'PERFEITO': {'-'.join(chars_shown)}")
             print(f"  Caracteres únicos: {len(set(chars_shown))}/8 ({len(set(chars_shown))/8*100:.1f}%)")
         
-        success = timing_ok and coverage_ok and frames_ok
-        
-        if success:
-            print(f"\n🎉 TODAS AS MELHORIAS FUNCIONANDO PERFEITAMENTE!")
-            print(f"✅ Problema dos 40 segundos: RESOLVIDO")
-            print(f"✅ Truncamento de palavras: CORRIGIDO")
-            print(f"✅ Timing preciso: MANTIDO")
-            print(f"✅ Alinhamento 100%: ALCANÇADO")
-        else:
-            print(f"\n⚠️ Algumas melhorias precisam de ajustes finais")
-            
-        return success
+        assert timing_ok, f"Timing impreciso: erro {timing_error:.1f}ms"
+        assert coverage_ok, f"Cobertura incompleta: {coverage_percent:.1f}%"
+        assert frames_ok, f"Número de frames divergente: {len(sequence)} vs {len(frame_states)}"
+
+        print(f"\n🎉 TODAS AS MELHORIAS FUNCIONANDO PERFEITAMENTE!")
+        print(f"✅ Problema dos 40 segundos: RESOLVIDO")
+        print(f"✅ Truncamento de palavras: CORRIGIDO")
+        print(f"✅ Timing preciso: MANTIDO")
+        print(f"✅ Alinhamento 100%: ALCANÇADO")
         
     except Exception as e:
         print(f"❌ ERRO: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        raise
 
 if __name__ == '__main__':
-    success = test_optimized_scenario()
-    print(f"\n🚀 STATUS FINAL: {'🎯 100% SUCESSO!' if success else '⚙️ Ajustes necessários'}")
+    try:
+        test_optimized_scenario()
+        print(f"\n🚀 STATUS FINAL: 🎯 100% SUCESSO!")
+    except AssertionError as e:
+        print(f"\n🚀 STATUS FINAL: ⚙️ Ajustes necessários -> {e}")
+        sys.exit(1)

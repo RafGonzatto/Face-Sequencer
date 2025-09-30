@@ -27,7 +27,7 @@ def test_video_duration_fix():
         print("✅ Servidor está rodando")
     except requests.exceptions.RequestException as e:
         print(f"❌ Servidor não está acessível: {e}")
-        return False
+        raise
     
     # Simular dados de teste que replicam o problema relatado
     # Baseado nos logs: 72.06s de áudio, 2162 frame_states, mas apenas 698 frames no vídeo
@@ -116,20 +116,15 @@ def test_video_duration_fix():
             if not passed:
                 all_passed = False
         
-        if all_passed:
-            print(f"\n🎉 TESTE PASSOU! Problema de truncamento foi corrigido!")
-            print(f"   → Vídeo terá duração completa correspondente ao áudio")
-            return True
-        else:
-            print(f"\n❌ TESTE FALHOU! Problema de truncamento ainda existe!")
-            print(f"   → Vídeo será mais curto que o áudio")
-            return False
+        assert all_passed, "Problema de truncamento ainda existe (critérios não atendidos)"
+        print(f"\n🎉 TESTE PASSOU! Problema de truncamento foi corrigido!")
+        print(f"   → Vídeo terá duração completa correspondente ao áudio")
             
     except Exception as e:
         print(f"❌ Erro durante o teste: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        raise
 
 def test_endpoint_integration():
     """Testa através do endpoint HTTP"""
@@ -172,45 +167,30 @@ def test_endpoint_integration():
                 truncation = len(test_data['frame_states']) - len(sequence)
                 print(f"   📊 Diferença: {truncation} frames ({truncation/30:.2f}s)")
                 
-                if truncation <= 150:  # Tolerância de 5 segundos
-                    print(f"   ✅ Truncamento dentro da tolerância!")
-                    return True
-                else:
-                    print(f"   ❌ Truncamento excessivo: {truncation/30:.1f}s")
-                    return False
+                assert truncation <= 150, f"Truncamento excessivo: {truncation/30:.1f}s (>5s)"  # Tolerância de 5 segundos
+                print(f"   ✅ Truncamento dentro da tolerância!")
             else:
-                print(f"   ❌ API retornou erro: {result.get('error')}")
-                return False
+                raise AssertionError(f"API retornou erro: {result.get('error')}")
         else:
             print(f"   ❌ Status HTTP: {response.status_code}")
             print(f"   Response: {response.text[:200]}...")
-            return False
+            raise AssertionError(f"Status HTTP inesperado: {response.status_code}")
             
     except Exception as e:
         print(f"   ❌ Erro na requisição: {e}")
-        return False
+        raise
 
 if __name__ == "__main__":
     print("🚀 Iniciando teste de correção do truncamento de vídeo...")
-    
-    # Teste 1: Função direta
-    test1_passed = test_video_duration_fix()
-    
-    # Teste 2: Endpoint API
-    test2_passed = test_endpoint_integration()
-    
-    print(f"\n" + "="*70)
-    print("📋 RESUMO DOS TESTES")
-    print("="*70)
-    print(f"🧪 Teste de função direta: {'✅ PASSOU' if test1_passed else '❌ FALHOU'}")
-    print(f"🌐 Teste de endpoint API: {'✅ PASSOU' if test2_passed else '❌ FALHOU'}")
-    
-    if test1_passed and test2_passed:
+    try:
+        test_video_duration_fix()
+        test_endpoint_integration()
         print(f"\n🎉 TODOS OS TESTES PASSARAM!")
         print(f"✅ Problema de truncamento foi corrigido com sucesso!")
         print(f"🎬 Vídeos agora terão duração completa correspondente ao áudio")
-    else:
-        print(f"\n❌ ALGUNS TESTES FALHARAM!")
-        print(f"⚠️  Problema de truncamento pode ainda existir")
-    
-    print("="*70)
+    except AssertionError as e:
+        print(f"\n❌ TESTE FALHOU: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\n❌ ERRO INESPERADO: {e}")
+        sys.exit(2)

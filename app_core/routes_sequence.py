@@ -245,6 +245,8 @@ def build_text_driven_sequence_enhanced(frame_states, text, project):  # noqa: C
                 b = matched_word['boundary']
                 frames_in_word = max(1, b['end_frame'] - b['start_frame'] + 1)
                 frames_elapsed = i - b['start_frame']
+                # Normalized progress 0.0-1.0 within this word
+                word_progress = frames_elapsed / frames_in_word if frames_in_word > 1 else 0.0
                 if len(tokens) == 1:
                     token_idx = 0
                 elif frames_in_word >= len(tokens):
@@ -258,7 +260,16 @@ def build_text_driven_sequence_enhanced(frame_states, text, project):  # noqa: C
                         progress = frames_elapsed / max(1, frames_in_word - 1)
                         token_idx = min(int(progress * (len(tokens) - 1)), len(tokens) - 1)
                 token_data = tokens[token_idx]
-                sequence.append({'char': token_data['token'], 'img': token_data.get('img') or fallback_image, 'fallback_img': fallback_image, 'ms': actual_ms, 'is_pause': False, 'word': matched_word['text_word'], 'token_idx': token_idx})
+                sequence.append({
+                    'char': token_data['token'],
+                    'img': token_data.get('img') or fallback_image,
+                    'fallback_img': fallback_image,
+                    'ms': actual_ms,
+                    'is_pause': False,
+                    'word': matched_word['text_word'],
+                    'token_idx': token_idx,
+                    'word_progress': round(min(1.0, max(0.0, word_progress)), 4)
+                })
                 continue
         # Fallback direct mapping
         char = active_word[0] if active_word else '?'

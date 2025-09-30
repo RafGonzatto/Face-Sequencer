@@ -1,9 +1,67 @@
-# lipanim_core.py - Core functionality extracted from original Tkinter app
+"""lipanim_core.py - Core functionality extracted from original Tkinter app.
+
+Compatibility Note:
+ Some Phase 4 tests import `LipAnimCore` class from this module. Earlier refactors
+ left only functional helpers (load_letter_map_from_dir, build_sequence, etc.).
+ To maintain backward compatibility for tests without reintroducing heavy state,
+ we provide a very light wrapper class exposing the expected API surface used by tests.
+"""
 import os
 import json
 import string
 from PIL import Image
 from moviepy.editor import ImageClip, concatenate_videoclips
+
+
+class LipAnimCore:  # Minimal shim for legacy tests
+    """Lightweight facade preserving old class-based interface.
+
+    Methods delegate to the module-level functions implemented after refactor.
+    Only the subset required by tests is implemented; extend if new attributes
+    are accessed. Avoid expensive initialization to keep tests fast.
+    """
+
+    def __init__(self, frame_duration_ms: int = 120, gap_duration_ms: int = 80):
+        self.frame_duration_ms = frame_duration_ms
+        self.gap_duration_ms = gap_duration_ms
+        self.letter_map: dict[str, str] = {}
+        self.fallback_image: str | None = None
+
+    # Loading / mapping -------------------------------------------------
+    def load_mapping(self, folder: str):
+        self.letter_map = load_letter_map_from_dir(folder)
+        return self.letter_map
+
+    # Sequence building -------------------------------------------------
+    def build_sequence(self, text: str) -> list[dict]:
+        return build_sequence(
+            text,
+            self.letter_map,
+            self.frame_duration_ms,
+            self.gap_duration_ms,
+            fallback=self.fallback_image,
+        )
+
+    # Export helpers ----------------------------------------------------
+    def export_json(self, seq: list[dict], path: str):  # pragma: no cover - thin delegate
+        export_json(seq, path)
+
+    def export_mp4(
+        self,
+        seq: list[dict],
+        path: str,
+        fps: int = 30,
+        crf: int = 18,
+        preset: str = "medium",
+    ):  # pragma: no cover - thin delegate
+        export_mp4(seq, path, fps=fps, crf=crf, preset=preset)
+
+    # Convenience for tests ---------------------------------------------
+    def build_and_export_json(self, text: str, path: str):
+        seq = self.build_sequence(text)
+        self.export_json(seq, path)
+        return seq
+
 
 LETTERS = list(string.ascii_uppercase)
 

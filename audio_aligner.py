@@ -210,7 +210,56 @@ class AudioAligner:
         # Load audio with sample rate from config
         from config import config
         print(f"🔊 Loading and preprocessing audio: {os.path.basename(audio_path)}")
-        audio, sr = librosa.load(audio_path, sr=config.audio.sample_rate(), mono=True)
+
+        target_sr = config.audio.sample_rate()
+        ext = os.path.splitext(audio_path)[1].lower()
+        audio = None
+        sr = target_sr
+
+        def _ffmpeg_decode(tmp_path: str) -> Tuple[np.ndarray, int]:
+            """Decode via ffmpeg to wav (mono) as a robust fallback for webm/opus or exotic containers."""
+            import subprocess, uuid, tempfile
+            wav_path = os.path.join(tempfile.gettempdir(), f"_fs_tmp_{uuid.uuid4().hex}.wav")
+            cmd = [
+                'ffmpeg','-y','-i', tmp_path,
+                '-ac','1','-ar', str(target_sr), '-vn', wav_path
+            ]
+            try:
+                subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20, check=True)
+                data, wsr = librosa.load(wav_path, sr=target_sr, mono=True)
+                return data, wsr
+            except Exception as fe:
+                print(f"⚠️ FFmpeg fallback failed: {fe}")
+                raise
+            finally:
+                try:
+                    if os.path.exists(wav_path):
+                        os.remove(wav_path)
+                except Exception:
+                    pass
+
+        tried_ffmpeg = False
+        try:
+            # Direct load first
+            audio, sr = librosa.load(audio_path, sr=target_sr, mono=True)
+        except Exception as e:
+            print(f"⚠️ Direct decode failed ({e}); attempting ffmpeg fallback")
+            try:
+                audio, sr = _ffmpeg_decode(audio_path)
+                tried_ffmpeg = True
+            except Exception:
+                raise
+
+        if audio is not None:
+            rms_initial = float(np.sqrt(np.mean(audio**2))) if audio.size else 0.0
+            if (rms_initial < 1e-6) and (ext in {'.webm', '.mkv', '.ogg'}) and not tried_ffmpeg:
+                # Silent or zeroed decode; retry via ffmpeg
+                print("⚠️ Very low RMS after direct load; retrying decode via ffmpeg for container-based audio")
+                try:
+                    audio, sr = _ffmpeg_decode(audio_path)
+                    tried_ffmpeg = True
+                except Exception:
+                    print("⚠️ FFmpeg retry also failed; proceeding with low-amplitude audio")
         
         # Check audio levels
         rms = np.sqrt(np.mean(audio**2))
@@ -230,7 +279,10 @@ class AudioAligner:
         audio = filtfilt(b, a, audio)
         
         # Apply light trimming for all audio sources
-        audio, _ = librosa.effects.trim(audio, top_db=config.audio.trim_top_db())  # Trimming level from config
+        try:
+            audio, _ = librosa.effects.trim(audio, top_db=config.audio.trim_top_db())  # Trimming level from config
+        except Exception as tr_e:
+            print(f"⚠️ Trim step failed: {tr_e}")
         
         # Final check of audio levels after processing
         rms_after = np.sqrt(np.mean(audio**2))
@@ -658,6 +710,7 @@ class AudioAligner:
         language: str | None = None,
         fps: float = 30.0,
         method: str = "auto",
+        **kwargs,
     ) -> Tuple[AlignmentResult, List["WordTiming"], List["FrameState"]]:
         """
         Enhanced alignment function using advanced components
@@ -670,6 +723,10 @@ class AudioAligner:
             fps: Frame rate for animation synchronization
             method: Alignment method ("wav2vec2", "whisper", "auto")
             
+        Extra kwargs:
+            precision: (Deprecated/ignored) Frontend may pass a precision mode string. Timing refinement
+                happens downstream; this parameter is accepted for backward compatibility and ignored.
+
         Returns:
             Tuple of (AlignmentResult, WordTiming list, FrameState list)
         """
@@ -805,7 +862,15 @@ class AudioAligner:
             granularity: "word" or "phoneme" level alignment
             language: Optional language code override (defaults to instance language)
             
-        Returns:
+        # Gracefully ignore unexpected keyword arguments (forward/backward compatibility)
+        if kwargs:
+            # Only log once per run for noise reduction
+            try:
+                precision_val = kwargs.get('precision')
+                if precision_val is not None:
+                    print(f"[align_audio_to_text_enhanced] Ignoring unsupported 'precision' kwarg='{precision_val}' (handled downstream)")
+            except Exception:
+                pass
             AlignmentResult with tokens and quality stats
         """
         # Use the provided audio file directly

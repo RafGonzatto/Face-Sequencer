@@ -144,19 +144,17 @@ def test_complete_audio_pipeline():
         print(f"  📊 Shape: {y.shape}")
         print(f"  🎵 Sample rate: {sr}Hz")
         print(f"  📈 Amplitude máxima: {np.max(np.abs(y)):.3f}")
-        
+
         print(f"\n🎉 TODOS OS TESTES PASSARAM!")
         print(f"✅ Pipeline de áudio funcionando corretamente")
         print(f"✅ Conflitos de importação resolvidos")
         print(f"✅ Fallbacks funcionais disponíveis")
         
-        return True
-        
     except Exception as e:
         print(f"\n❌ ERRO NO TESTE: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        raise
         
     finally:
         # Limpa arquivo temporário
@@ -168,15 +166,15 @@ def test_complete_audio_pipeline():
                 print(f"⚠️ Não foi possível remover arquivo temporário: {audio_file}")
 
 if __name__ == '__main__':
-    success = test_complete_audio_pipeline()
-    
-    print(f"\n🏁 RESULTADO FINAL:")
-    if success:
+    try:
+        test_complete_audio_pipeline()
+        print(f"\n🏁 RESULTADO FINAL:")
         print(f"🎯 PIPELINE DE ÁUDIO 100% FUNCIONAL!")
         print(f"✅ Bug de importação librosa/coverage: CORRIGIDO")
         print(f"✅ Detecção de atividade de fala: OK")
         print(f"✅ Processamento de áudio: OK")
         print(f"✅ Sistema pronto para produção")
-    else:
+    except Exception:
         print(f"❌ Ainda há problemas no pipeline de áudio")
         print(f"⚠️ Verificar logs acima para detalhes")
+        sys.exit(1)

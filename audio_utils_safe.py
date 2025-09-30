@@ -94,7 +94,26 @@ def get_audio_loader():
     if modules['librosa'] is not None:
         # Use librosa if available
         def load_with_librosa(file_path, sr=None):
-            return modules['librosa'].load(file_path, sr=sr)
+            try:
+                return modules['librosa'].load(file_path, sr=sr)
+            except Exception as e:
+                # Runtime import error (numba/coverage) or other issue – fallback
+                print(f"⚠️  librosa runtime load failed, falling back to soundfile: {e}")
+                if modules.get('soundfile') is not None:
+                    import soundfile as sf
+                    y, original_sr = sf.read(file_path)
+                    if len(y.shape) > 1:
+                        y = y.mean(axis=1)
+                    if sr is not None and sr != original_sr:
+                        try:
+                            from scipy import signal
+                            num_samples = int(len(y) * sr / original_sr)
+                            y = signal.resample(y, num_samples)
+                            return y, sr
+                        except Exception:
+                            pass
+                    return y, original_sr
+                raise
         return load_with_librosa
     
     elif modules['soundfile'] is not None:

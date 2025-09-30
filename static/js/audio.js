@@ -119,7 +119,9 @@ class AudioManager {
         this.toggleTimingMode(e.target.checked);
       });
     } else {
-      console.warn('AudioManager: timingModeToggle not found (timing toggle disabled)');
+      console.warn(
+        "AudioManager: timingModeToggle not found (timing toggle disabled)"
+      );
     }
 
     // Audio playback controls
@@ -201,15 +203,16 @@ class AudioManager {
       correlationId,
       filename: this.audioFile.name,
     });
-    const container = this.waveContainer || this.uploadAudioBtn?.parentElement || document.body;
+    const container =
+      this.waveContainer || this.uploadAudioBtn?.parentElement || document.body;
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/audio/upload');
-    xhr.responseType = 'json';
+    xhr.open("POST", "/api/audio/upload");
+    xhr.responseType = "json";
     xhr.upload.onprogress = (e) => {
-      if(e.lengthComputable){
+      if (e.lengthComputable) {
         const pct = Math.round((e.loaded / e.total) * 100);
         window.UploadProgress?.updateProgress(pct, container);
-        if(this.uploadAudioBtn){
+        if (this.uploadAudioBtn) {
           this.uploadAudioBtn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Uploading ${pct}%`;
         }
       }
@@ -217,45 +220,62 @@ class AudioManager {
     xhr.onload = () => {
       const data = xhr.response || {};
       if (xhr.status >= 200 && xhr.status < 300 && data.success) {
-          window.ErrorInstrumentation?.record("audio.upload.success", {
-            correlationId,
-          });
-          if (data.alignment && data.alignment.tokens) {
-            this.createTimingMarkers(data.alignment.tokens);
-            // Expose tokens to app for future timeline phoneme markers
-            if (this.app) this.app.alignmentTokens = data.alignment.tokens;
-          }
-          if (data.audio?.filename && this.app?.state) {
-            this.app.state.audioFileId = data.audio.filename;
-          }
-          if (this.timingModeToggle) {
-            this.timingModeToggle.checked = true;
-            this.toggleTimingMode(true);
-          }
-          this.app?.errorToasts?.show("Audio uploaded successfully", {
-            level: "success",
-            autoDismiss: true,
-            timeout: 3000,
-          });
-        } else {
-          const errType = data.error_type;
-            if(errType === 'format_error' && this.app?.errorToasts){
-              this.app.errorToasts.show('Formato não suportado. Aceitos: wav, mp3, ogg, flac, m4a, aac, webm', { level:'warning', autoDismiss:true });
-            }
-          window.ErrorInstrumentation?.record('audio.upload.failure', { correlationId, error: data.error });
-          this.app?.reportError(`Audio upload failed: ${data.error || 'Unknown error'}`, { action: () => this.uploadAudio(), actionLabel: 'Retry Upload' });
+        window.ErrorInstrumentation?.record("audio.upload.success", {
+          correlationId,
+        });
+        if (data.alignment && data.alignment.tokens) {
+          this.createTimingMarkers(data.alignment.tokens);
+          // Expose tokens to app for future timeline phoneme markers
+          if (this.app) this.app.alignmentTokens = data.alignment.tokens;
         }
-        if (this.uploadAudioBtn) {
-          this.uploadAudioBtn.disabled = false;
-          this.uploadAudioBtn.innerHTML = '<i class="fas fa-upload"></i> Upload Audio';
+        if (data.audio?.filename && this.app?.state) {
+          this.app.state.audioFileId = data.audio.filename;
         }
-    };
-    xhr.onerror = () => {
-      window.ErrorInstrumentation?.record('audio.upload.exception', { correlationId, message: 'network_error' });
-      this.app?.reportError('Audio upload network error', { action: () => this.uploadAudio(), actionLabel: 'Retry Upload' });
+        if (this.timingModeToggle) {
+          this.timingModeToggle.checked = true;
+          this.toggleTimingMode(true);
+        }
+        this.app?.errorToasts?.show("Audio uploaded successfully", {
+          level: "success",
+          autoDismiss: true,
+          timeout: 3000,
+        });
+      } else {
+        const errType = data.error_type;
+        if (errType === "format_error" && this.app?.errorToasts) {
+          this.app.errorToasts.show(
+            "Formato não suportado. Aceitos: wav, mp3, ogg, flac, m4a, aac, webm",
+            { level: "warning", autoDismiss: true }
+          );
+        }
+        window.ErrorInstrumentation?.record("audio.upload.failure", {
+          correlationId,
+          error: data.error,
+        });
+        this.app?.reportError(
+          `Audio upload failed: ${data.error || "Unknown error"}`,
+          { action: () => this.uploadAudio(), actionLabel: "Retry Upload" }
+        );
+      }
       if (this.uploadAudioBtn) {
         this.uploadAudioBtn.disabled = false;
-        this.uploadAudioBtn.innerHTML = '<i class="fas fa-upload"></i> Upload Audio';
+        this.uploadAudioBtn.innerHTML =
+          '<i class="fas fa-upload"></i> Upload Audio';
+      }
+    };
+    xhr.onerror = () => {
+      window.ErrorInstrumentation?.record("audio.upload.exception", {
+        correlationId,
+        message: "network_error",
+      });
+      this.app?.reportError("Audio upload network error", {
+        action: () => this.uploadAudio(),
+        actionLabel: "Retry Upload",
+      });
+      if (this.uploadAudioBtn) {
+        this.uploadAudioBtn.disabled = false;
+        this.uploadAudioBtn.innerHTML =
+          '<i class="fas fa-upload"></i> Upload Audio';
       }
     };
     xhr.send(formData);
