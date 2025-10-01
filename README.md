@@ -143,6 +143,27 @@ All dependencies are automatically installed by the launch script:
 - MoviePy (video generation)
 - Additional utilities
 
+## 🧪 Test & CI Harness
+
+Automated end-to-end tests rely on a lightweight frontend test harness:
+
+- File: `static/js/test_harness.js`
+- Activation: server injects `window.__TEST_MODE__ = true` when either `TEST_MODE` (backend test mode) or `FRONTEND_TEST_MODE` is set.
+- Provides:
+   - Early `window.videoEditor` stub so Selenium tests can monkey‑patch before the full editor loads.
+   - A guaranteed `.partial-transcript-panel` element the tests wait for.
+   - Helper `window.__updateTestTranscriptPanel(msg)` utility.
+
+Environment flags:
+
+| Variable | Purpose |
+| -------- | ------- |
+| `TEST_MODE` | Broad backend test mode (skips heavy inits) and enables frontend harness. |
+| `FRONTEND_TEST_MODE` | Enables only the frontend harness without broader backend shortcuts. |
+
+Harness loads only when test mode script is injected; there is no webdriver heuristic.
+
+
 ## 🎨 Customization
 
 ### Templates

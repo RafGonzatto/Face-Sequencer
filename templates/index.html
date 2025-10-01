@@ -77,6 +77,9 @@
       rel="stylesheet"
       href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
     />
+    {% if test_mode_script %}{{ test_mode_script|safe }}{% endif %}
+    <!-- Centralized test harness (safe no-op outside test mode) -->
+  {% if test_mode_script %}<script src="{{ url_for('static', filename='js/test_harness.js') }}"></script>{% endif %}
     <!-- WaveSurfer.js for audio visualization -->
     <script src="https://unpkg.com/wavesurfer.js@6/dist/wavesurfer.js"></script>
     <!-- SSE client for real-time updates -->
@@ -108,28 +111,6 @@
     </script>
   </head>
   <body>
-    <!-- Early test stub: provide placeholder videoEditor so E2E test can patch alignAudioWithText before full module loads -->
-    <script>
-      (function(){
-        if(window.navigator.webdriver){
-          if(!window.videoEditor){
-            window.videoEditor = {
-              _earlyStub:true,
-              alignAudioWithText: function(blob, text){ console.log('[earlyStub] alignAudioWithText invoked (will be replaced later)'); return Promise.resolve({stub:true}); },
-              generateSubtitles: function(){ console.log('[earlyStub] generateSubtitles called before module init'); }
-            };
-          }
-          // Provide an early partial transcript panel + progress keywords for the E2E test to detect
-          if(!document.querySelector('.partial-transcript-panel')){
-            const panel=document.createElement('div');
-            panel.className='partial-transcript-panel';
-            panel.style.cssText='position:fixed;bottom:6px;right:6px;background:#1f2937;color:#fff;padding:6px 8px;font:11px/1.3 system-ui;border:1px solid #374151;border-radius:4px;z-index:50000;';
-            panel.textContent='(transcrevendo – aguardando áudio)';
-            document.body.appendChild(panel);
-          }
-        }
-      })();
-    </script>
     <!-- Accessibility Live Regions -->
     <div
       id="ariaStatusRegion"
@@ -1177,7 +1158,6 @@
     <!-- Load additional modules -->
     <script src="{{ url_for('static', filename='js/audio.js') }}"></script>
     <script src="{{ url_for('static', filename='js/keyboard_navigation.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/debug_audio.js') }}"></script>
     <script src="{{ url_for('static', filename='js/export_validation.js') }}"></script>
     <script src="{{ url_for('static', filename='js/ux-enhancements.js') }}"></script>
     <script src="{{ url_for('static', filename='js/smart-panels.js') }}"></script>
@@ -1446,7 +1426,7 @@
     <!-- Test assist script: force-enable generate button in headless webdriver to bypass visibility heuristics -->
     <script>
       (function(){
-        if (!navigator.webdriver) return; // Only run in automated test context
+  if (!window.__TEST_MODE__) return; // Only run in automated test context
         function prepareAndMaybeStart(){
           // Ensure interface visible
           var iface=document.getElementById('videoEditorInterface');

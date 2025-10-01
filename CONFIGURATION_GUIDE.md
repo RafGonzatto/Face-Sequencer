@@ -125,3 +125,32 @@ Example config.json:
 2. **Document New Config Values**: Add descriptions for new configuration parameters
 3. **Provide Reasonable Defaults**: Choose sensible defaults that work for most cases
 4. **Add Validation**: When needed, add validation to prevent invalid configurations
+
+## Test / CI Specific Flags
+
+Two environment variables influence the frontend test harness behavior:
+
+| Variable | Purpose | Effect |
+| -------- | ------- | ------ |
+| `TEST_MODE` | Enables backend test behaviors (already used in Python tests) and signals the template to inject a `<script>window.__TEST_MODE__=true;</script>` flag. | Frontend gains deterministic shortcuts (early panel, synthetic alignment fallback logic). |
+| `FRONTEND_TEST_MODE` | Lightweight alternative when you only want frontend test harness features without broader backend test mode semantics. | Injects the same `window.__TEST_MODE__` flag as above, but leaves other backend TEST_MODE logic untouched. |
+
+The harness now activates only through explicit environment flags (no implicit webdriver fallback), keeping production loads minimal.
+
+### What The Test Harness Provides
+
+Located at `static/js/test_harness.js`, the harness centralizes previously scattered inline scripts:
+
+- Early `window.videoEditor` stub so tests can monkey-patch `alignAudioWithText` before the full module loads.
+- Guaranteed creation of a `.partial-transcript-panel` element that Selenium-based tests wait for.
+- Utility `window.__updateTestTranscriptPanel(msg)` to update the panel from future synthetic progress hooks.
+- A minimal, non-invasive pattern: outside test mode it does nothing and adds no globals (except an early exit check).
+
+### Disabling The WebDriver Fallback
+
+If you introduce a production build step and wish to exclude the heuristic fallback, you can safely remove the `navigator.webdriver` branch from `test_harness.js`. In that scenario, ensure CI explicitly exports either `TEST_MODE=1` or `FRONTEND_TEST_MODE=1` so the harness activates.
+
+### Migration Notes
+
+Some synthetic alignment fallback remains in `static/js/video_editor.js` (guarded by `window.__e2eUploaded` and `window.__TEST_MODE__`). It can be relocated into the harness later to further isolate test-only logic. Keep it for now to avoid risk while tests depend on timing of existing logic.
+

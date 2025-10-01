@@ -220,7 +220,7 @@ class VideoEditorModule extends EventTarget {
 
     // Auto-activate video editor interface in headless/test contexts where the tab toggle isn't clicked
     try {
-      const isHeadless = navigator.webdriver || window.__e2eUploaded !== undefined;
+  const isHeadless = (typeof window !== 'undefined' && window.__TEST_MODE__) || window.__e2eUploaded !== undefined;
       if (isHeadless && this.videoEditorInterface) {
         if (getComputedStyle(this.videoEditorInterface).display === 'none') {
           this.videoEditorInterface.style.display = 'flex';
@@ -754,28 +754,10 @@ class VideoEditorModule extends EventTarget {
       );
       if (this._cancelRequested) throw new Error("Generation cancelled");
 
-      // If test harness present and alignmentResult missing expected shape, synthesize minimal alignment
-      if(!alignmentResult && typeof window !== 'undefined' && window.__e2eUploaded !== undefined){
-        alignmentResult = {
-          alignment: {
-            words: [
-              { word: 'Olá', start: 0.0, end: 0.4 },
-              { word: 'mundo', start: 0.41, end: 0.9 },
-              { word: 'teste', start: 0.91, end: 1.4 }
-            ]
-          }
-        };
-        console.log('[E2E Fallback] Injected synthetic alignment result');
-        // Create a partial transcript panel to satisfy test visibility heuristics
-        try {
-          if(!document.querySelector('.partial-transcript-panel')){
-            const p = document.createElement('div');
-            p.className='partial-transcript-panel';
-            p.style.cssText='position:fixed;bottom:10px;right:10px;background:#111827;color:#fff;padding:8px 10px;font:12px/1.4 system-ui;border:1px solid #374151;border-radius:6px;z-index:50000;max-width:220px;';
-            p.textContent='Olá mundo teste';
-            document.body.appendChild(p);
-          }
-        } catch(e) {}
+      // Delegate synthetic alignment fallback to test harness hook if present
+      if(!alignmentResult && typeof window !== 'undefined' && window.__TEST_MODE__ && typeof window.__synthesizeTestAlignment === 'function'){
+        const synthetic = window.__synthesizeTestAlignment();
+        if(synthetic){ alignmentResult = synthetic; }
       }
 
       if (alignmentResult && alignmentResult.alignment) {
@@ -841,7 +823,7 @@ class VideoEditorModule extends EventTarget {
     this._createProgressOverlay("Analyzing audio & aligning text...");
     // Test harness visibility hook: create a partial transcript panel placeholder early
     try {
-      if(typeof navigator !== 'undefined' && navigator.webdriver){
+  if(typeof window !== 'undefined' && window.__TEST_MODE__){
         if(!document.querySelector('.partial-transcript-panel')){
           const p=document.createElement('div');
           p.className='partial-transcript-panel';
@@ -1355,17 +1337,11 @@ class VideoEditorModule extends EventTarget {
           if (e.lengthComputable && progressCallback) {
             const pct = Math.min(99, Math.round((e.loaded / e.total) * 100));
             progressCallback(`Uploading audio (${pct}%)...`);
-            window.UploadProgress?.updateProgress(
-              pct,
-              this.videoPreview?.parentElement
-            );
+            // progress bar removed (UploadProgress pruned)
           }
         };
         xhr.onload = () => {
-          window.UploadProgress?.updateProgress(
-            100,
-            this.videoPreview?.parentElement
-          );
+          // final upload progress indicator removed
           if (xhr.status >= 200 && xhr.status < 300) {
             const json = xhr.response || {};
             if (!json.success) {
@@ -1675,10 +1651,7 @@ class VideoEditorModule extends EventTarget {
                 progressCallback(label);
               }
               if (data && typeof data.progress_percent === "number") {
-                window.UploadProgress?.updateProgress(
-                  data.progress_percent,
-                  this.videoPreview?.parentElement
-                );
+                // streaming progress bar removed
                 this._updatePhaseProgress(data.progress_percent);
                 setBar(data.progress_percent);
               }

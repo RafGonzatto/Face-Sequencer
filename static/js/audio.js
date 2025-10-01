@@ -211,7 +211,7 @@ class AudioManager {
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) {
         const pct = Math.round((e.loaded / e.total) * 100);
-        window.UploadProgress?.updateProgress(pct, container);
+  // UploadProgress removed
         if (this.uploadAudioBtn) {
           this.uploadAudioBtn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Uploading ${pct}%`;
         }

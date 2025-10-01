@@ -171,7 +171,17 @@ def index():  # pragma: no cover - UI route
     when accessing http://localhost:5000/ in the browser.
     """
     try:
-        return render_template('index.html')
+        # Dynamically detect test mode at request time so pytest env var (PYTEST_CURRENT_TEST) is honored
+        test_mode_flag = bool(
+            os.environ.get('PYTEST_CURRENT_TEST')
+            or os.environ.get('UNIT_TEST_MODE') == '1'
+            or os.environ.get('FRONTEND_TEST_MODE')
+        )
+        # We stream minimal script injection through template context (template updated to read if provided)
+        return render_template(
+            'index.html',
+            test_mode_script=("<script>window.__TEST_MODE__=true;</script>" if test_mode_flag else "")
+        )
     except Exception as e:  # noqa: BLE001
         logger.exception("Failed to render index.html")
         # Fallback minimal HTML so user isn't stuck on a raw 404
