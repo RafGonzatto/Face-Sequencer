@@ -33,16 +33,21 @@ class VideoEditorModule extends VideoEditorCore {
     this._stylesInjected = true;
     try {
       // If a dynamic style tag was used in earlier versions, re-create only if missing
-      const existing = document.querySelector('style[data-video-editor-dynamic]');
+      const existing = document.querySelector(
+        "style[data-video-editor-dynamic]"
+      );
       if (!existing) {
         // Currently we rely on static css (video-editor.css). Keep placeholder for future runtime tweaks.
-        const style = document.createElement('style');
-        style.setAttribute('data-video-editor-dynamic', '');
+        const style = document.createElement("style");
+        style.setAttribute("data-video-editor-dynamic", "");
         style.textContent = `/* video editor dynamic overrides placeholder */`;
         document.head.appendChild(style);
       }
     } catch (e) {
-      console.warn('[VideoEditor] Failed to inject dynamic styles (non-fatal):', e);
+      console.warn(
+        "[VideoEditor] Failed to inject dynamic styles (non-fatal):",
+        e
+      );
     }
   }
 
@@ -53,36 +58,59 @@ class VideoEditorModule extends VideoEditorCore {
    */
   _injectEditorControls() {
     // Root interfaces & mode buttons
-    this.videoEditorInterface = document.getElementById('videoEditorInterface') || this.videoEditorInterface;
-    this.faceAnimationInterface = document.getElementById('faceAnimationInterface') || this.faceAnimationInterface;
-    this.videoEditorMode = document.getElementById('videoEditorMode') || this.videoEditorMode;
-    this.faceAnimationMode = document.getElementById('faceAnimationMode') || this.faceAnimationMode;
+    this.videoEditorInterface =
+      document.getElementById("videoEditorInterface") ||
+      this.videoEditorInterface;
+    this.faceAnimationInterface =
+      document.getElementById("faceAnimationInterface") ||
+      this.faceAnimationInterface;
+    this.videoEditorMode =
+      document.getElementById("videoEditorMode") || this.videoEditorMode;
+    this.faceAnimationMode =
+      document.getElementById("faceAnimationMode") || this.faceAnimationMode;
 
     // Video region
-    this.videoPreview = document.getElementById('videoPreview') || this.videoPreview;
-    this.videoPlaceholder = document.getElementById('videoPlaceholder') || this.videoPlaceholder;
-    this.loadVideoBtn = document.getElementById('loadVideoBtn') || this.loadVideoBtn;
-    this.videoInput = document.getElementById('videoInput') || this.videoInput;
-    this.playPauseBtn = document.getElementById('playPauseBtn') || this.playPauseBtn;
-    this.stopVideoBtn = document.getElementById('stopVideoBtn') || this.stopVideoBtn;
+    this.videoPreview =
+      document.getElementById("videoPreview") || this.videoPreview;
+    this.videoPlaceholder =
+      document.getElementById("videoPlaceholder") || this.videoPlaceholder;
+    this.loadVideoBtn =
+      document.getElementById("loadVideoBtn") || this.loadVideoBtn;
+    this.videoInput = document.getElementById("videoInput") || this.videoInput;
+    this.playPauseBtn =
+      document.getElementById("playPauseBtn") || this.playPauseBtn;
+    this.stopVideoBtn =
+      document.getElementById("stopVideoBtn") || this.stopVideoBtn;
 
     // Subtitle / transcript
-    this.generateSubtitlesBtn = document.getElementById('generateSubtitlesBtn') || this.generateSubtitlesBtn;
-    this._altTextInput = document.getElementById('altTextInput') || this._altTextInput || document.getElementById('textInput');
-    this.videoTranscript = document.getElementById('videoTranscript') || this.videoTranscript;
+    this.generateSubtitlesBtn =
+      document.getElementById("generateSubtitlesBtn") ||
+      this.generateSubtitlesBtn;
+    this._altTextInput =
+      document.getElementById("altTextInput") ||
+      this._altTextInput ||
+      document.getElementById("textInput");
+    this.videoTranscript =
+      document.getElementById("videoTranscript") || this.videoTranscript;
 
     // Timeline & related controls
-    this.subtitleTimeline = document.getElementById('subtitleTimeline') || this.subtitleTimeline;
-    this.frameSnapStepSelect = document.getElementById('frameSnapStepSelect') || this.frameSnapStepSelect;
+    this.subtitleTimeline =
+      document.getElementById("subtitleTimeline") || this.subtitleTimeline;
+    this.frameSnapStepSelect =
+      document.getElementById("frameSnapStepSelect") ||
+      this.frameSnapStepSelect;
 
     // Optional advanced panels (silently ignore if absent)
-    this.presetButtonsHome = document.getElementById('presetButtonsHome') || this.presetButtonsHome;
-    this.compactPresetToolbar = document.getElementById('compactPresetToolbar') || this.compactPresetToolbar;
+    this.presetButtonsHome =
+      document.getElementById("presetButtonsHome") || this.presetButtonsHome;
+    this.compactPresetToolbar =
+      document.getElementById("compactPresetToolbar") ||
+      this.compactPresetToolbar;
 
     // Defensive logging (only once)
     if (!this._controlLogOnce) {
       this._controlLogOnce = true;
-      console.log('[VideoEditor] Controls injected', {
+      console.log("[VideoEditor] Controls injected", {
         videoPreview: !!this.videoPreview,
         generateBtn: !!this.generateSubtitlesBtn,
         subtitleTimeline: !!this.subtitleTimeline,
@@ -191,6 +219,20 @@ class VideoEditorModule extends VideoEditorCore {
     this._altTextInput?.addEventListener("input", () =>
       this.updateGenerateButton()
     );
+
+    // Manual subtitle addition
+    const addSubtitleBtn = document.getElementById("addSubtitleBtn");
+    if (addSubtitleBtn && !addSubtitleBtn._bound) {
+      addSubtitleBtn._bound = true;
+      addSubtitleBtn.addEventListener("click", () => {
+        try {
+          this.addSubtitle();
+        } catch (e) {
+          console.warn("[VideoEditor] addSubtitle failed", e);
+          this.safeError("Could not add subtitle segment");
+        }
+      });
+    }
 
     // Frame snap step persistence load
     try {
@@ -340,6 +382,45 @@ class VideoEditorModule extends VideoEditorCore {
   }
 
   /**
+   * Adds a new subtitle segment. If there are existing segments, places it
+   * after the last one with a small gap; otherwise creates a default 2s span
+   * starting at 0 (or current playback time if video loaded).
+   */
+  addSubtitle() {
+    if (!this.subtitles) this.subtitles = [];
+    const nowMs = (this.videoPreview?.currentTime || 0) * 1000;
+    let start = 0;
+    let end = 2000;
+    if (this.subtitles.length) {
+      const last = this.subtitles[this.subtitles.length - 1];
+      start = (last.end_ms || 0) + 120;
+      end = start + 2000;
+    } else if (nowMs > 0) {
+      start = Math.max(0, nowMs - 500);
+      end = start + 2000;
+    }
+    // Clamp end if video duration known
+    const durationMs = (this.videoPreview?.duration || 0) * 1000;
+    if (durationMs && end > durationMs) end = durationMs;
+    if (durationMs && start > durationMs - 300) start = Math.max(0, durationMs - 1200);
+    const id = Date.now() + "_" + Math.random().toString(36).slice(2, 7);
+    const segment = {
+      id,
+      text: "New subtitle",
+      start_ms: Math.round(start),
+      end_ms: Math.round(end),
+    };
+    this.subtitles.push(segment);
+    // Keep list sorted by start time
+    this.subtitles.sort((a, b) => a.start_ms - b.start_ms);
+    this._pushHistory && this._pushHistory();
+    this.renderSubtitleTimeline && this.renderSubtitleTimeline();
+    this.renderSubtitleSegments && this.renderSubtitleSegments();
+    this.updateUIState && this.updateUIState();
+    this.safeStatus(`Added subtitle #${this.subtitles.length}`);
+  }
+
+  /**
    * Create/maintain a floating presets toolbar when in compact mode.
    * Clones buttons from the hidden home container (#presetButtonsHome) so we
    * don't break existing logic that queries by .preset-btn.
@@ -349,26 +430,28 @@ class VideoEditorModule extends VideoEditorCore {
     if (this._compactToolbarBound) return;
     this._compactToolbarBound = true;
 
-    const toolbar = document.getElementById('compactPresetToolbar');
-    const home = document.getElementById('presetButtonsHome');
+    const toolbar = document.getElementById("compactPresetToolbar");
+    const home = document.getElementById("presetButtonsHome");
     if (!toolbar || !home) return; // graceful exit
 
     const cloneButtons = () => {
-      toolbar.innerHTML = '';
-      const sourceBtns = home.querySelectorAll('.preset-btn');
+      toolbar.innerHTML = "";
+      const sourceBtns = home.querySelectorAll(".preset-btn");
       sourceBtns.forEach((btn) => {
         const cloned = btn.cloneNode(true);
         // Re-wire click to also activate original button (keep single source of truth)
-        cloned.addEventListener('click', (e) => {
+        cloned.addEventListener("click", (e) => {
           e.preventDefault();
-            // Deactivate all originals
-            home.querySelectorAll('.preset-btn').forEach((b) => b.classList.remove('active'));
-            // Find matching original
-            btn.classList.add('active');
-            cloned.classList.add('active');
-            this.updateGenerateButton();
+          // Deactivate all originals
+          home
+            .querySelectorAll(".preset-btn")
+            .forEach((b) => b.classList.remove("active"));
+          // Find matching original
+          btn.classList.add("active");
+          cloned.classList.add("active");
+          this.updateGenerateButton();
         });
-        if (btn.classList.contains('active')) cloned.classList.add('active');
+        if (btn.classList.contains("active")) cloned.classList.add("active");
         toolbar.appendChild(cloned);
       });
     };
@@ -382,7 +465,7 @@ class VideoEditorModule extends VideoEditorCore {
       observer.observe(home, { childList: true, subtree: true });
       this._compactToolbarObserver = observer;
     } catch (e) {
-      console.warn('[VideoEditor] Failed to observe preset home mutations:', e);
+      console.warn("[VideoEditor] Failed to observe preset home mutations:", e);
     }
   }
 
@@ -394,18 +477,18 @@ class VideoEditorModule extends VideoEditorCore {
   _initHeaderStatsUpdater() {
     if (this._headerStatsBound) return;
     this._headerStatsBound = true;
-    const statsEl = document.getElementById('videoEditorStats');
+    const statsEl = document.getElementById("videoEditorStats");
     if (!statsEl) return;
     const update = () => {
       if (!this.subtitles || !this.subtitles.length) {
-        statsEl.textContent = '0 segments';
+        statsEl.textContent = "0 segments";
         return;
       }
       const count = this.subtitles.length;
-      const totalMs = Math.max(...this.subtitles.map(s => s.end_ms || 0));
+      const totalMs = Math.max(...this.subtitles.map((s) => s.end_ms || 0));
       const seconds = Math.round(totalMs / 1000);
-      const mm = String(Math.floor(seconds / 60)).padStart(2,'0');
-      const ss = String(seconds % 60).padStart(2,'0');
+      const mm = String(Math.floor(seconds / 60)).padStart(2, "0");
+      const ss = String(seconds % 60).padStart(2, "0");
       statsEl.textContent = `${count} seg • ${mm}:${ss}`;
     };
     update();
@@ -580,10 +663,10 @@ class VideoEditorModule extends VideoEditorCore {
       const hasVideo = !!this.videoFile || !!this.isVideoLoaded;
       // Toggle placeholder visibility
       if (this.videoPlaceholder) {
-        this.videoPlaceholder.style.display = hasVideo ? 'none' : 'flex';
+        this.videoPlaceholder.style.display = hasVideo ? "none" : "flex";
       }
       if (this.videoPreview) {
-        this.videoPreview.classList.toggle('loaded', hasVideo);
+        this.videoPreview.classList.toggle("loaded", hasVideo);
       }
       // Enable transport controls only if video loaded
       if (this.playPauseBtn) this.playPauseBtn.disabled = !hasVideo;
@@ -592,18 +675,18 @@ class VideoEditorModule extends VideoEditorCore {
       this.updateGenerateButton?.();
       // Stats immediate refresh if available
       if (this._headerStatsBound) {
-        const statsEl = document.getElementById('videoEditorStats');
+        const statsEl = document.getElementById("videoEditorStats");
         if (statsEl && this.subtitles?.length) {
           const count = this.subtitles.length;
-            const totalMs = Math.max(...this.subtitles.map(s => s.end_ms || 0));
-            const seconds = Math.round(totalMs / 1000);
-            const mm = String(Math.floor(seconds / 60)).padStart(2,'0');
-            const ss = String(seconds % 60).padStart(2,'0');
-            statsEl.textContent = `${count} seg • ${mm}:${ss}`;
+          const totalMs = Math.max(...this.subtitles.map((s) => s.end_ms || 0));
+          const seconds = Math.round(totalMs / 1000);
+          const mm = String(Math.floor(seconds / 60)).padStart(2, "0");
+          const ss = String(seconds % 60).padStart(2, "0");
+          statsEl.textContent = `${count} seg • ${mm}:${ss}`;
         }
       }
     } catch (e) {
-      console.warn('[VideoEditor] updateUIState failed (non-fatal):', e);
+      console.warn("[VideoEditor] updateUIState failed (non-fatal):", e);
     }
   }
 
