@@ -8,6 +8,27 @@ on:
   workflow_dispatch:
 
 jobs:
+  root-sanity:
+    name: Enforce Root File Hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan for disallowed root files
+        run: |
+          echo "Scanning repository root for disallowed patterns..."
+          disallowed_patterns='simple_.*\\.py$|.*_demo\\.py$|.*_test\\.py$|.*_fix\\.py$'
+          # Find matching files at repo root only (depth 1), excluding known allowed directories
+          matches=$(find . -maxdepth 1 -type f -regextype posix-extended -regex "./(${disallowed_patterns})" || true)
+          if [ -n "${matches}" ]; then
+            echo "❌ Disallowed files detected at repository root:" >&2
+            echo "${matches}" >&2
+            echo "Please relocate these to dev_tools/ or tests/ before merging." >&2
+            exit 1
+          fi
+          echo "✅ No disallowed root files found"
+    # Run this early to fail fast
+    timeout-minutes: 5
+
   test:
     runs-on: ubuntu-latest
     strategy:
