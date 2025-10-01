@@ -238,6 +238,66 @@ class VideoEditorModule extends VideoEditorCore {
       });
     }
 
+    // Split & Merge buttons
+    const splitBtn = document.getElementById('splitSubtitleBtn');
+    const mergeBtn = document.getElementById('mergeSubtitlesBtn');
+    if (splitBtn && !splitBtn._bound) { splitBtn._bound = true; splitBtn.addEventListener('click', () => this.splitSelectedSubtitle()); }
+    if (mergeBtn && !mergeBtn._bound) { mergeBtn._bound = true; mergeBtn.addEventListener('click', () => this.mergeSelectedSubtitles()); }
+
+    // Sorting select implementation
+    const sortSelect = document.getElementById('subtitleSort');
+    if (sortSelect && !sortSelect._bound) {
+      sortSelect._bound = true;
+      sortSelect.addEventListener('change', () => {
+        const mode = sortSelect.value;
+        if (mode === 'start') this.subtitles.sort((a,b)=>a.start_ms-b.start_ms);
+        else if (mode === 'length') this.subtitles.sort((a,b)=>(a.end_ms-a.start_ms)-(b.end_ms-b.start_ms));
+        this.renderSubtitleSegments();
+        this.renderSubtitleTimeline?.();
+      });
+    }
+
+    // Inject search toolbar once
+    const subsPanel = document.querySelector('.subtitles-panel');
+    if (subsPanel && !subsPanel.querySelector('.subtitles-toolbar')) {
+      const toolbar = document.createElement('div');
+      toolbar.className = 'subtitles-toolbar';
+      toolbar.innerHTML = `<input id="subtitleSearch" placeholder="Filter text..." aria-label="Filter subtitles"><span id="subtitleFilterCount" style="font-size:11px;opacity:.7;">0</span>`;
+      const list = subsPanel.querySelector('.subtitles-list');
+      subsPanel.insertBefore(toolbar, list);
+      const searchInput = toolbar.querySelector('#subtitleSearch');
+      const counter = toolbar.querySelector('#subtitleFilterCount');
+      searchInput.addEventListener('input', () => {
+        const q = searchInput.value.toLowerCase();
+        let visible = 0;
+        this.subtitles.forEach(s => {
+          const el = this.segmentsList?.querySelector(`[data-id="${s.id}"]`);
+          if (!el) return;
+          if (!q || s.text.toLowerCase().includes(q)) { el.classList.remove('filtered-out'); visible++; }
+          else el.classList.add('filtered-out');
+        });
+        counter.textContent = visible + '/' + this.subtitles.length;
+      });
+    }
+
+    // Keyboard shortcuts (N new, Delete remove selected, Enter jump next)
+    if (!this._subtitleKeyBound) {
+      this._subtitleKeyBound = true;
+      window.addEventListener('keydown', (e) => {
+        if (e.key.toLowerCase()==='n' && !e.metaKey && !e.ctrlKey) { e.preventDefault(); this.addSubtitle(); }
+        if (e.key === 'Delete') { this.deleteSelectedSubtitles(); }
+        if (e.key === 'Enter' && this._lastFocusedSubtitleInput) {
+          e.preventDefault();
+          const items = Array.from(this.segmentsList?.querySelectorAll('.subtitle-segment-item')||[]);
+          const idx = items.findIndex(i=>i.contains(this._lastFocusedSubtitleInput));
+          if (idx>=0 && idx < items.length-1) {
+            const next = items[idx+1].querySelector('.segment-text-input');
+            if (next) { next.focus(); next.select(); }
+          }
+        }
+      });
+    }
+
     // Frame snap step persistence load
     try {
       const saved = localStorage.getItem("frameSnapStep");
@@ -442,6 +502,68 @@ class VideoEditorModule extends VideoEditorCore {
       }
     } catch (e) {}
     this.safeStatus(`Added subtitle #${this.subtitles.length}`);
+  }
+
+  _selectSubtitleElement(el, additive=false) {
+    if (!el) return;
+    if (!additive) {
+      this.segmentsList?.querySelectorAll('.subtitle-segment-item.is-selected').forEach(x=>x.classList.remove('is-selected'));
+      this._selectedSubtitleIds = [];
+    }
+    const id = el.dataset.id;
+    el.classList.add('is-selected');
+    this._selectedSubtitleIds = this._selectedSubtitleIds || [];
+    if (!this._selectedSubtitleIds.includes(id)) this._selectedSubtitleIds.push(id);
+    this._updateSelectionButtons();
+  }
+
+  _updateSelectionButtons() {
+    const splitBtn = document.getElementById('splitSubtitleBtn');
+    const mergeBtn = document.getElementById('mergeSubtitlesBtn');
+    const count = (this._selectedSubtitleIds||[]).length;
+    if (splitBtn) splitBtn.disabled = count !== 1;
+    if (mergeBtn) mergeBtn.disabled = count !== 2;
+  }
+
+  deleteSelectedSubtitles() {
+    if (!this._selectedSubtitleIds || !this._selectedSubtitleIds.length) return;
+    this.subtitles = this.subtitles.filter(s => !this._selectedSubtitleIds.includes(String(s.id)));
+    this._selectedSubtitleIds = [];
+    this.renderSubtitleSegments();
+    this.renderSubtitleTimeline?.();
+    this._updateSelectionButtons();
+  }
+
+  splitSelectedSubtitle() {
+    if (!this._selectedSubtitleIds || this._selectedSubtitleIds.length !== 1) return;
+    const id = this._selectedSubtitleIds[0];
+    const sub = this.subtitles.find(s => String(s.id) === String(id));
+    if (!sub) return;
+    const mid = Math.round((sub.start_ms + sub.end_ms) / 2);
+    if (mid - sub.start_ms < 120 || sub.end_ms - mid < 120) { this.safeStatus('Segment too short to split'); return; }
+    const second = { id: Date.now()+"_split", text: sub.text, start_ms: mid, end_ms: sub.end_ms };
+    sub.end_ms = mid - 40;
+    this.subtitles.push(second);
+    this.subtitles.sort((a,b)=>a.start_ms-b.start_ms);
+    this.renderSubtitleSegments();
+    this.renderSubtitleTimeline?.();
+    this.safeStatus('Segment split');
+  }
+
+  mergeSelectedSubtitles() {
+    if (!this._selectedSubtitleIds || this._selectedSubtitleIds.length !== 2) return;
+    const ids = this._selectedSubtitleIds.map(String);
+    const picks = this.subtitles.filter(s => ids.includes(String(s.id))).sort((a,b)=>a.start_ms-b.start_ms);
+    if (picks.length !== 2) return;
+    const [a,b] = picks;
+    if (b.start_ms < a.end_ms) { a.end_ms = Math.max(a.end_ms, b.end_ms); }
+    else { a.end_ms = b.end_ms; }
+    a.text = (a.text + ' ' + b.text).trim();
+    this.subtitles = this.subtitles.filter(s => s !== b);
+    this._selectedSubtitleIds = [String(a.id)];
+    this.renderSubtitleSegments();
+    this.renderSubtitleTimeline?.();
+    this.safeStatus('Segments merged');
   }
 
   /**
@@ -2226,6 +2348,10 @@ class VideoEditorModule extends VideoEditorCore {
       const segmentDiv = document.createElement("div");
       segmentDiv.className = "subtitle-segment-item";
       segmentDiv.dataset.id = subtitle.id;
+      segmentDiv.addEventListener('click', (e) => {
+        const additive = e.ctrlKey || e.metaKey || e.shiftKey;
+        this._selectSubtitleElement(segmentDiv, additive);
+      });
 
       segmentDiv.innerHTML = `
         <div class="segment-row">
@@ -2258,6 +2384,7 @@ class VideoEditorModule extends VideoEditorCore {
         textInput.addEventListener("input", () => {
           this.updateSubtitleTextLive(subtitle.id, textInput.value);
         });
+        textInput.addEventListener('focus', () => { this._lastFocusedSubtitleInput = textInput; });
       }
       // Timing edits
       const startInput = segmentDiv.querySelector('.seg-start');
