@@ -2,8 +2,34 @@
 console.log("🎬 Loading VideoEditorModule class...");
 
 class VideoEditorModule extends EventTarget {
-  constructor() {
+  constructor(appRef) {
     super();
+    // Accept optional hosting app (FaceSequencerApp) providing showStatus/showError APIs
+    this.app = appRef || window.faceSequencerApp || window.app || null;
+    // Provide resilient fallbacks so calls like this.app.showStatus do not throw
+    if(!this.app){
+      const statusLog = (...m)=>console.log('[video-editor status]', ...m);
+      const errorLog = (msg)=>console.error('[video-editor error]', msg);
+      this.app = {
+        showStatus: statusLog,
+        showError: errorLog,
+        reportError: (m)=>errorLog(m),
+        errorToasts: { show: (m)=>errorLog(m) },
+        state: {}
+      };
+      console.warn('[VideoEditorModule] No host app supplied; using internal no-op logger app');
+    } else {
+      // Ensure required surface methods exist even if partial
+      this.app.showStatus = this.app.showStatus || function(m){ console.log('[video-editor status]', m); };
+  // Legacy fallback kept for backward compatibility; prefer this.safeError everywhere
+  this.app.showError = this.app.showError || function(m){ console.error('[video-editor error]', m); };
+      this.app.errorToasts = this.app.errorToasts || { show: (m,o)=>console.log('[toast]', m,o||'') };
+    }
+
+    // Helper wrappers to centralize guarded calls
+    this.safeStatus = (msg)=>{ try { this.app && this.app.showStatus && this.app.showStatus(msg); } catch(e){ console.log('[safeStatus]', msg); } };
+    this.safeError = (msg)=>{ try { this.app && this.app.showError && this.app.showError(msg); } catch(e){ console.error('[safeError]', msg); } };
+    this.safeToast = (msg, opts)=>{ try { this.app && this.app.errorToasts && this.app.errorToasts.show && this.app.errorToasts.show(msg, opts); } catch(e){ console.log('[safeToast]', msg, opts||''); } };
     // Core overlay & subtitle state
     this.overlayElement = null; // movable wrapper
     this.overlayTextElement = null; // inner text element
@@ -24,7 +50,9 @@ class VideoEditorModule extends EventTarget {
     // Cache frequently used DOM elements (video controls & containers)
     this.generateSubtitlesBtn = document.getElementById("generateSubtitlesBtn");
     // Handle (legacy) duplicate button blocks in template – keep a list to sync states
-    this._generateBtnDuplicates = Array.from(document.querySelectorAll('#generateSubtitlesBtn'));
+    this._generateBtnDuplicates = Array.from(
+      document.querySelectorAll("#generateSubtitlesBtn")
+    );
     if (this._generateBtnDuplicates.length > 1) {
       // Prefer the first (Selenium will also pick first). We'll mirror state to others.
       this.generateSubtitlesBtn = this._generateBtnDuplicates[0];
@@ -32,8 +60,8 @@ class VideoEditorModule extends EventTarget {
     this.clearSubtitlesBtn = document.getElementById("clearSubtitlesBtn");
     this.frameSnapStepSelect = document.getElementById("frameSnapStep");
     this.videoTranscript = document.getElementById("videoTranscript");
-  // Fallback legacy/global text input used in some tests or modes
-  this._altTextInput = document.getElementById("textInput");
+    // Fallback legacy/global text input used in some tests or modes
+    this._altTextInput = document.getElementById("textInput");
     this.subtitleTimeline = document.getElementById("subtitleTimeline");
     this.segmentsList = document.getElementById("segmentsList");
     this.previewSubtitles = document.getElementById("previewSubtitles");
@@ -216,15 +244,19 @@ class VideoEditorModule extends EventTarget {
       this.generateSubtitles()
     );
     // Listen to alternate text input changes to keep button state in sync
-    this._altTextInput?.addEventListener("input", () => this.updateGenerateButton());
+    this._altTextInput?.addEventListener("input", () =>
+      this.updateGenerateButton()
+    );
 
     // Auto-activate video editor interface in headless/test contexts where the tab toggle isn't clicked
     try {
-  const isHeadless = (typeof window !== 'undefined' && window.__TEST_MODE__) || window.__e2eUploaded !== undefined;
+      const isHeadless =
+        (typeof window !== "undefined" && window.__TEST_MODE__) ||
+        window.__e2eUploaded !== undefined;
       if (isHeadless && this.videoEditorInterface) {
-        if (getComputedStyle(this.videoEditorInterface).display === 'none') {
-          this.videoEditorInterface.style.display = 'flex';
-          this.videoEditorInterface.classList.add('active');
+        if (getComputedStyle(this.videoEditorInterface).display === "none") {
+          this.videoEditorInterface.style.display = "flex";
+          this.videoEditorInterface.classList.add("active");
         }
       }
     } catch (e) {}
@@ -473,7 +505,7 @@ class VideoEditorModule extends EventTarget {
       if (this._isVideoFile(f)) {
         this.loadVideo(f);
       } else {
-        this.app.showError(
+        this.safeError(
           "Arquivo de vídeo inválido (extensões suportadas: mp4, mov, mkv, webm, avi, m4v)"
         );
       }
@@ -570,7 +602,7 @@ class VideoEditorModule extends EventTarget {
       if (this._isVideoFile(file)) {
         this.loadVideo(file);
       } else {
-        this.app.showError(
+        this.safeError(
           "Formato não suportado. Use mp4, mov, mkv, webm, avi ou m4v"
         );
       }
@@ -605,7 +637,7 @@ class VideoEditorModule extends EventTarget {
     }
 
     // Show success message
-    this.app.showStatus(`Video loaded: ${file.name}`);
+  this.safeStatus(`Video loaded: ${file.name}`);
 
     // Update UI state
     this.updateUIState();
@@ -683,8 +715,10 @@ class VideoEditorModule extends EventTarget {
   // Subtitle Generation
   updateGenerateButton() {
     // Treat presence of an external audio blob OR test harness patch flag as sufficient media
-    const testPatched = typeof window !== 'undefined' && window.__e2eUploaded !== undefined;
-    const hasMedia = this.isVideoLoaded || !!this.externalAudioBlob || testPatched;
+    const testPatched =
+      typeof window !== "undefined" && window.__e2eUploaded !== undefined;
+    const hasMedia =
+      this.isVideoLoaded || !!this.externalAudioBlob || testPatched;
     const transcriptText = this.getTranscriptText();
     const hasText = transcriptText.length > 0;
 
@@ -693,7 +727,9 @@ class VideoEditorModule extends EventTarget {
       this.generateSubtitlesBtn.disabled = disabledState;
     }
     if (this._generateBtnDuplicates?.length > 1) {
-      this._generateBtnDuplicates.forEach(btn => (btn.disabled = disabledState));
+      this._generateBtnDuplicates.forEach(
+        (btn) => (btn.disabled = disabledState)
+      );
     }
   }
 
@@ -701,23 +737,26 @@ class VideoEditorModule extends EventTarget {
     // Permit generation if either a video OR an external audio blob is present
     if (!this.videoFile && !this.externalAudioBlob) {
       // Allow test harness that monkey patches alignAudioWithText with internal synthetic blob
-      const testPatched = typeof window !== 'undefined' && window.__e2eUploaded !== undefined;
+      const testPatched =
+        typeof window !== "undefined" && window.__e2eUploaded !== undefined;
       if (!testPatched) {
-        this.app.showError(
+        this.safeError(
           "Carregue um arquivo de vídeo ou anexe um áudio externo antes de gerar legendas."
         );
         return;
       }
       // Test fallback: ensure externalAudioBlob is a minimal silent blob so downstream flow continues
-      if(!this.externalAudioBlob){
+      if (!this.externalAudioBlob) {
         try {
-          this.externalAudioBlob = new Blob([new Uint8Array([0])], {type:'audio/webm'});
-        } catch(e) {}
+          this.externalAudioBlob = new Blob([new Uint8Array([0])], {
+            type: "audio/webm",
+          });
+        } catch (e) {}
       }
     }
     const transcriptText = this.getTranscriptText();
     if (!transcriptText) {
-      this.app.showError(
+      this.safeError(
         "Digite ou cole o texto da transcrição para gerar legendas"
       );
       return;
@@ -728,7 +767,7 @@ class VideoEditorModule extends EventTarget {
       this._cancelRequested = false;
       this._enterGeneratingState();
       console.log("🎬 Generating enhanced subtitles for video...");
-      this.app.showStatus(
+      this.safeStatus(
         "Generating intelligent subtitles from video audio..."
       );
 
@@ -755,9 +794,16 @@ class VideoEditorModule extends EventTarget {
       if (this._cancelRequested) throw new Error("Generation cancelled");
 
       // Delegate synthetic alignment fallback to test harness hook if present
-      if(!alignmentResult && typeof window !== 'undefined' && window.__TEST_MODE__ && typeof window.__synthesizeTestAlignment === 'function'){
+      if (
+        !alignmentResult &&
+        typeof window !== "undefined" &&
+        window.__TEST_MODE__ &&
+        typeof window.__synthesizeTestAlignment === "function"
+      ) {
         const synthetic = window.__synthesizeTestAlignment();
-        if(synthetic){ alignmentResult = synthetic; }
+        if (synthetic) {
+          alignmentResult = synthetic;
+        }
       }
 
       if (alignmentResult && alignmentResult.alignment) {
@@ -788,7 +834,7 @@ class VideoEditorModule extends EventTarget {
         this.renderSubtitleSegments();
         this.updateUIState();
 
-        this.app.showStatus(
+        this.safeStatus(
           `Generated ${this.subtitles.length} subtitle segments`
         );
         this.previewWithSubtitles();
@@ -798,13 +844,13 @@ class VideoEditorModule extends EventTarget {
     } catch (error) {
       console.error("❌ Subtitle generation failed:", error);
       if (error.message === "Generation cancelled") {
-        this.app.showStatus("Generation cancelled");
+  this.safeStatus("Generation cancelled");
       } else if (/MediaRecorder/i.test(error.message)) {
-        this.app.showError(
+        this.safeError(
           "Audio extraction not supported in this browser. Provide an external audio track or try a different browser."
         );
       } else {
-        this.app.showError(`Subtitle generation failed: ${error.message}`);
+  this.safeError(`Subtitle generation failed: ${error.message}`);
       }
     } finally {
       this._exitGeneratingState();
@@ -823,16 +869,17 @@ class VideoEditorModule extends EventTarget {
     this._createProgressOverlay("Analyzing audio & aligning text...");
     // Test harness visibility hook: create a partial transcript panel placeholder early
     try {
-  if(typeof window !== 'undefined' && window.__TEST_MODE__){
-        if(!document.querySelector('.partial-transcript-panel')){
-          const p=document.createElement('div');
-          p.className='partial-transcript-panel';
-          p.style.cssText='position:fixed;bottom:8px;right:8px;background:#1f2937;color:#fff;padding:6px 8px;font:11px/1.4 system-ui;border:1px solid #374151;border-radius:4px;z-index:50000;opacity:0.92;';
-          p.textContent='(initializing)';
+      if (typeof window !== "undefined" && window.__TEST_MODE__) {
+        if (!document.querySelector(".partial-transcript-panel")) {
+          const p = document.createElement("div");
+          p.className = "partial-transcript-panel";
+          p.style.cssText =
+            "position:fixed;bottom:8px;right:8px;background:#1f2937;color:#fff;padding:6px 8px;font:11px/1.4 system-ui;border:1px solid #374151;border-radius:4px;z-index:50000;opacity:0.92;";
+          p.textContent = "(initializing)";
           document.body.appendChild(p);
         }
       }
-    } catch(e) {}
+    } catch (e) {}
   }
 
   _exitGeneratingState() {
@@ -1058,7 +1105,7 @@ class VideoEditorModule extends EventTarget {
       console.log("🎯 Auto-aligning subtitle segments...");
 
       if (!this.subtitles || this.subtitles.length === 0) {
-        this.app.showError("No subtitle segments to align");
+  this.safeError("No subtitle segments to align");
         return;
       }
 
@@ -1077,20 +1124,20 @@ class VideoEditorModule extends EventTarget {
         if (validation.success) {
           const issues = validation.data.total_issues;
           if (issues > 0) {
-            this.app.showStatus(
+            this.safeStatus(
               `Found ${issues} issues that need optimization`
             );
 
             // Optimize segments
             await this.optimizeCurrentSubtitles();
           } else {
-            this.app.showStatus("Subtitles are already well-aligned");
+            this.safeStatus("Subtitles are already well-aligned");
           }
         }
       }
     } catch (error) {
       console.error("Auto-alignment failed:", error);
-      this.app.showError("Auto-alignment failed");
+  this.safeError("Auto-alignment failed");
     }
   }
 
@@ -1111,7 +1158,7 @@ class VideoEditorModule extends EventTarget {
           this.subtitles = result.data.optimized_segments;
           this.renderSubtitleTimeline();
           this.renderSubtitleSegments();
-          this.app.showStatus("Subtitles optimized successfully");
+          this.safeStatus("Subtitles optimized successfully");
         }
       }
     } catch (error) {
@@ -2503,7 +2550,7 @@ class VideoEditorModule extends EventTarget {
       this.renderSubtitleTimeline();
       this.renderSubtitleSegments();
       this.updateUIState();
-      this.app.showStatus("Subtitles cleared");
+  this.safeStatus("Subtitles cleared");
     }
   }
 
@@ -2599,7 +2646,7 @@ class VideoEditorModule extends EventTarget {
       }
 
       this.updateSubtitleStyle();
-      this.app.showStatus(`Applied ${presetName.replace("-", " ")} preset`);
+  this.safeStatus(`Applied ${presetName.replace("-", " ")} preset`);
     }
   }
 
@@ -2642,7 +2689,7 @@ class VideoEditorModule extends EventTarget {
   // Preview and Export
   previewWithSubtitles() {
     if (!this.isVideoLoaded || this.subtitles.length === 0) {
-      this.app.showError("Please load a video and generate subtitles first");
+      this.safeError("Please load a video and generate subtitles first");
       return;
     }
 
@@ -2651,7 +2698,7 @@ class VideoEditorModule extends EventTarget {
     // This would create a subtitle overlay on the video
     this.createSubtitleOverlay();
 
-    this.app.showStatus("Subtitle preview enabled");
+  this.safeStatus("Subtitle preview enabled");
   }
 
   createSubtitleOverlay() {
@@ -3054,13 +3101,13 @@ class VideoEditorModule extends EventTarget {
 
   async exportVideo() {
     if (!this.isVideoLoaded || this.subtitles.length === 0) {
-      this.app.showError("Please load a video and generate subtitles first");
+      this.safeError("Please load a video and generate subtitles first");
       return;
     }
 
     try {
       console.log("📤 Exporting video with subtitles...");
-      this.app.showStatus("Preparing video export with subtitles...");
+  this.safeStatus("Preparing video export with subtitles...");
 
       // Prepare export data
       const exportData = {
@@ -3074,7 +3121,7 @@ class VideoEditorModule extends EventTarget {
       const result = await this.processVideoExport(exportData);
 
       if (result.success) {
-        this.app.showStatus("Video exported successfully with subtitles!");
+  this.safeStatus("Video exported successfully with subtitles!");
 
         // Trigger download if URL provided
         if (result.downloadUrl) {
@@ -3088,7 +3135,7 @@ class VideoEditorModule extends EventTarget {
       }
     } catch (error) {
       console.error("❌ Video export failed:", error);
-      this.app.showError(`Export failed: ${error.message}`);
+      this.safeError(`Export failed: ${error.message}`);
     }
   }
 
@@ -3386,8 +3433,10 @@ class VideoEditorModule extends EventTarget {
   // UI State Management
   updateUIState() {
     // Consider external audio or test harness patch sufficient for enabling certain actions
-    const testPatched = typeof window !== 'undefined' && window.__e2eUploaded !== undefined;
-    const hasVideo = this.isVideoLoaded || !!this.externalAudioBlob || testPatched;
+    const testPatched =
+      typeof window !== "undefined" && window.__e2eUploaded !== undefined;
+    const hasVideo =
+      this.isVideoLoaded || !!this.externalAudioBlob || testPatched;
     const hasSubtitles = this.subtitles.length > 0;
     const hasText = this.getTranscriptText().length > 0;
 
@@ -3396,7 +3445,9 @@ class VideoEditorModule extends EventTarget {
       const disabledState = !(hasVideo && hasText);
       this.generateSubtitlesBtn.disabled = disabledState;
       if (this._generateBtnDuplicates?.length > 1) {
-        this._generateBtnDuplicates.forEach(btn => (btn.disabled = disabledState));
+        this._generateBtnDuplicates.forEach(
+          (btn) => (btn.disabled = disabledState)
+        );
       }
     }
 
@@ -3422,9 +3473,9 @@ VideoEditorModule.prototype.getTranscriptText = function () {
   if (this.videoTranscript && this.videoTranscript.value.trim().length > 0) {
     return this.videoTranscript.value.trim();
   }
-  const alt = this._altTextInput || document.getElementById('textInput');
+  const alt = this._altTextInput || document.getElementById("textInput");
   if (alt && alt.value) return alt.value.trim();
-  return '';
+  return "";
 };
 console.log(
   "✅ VideoEditorModule class defined and added to window successfully"
