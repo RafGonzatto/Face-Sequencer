@@ -3,6 +3,8 @@
 
 (function(){
   if (!window.VideoEditorModule) return;
+  window.FaceSeqEditorModules = window.FaceSeqEditorModules || {};
+  window.FaceSeqEditorModules.timeline = true;
   const proto = window.VideoEditorModule.prototype;
 
   proto._applyOverlayPosition = function(){

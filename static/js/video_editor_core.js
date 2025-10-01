@@ -123,3 +123,6 @@ class VideoEditorCore extends EventTarget {
 }
 
 window.VideoEditorCore = VideoEditorCore;
+// Global namespace for editor modules to avoid load-order issues
+window.FaceSeqEditorModules = window.FaceSeqEditorModules || {};
+window.FaceSeqEditorModules.core = VideoEditorCore;

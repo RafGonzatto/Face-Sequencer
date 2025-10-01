@@ -73,33 +73,20 @@ class VideoEditorModule extends VideoEditorCore {
     this.generateSubtitlesBtn?.addEventListener("click", () =>
       this.generateSubtitles()
     );
-    // Listen to alternate text input changes to keep button state in sync
     this._altTextInput?.addEventListener("input", () =>
       this.updateGenerateButton()
     );
 
-    // Auto-activate video editor interface in headless/test contexts where the tab toggle isn't clicked
+    // Frame snap step persistence load
     try {
-      const isHeadless =
-        (typeof window !== "undefined" && window.__TEST_MODE__) ||
-        window.__e2eUploaded !== undefined;
-      if (isHeadless && this.videoEditorInterface) {
-        if (getComputedStyle(this.videoEditorInterface).display === "none") {
-          this.videoEditorInterface.style.display = "flex";
-          this.videoEditorInterface.classList.add("active");
-        }
-      }
-    } catch (e) {}
-    this.clearSubtitlesBtn?.addEventListener("click", () =>
-      this.clearSubtitles()
-    );
+      const saved = localStorage.getItem("frameSnapStep");
+      if (saved) this._frameSnapStep = parseInt(saved, 10) || this._frameSnapStep;
+    } catch(e){}
     this.frameSnapStepSelect?.addEventListener("change", () => {
       const v = parseInt(this.frameSnapStepSelect.value, 10);
       if (!isNaN(v) && v > 0) {
         this._frameSnapStep = v;
-        try {
-          localStorage.setItem("frameSnapStep", String(v));
-        } catch (e) {}
+        try { localStorage.setItem("frameSnapStep", String(v)); } catch(e){}
         if (this._snappingEnabled)
           this.app?.showStatus?.(`Snap step: every ${v} frame(s)`);
       }

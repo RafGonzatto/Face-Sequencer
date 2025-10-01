@@ -3,6 +3,8 @@
 
 (function(){
   if (!window.VideoEditorModule) return; // ensure base class loaded
+  window.FaceSeqEditorModules = window.FaceSeqEditorModules || {};
+  window.FaceSeqEditorModules.styles = true;
   const proto = window.VideoEditorModule.prototype;
 
   proto.applyPreset = function(presetName){
