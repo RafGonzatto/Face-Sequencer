@@ -7,6 +7,7 @@
   <div class="video-editor-header">
     <div class="header-left">
       <h2><i class="fas fa-video"></i> Video Subtitle Editor</h2>
+      <span id="videoEditorStats" class="video-editor-stats" aria-live="polite" title="Subtitle segments / total duration">0 seg • 0:00</span>
     </div>
     <div class="header-right">
       <button class="btn btn-outline btn-sm" id="loadVideoBtn">
@@ -20,6 +21,9 @@
       </button>
       <button class="btn btn-outline btn-sm" id="toggleCompactModeBtn" title="Toggle compact layout (hide style panel)">
         <i class="fas fa-compress"></i> Compact
+      </button>
+      <button class="btn btn-outline btn-sm" id="videoScaleModeBtn" title="Cycle video scale mode (Fit / Fill / 1:1)">
+        <i class="fas fa-expand-arrows-alt"></i> Fit
       </button>
       <button
         class="btn btn-outline btn-sm"
@@ -110,6 +114,7 @@
       <div class="section">
         <h4>Quick Presets</h4>
         <div class="preset-buttons" id="presetButtons"></div>
+        <div id="presetButtonsHome" style="display:none"></div>
       </div>
       <div class="section">
         <h4>Text Style</h4>
@@ -248,5 +253,7 @@
       </div>
     </div>
   </div>
+  <!-- Floating compact preset toolbar (shown only in compact mode) -->
+  <div id="compactPresetToolbar" class="compact-preset-toolbar" aria-hidden="true"></div>
 </div>
 {% endmacro %}

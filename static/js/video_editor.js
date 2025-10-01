@@ -17,6 +17,8 @@ class VideoEditorModule extends VideoEditorCore {
     this.bindEvents();
     this.setupFileDrop();
     this._setupStickyHeaderObserver();
+    this._videoScaleModes = ["fit","fill","1:1"]; // cycle
+    this._videoScaleIndex = 0;
     console.log("🎬 Video Editor Module initialized (core extended)");
   }
 
@@ -236,6 +238,21 @@ class VideoEditorModule extends VideoEditorCore {
       // restore preference
       try { if (localStorage.getItem('videoEditorCompact')==='1') compactBtn.click(); } catch(e){}
     }
+    const scaleBtn = document.getElementById('videoScaleModeBtn');
+    if (scaleBtn) {
+      scaleBtn.addEventListener('click', () => {
+        this._videoScaleIndex = (this._videoScaleIndex + 1) % this._videoScaleModes.length;
+        const mode = this._videoScaleModes[this._videoScaleIndex];
+        const container = document.getElementById('videoContainer');
+        if (container) container.setAttribute('data-scale', mode);
+        scaleBtn.classList.toggle('active', mode !== 'fit');
+        scaleBtn.innerHTML = `<i class="fas fa-expand-arrows-alt"></i> ${mode === 'fit' ? 'Fit' : mode === 'fill' ? 'Fill' : '1:1'}`;
+      });
+    }
+    // Floating preset toolbar in compact mode
+    this._initCompactPresetToolbar();
+    // Stats periodic update
+    this._initHeaderStatsUpdater();
   }
 
   preventDefaults(e) {
@@ -1862,7 +1879,7 @@ class VideoEditorModule extends VideoEditorCore {
       const prev = this.subtitles[idx - 1];
       const next = this.subtitles[idx + 1];
       if (prev && sub.start_ms < prev.end_ms) sub.start_ms = prev.end_ms + 10;
-      if (next && sub.end_ms > next.start_ms) sub.end_ms = next.startMs - 10;
+      if (next && sub.end_ms > next.startMs) sub.end_ms = next.startMs - 10;
       this._updateSnapMarkers(sub);
       // Live update
       this.renderSubtitleTimeline();

@@ -1248,3 +1248,23 @@ body.video-editor-compact .subtitle-properties-panel { display:none !important; 
 body.video-editor-compact .video-editor-main { grid-template-columns: minmax(480px,1fr) 1fr !important; }
 @media (max-width:1100px){ body.video-editor-compact .video-editor-main { grid-template-columns:1fr !important; } }
 body.video-editor-compact #toggleCompactModeBtn.active { background: var(--primary-500,#3b82f6); color:#fff; }
+
+/* Animated properties panel collapse */
+.subtitle-properties-panel { transition: width .3s ease, opacity .25s ease, transform .3s ease; will-change: width,opacity,transform; }
+body.video-editor-compact .subtitle-properties-panel { opacity:0; transform:translateX(12px); pointer-events:none; }
+
+/* Floating preset toolbar */
+.compact-preset-toolbar { position:fixed; top:78px; right:12px; z-index:50; background:var(--ve-bg-elevated); border:1px solid var(--ve-border-subtle); padding:8px 10px; border-radius:8px; box-shadow:0 4px 16px -2px rgba(0,0,0,.45); display:flex; gap:6px; flex-wrap:wrap; max-width:240px; opacity:0; transform:translateY(-6px); pointer-events:none; transition:opacity .25s ease, transform .25s ease; }
+body.video-editor-compact .compact-preset-toolbar.active { opacity:1; transform:translateY(0); pointer-events:auto; }
+.compact-preset-toolbar .preset-btn { min-width:100px; }
+
+/* Header stats */
+.video-editor-stats { font-size:12px; font-weight:500; margin-left:12px; padding:4px 8px; border-radius:16px; background:rgba(255,255,255,0.07); color:#cbd5e1; display:inline-flex; align-items:center; gap:6px; line-height:1; }
+body.video-editor-active .video-editor-stats { background:#e2e8f0; color:#334155; }
+
+/* Video scale modes */
+.video-container[data-scale="fit"] video { object-fit:contain; }
+.video-container[data-scale="fill"] video { object-fit:cover; }
+.video-container[data-scale="1:1"] video { object-fit:contain; image-rendering:pixelated; }
+#videoScaleModeBtn.active { background:var(--primary-500,#3b82f6); color:#fff; }
+#videoScaleModeBtn:focus-visible { box-shadow: var(--ve-focus); }
