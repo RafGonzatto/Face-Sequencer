@@ -7,7 +7,13 @@
   <div class="video-editor-header">
     <div class="header-left">
       <h2><i class="fas fa-video"></i> Video Subtitle Editor</h2>
-      <span id="videoEditorStats" class="video-editor-stats" aria-live="polite" title="Subtitle segments / total duration">0 seg • 0:00</span>
+      <span
+        id="videoEditorStats"
+        class="video-editor-stats"
+        aria-live="polite"
+        title="Subtitle segments / total duration"
+        >0 seg • 0:00</span
+      >
     </div>
     <div class="header-right">
       <button class="btn btn-outline btn-sm" id="loadVideoBtn">
@@ -19,10 +25,18 @@
       <button class="btn btn-primary btn-sm" id="generateSubtitlesBtn">
         <i class="fas fa-magic"></i> Generate Subtitles
       </button>
-      <button class="btn btn-outline btn-sm" id="toggleCompactModeBtn" title="Toggle compact layout (hide style panel)">
+      <button
+        class="btn btn-outline btn-sm"
+        id="toggleCompactModeBtn"
+        title="Toggle compact layout (hide style panel)"
+      >
         <i class="fas fa-compress"></i> Compact
       </button>
-      <button class="btn btn-outline btn-sm" id="videoScaleModeBtn" title="Cycle video scale mode (Fit / Fill / 1:1)">
+      <button
+        class="btn btn-outline btn-sm"
+        id="videoScaleModeBtn"
+        title="Cycle video scale mode (Fit / Fill / 1:1)"
+      >
         <i class="fas fa-expand-arrows-alt"></i> Fit
       </button>
       <button
@@ -109,12 +123,35 @@
       <div class="subtitles-list" id="subtitlesList"></div>
     </div>
 
+    <div class="panel transcript-panel">
+      <div class="transcript-header">
+        <h3><i class="fas fa-file-alt"></i> Transcript</h3>
+        <small style="opacity:.7">Cole ou digite o texto completo que corresponde ao áudio do vídeo</small>
+      </div>
+      <textarea id="videoTranscript" rows="5" placeholder="Cole aqui a transcrição completa do áudio do vídeo..." style="width:100%;resize:vertical;margin-top:8px;font:13px/1.4 system-ui, sans-serif;padding:8px;border:1px solid #334155;border-radius:6px;background:#0f172a;color:#f1f5f9;"></textarea>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;gap:8px;flex-wrap:wrap;">
+        <div id="transcriptCharCount" style="font-size:12px;opacity:.65;">0 caracteres</div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <select id="transcriptLanguage" class="btn btn-outline btn-sm" title="Idioma da transcrição" style="min-width:110px;">
+            <option value="pt-BR" selected>Português</option>
+            <option value="en">English</option>
+            <option value="es">Español</option>
+            <option value="fr">Français</option>
+          </select>
+          <button class="btn btn-primary btn-sm" id="alignFromTranscriptBtn" title="Gerar legendas alinhando o texto com o áudio carregado" disabled>
+            <i class="fas fa-wave-square"></i> Align From Text
+          </button>
+        </div>
+      </div>
+      <small style="display:block;margin-top:6px;font-size:11px;opacity:.6;">Requisitos: vídeo ou áudio anexado + texto suficiente. O alinhamento usa o endpoint /api/audio/align-enhanced e depois gera legendas otimizadas.</small>
+    </div>
+
     <div class="panel properties-panel">
       <h3><i class="fas fa-sliders-h"></i> Subtitle Style</h3>
       <div class="section">
         <h4>Quick Presets</h4>
         <div class="preset-buttons" id="presetButtons"></div>
-        <div id="presetButtonsHome" style="display:none"></div>
+        <div id="presetButtonsHome" style="display: none"></div>
       </div>
       <div class="section">
         <h4>Text Style</h4>
@@ -254,6 +291,10 @@
     </div>
   </div>
   <!-- Floating compact preset toolbar (shown only in compact mode) -->
-  <div id="compactPresetToolbar" class="compact-preset-toolbar" aria-hidden="true"></div>
+  <div
+    id="compactPresetToolbar"
+    class="compact-preset-toolbar"
+    aria-hidden="true"
+  ></div>
 </div>
 {% endmacro %}

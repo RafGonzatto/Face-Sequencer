@@ -224,6 +224,75 @@ class VideoEditorModule extends VideoEditorCore {
       this.updateGenerateButton()
     );
 
+    // Transcript textarea logic (if present)
+    const transcriptEl = document.getElementById('videoTranscript');
+    const transcriptCharCount = document.getElementById('transcriptCharCount');
+    const alignFromTextBtn = document.getElementById('alignFromTranscriptBtn');
+    const transcriptLangSel = document.getElementById('transcriptLanguage');
+    if (transcriptEl && !transcriptEl._bound) {
+      transcriptEl._bound = true;
+      const updateTranscriptMeta = () => {
+        const len = transcriptEl.value.trim().length;
+        if (transcriptCharCount) transcriptCharCount.textContent = len + ' caracteres';
+        if (alignFromTextBtn) alignFromTextBtn.disabled = !(len > 12 && (this.videoFile || this.externalAudioBlob));
+      };
+      transcriptEl.addEventListener('input', () => { updateTranscriptMeta(); this.updateGenerateButton(); });
+      updateTranscriptMeta();
+    }
+    if (alignFromTextBtn && !alignFromTextBtn._bound) {
+      alignFromTextBtn._bound = true;
+      alignFromTextBtn.addEventListener('click', async () => {
+        try {
+          if (!this.videoFile && !this.externalAudioBlob) {
+            this.safeError('Carregue um vídeo ou áudio antes de alinhar.'); return;
+          }
+          const transcriptEl = document.getElementById('videoTranscript');
+          const text = (transcriptEl?.value || '').trim();
+          if (text.length < 12) { this.safeError('Transcrição muito curta.'); return; }
+          this._cancelRequested = false;
+          this._enterGeneratingState();
+          this.safeStatus('Alinhando texto com o áudio...');
+          // Garantir áudio (usa vídeo ou externo)
+          let audioBlob = this.externalAudioBlob;
+          if (!audioBlob) {
+            this._updateProgressDetail('Extraindo áudio do vídeo...');
+            audioBlob = await this.extractAudioFromVideo(this.videoFile);
+          }
+          if (this._cancelRequested) throw new Error('Generation cancelled');
+          const progressCb = (p) => { if (!this._cancelRequested) this._updateProgressDetail(p); };
+          const alignmentResult = await this.alignAudioWithText(audioBlob, text, progressCb);
+          if (!alignmentResult || !alignmentResult.alignment) throw new Error('Falha no alinhamento');
+          this._updateProgressDetail('Gerando legendas otimizadas...');
+          const enhanced = await this.generateEnhancedSubtitles(alignmentResult.alignment);
+          if (enhanced && enhanced.segments) {
+            // Converter para estrutura esperada
+            this.subtitles = enhanced.segments.map((seg, i) => ({
+              id: seg.id || i + 1,
+              text: seg.text,
+              start_ms: Math.round(seg.start_time * 1000),
+              end_ms: Math.round(seg.end_time * 1000)
+            }));
+            this.subtitleMetrics = enhanced.metrics;
+            this.displaySubtitleMetrics?.(enhanced.metrics);
+          } else {
+            // Fallback: usar alignment direto
+            const base = alignmentResult.alignment.segments || alignmentResult.alignment;
+            this.subtitles = base.map((s, i) => ({ id: s.id || i+1, text: s.text || s.label || '', start_ms: Math.round(s.start * 1000 || s.start_ms || 0), end_ms: Math.round(s.end * 1000 || s.end_ms || 0) }));
+          }
+          this.renderSubtitleTimeline?.();
+          this.renderSubtitleSegments?.();
+          this.updateUIState?.();
+          this.previewWithSubtitles?.();
+          this.safeStatus('Legendas geradas a partir da transcrição.');
+        } catch (err) {
+          console.error('[AlignFromText] failed', err);
+          this.safeError('Falha ao gerar legendas: ' + (err.message || err));
+        } finally {
+          this._exitGeneratingState();
+        }
+      });
+    }
+
     // Manual subtitle addition
     const addSubtitleBtn = document.getElementById("addSubtitleBtn");
     if (addSubtitleBtn && !addSubtitleBtn._bound) {
@@ -239,60 +308,84 @@ class VideoEditorModule extends VideoEditorCore {
     }
 
     // Split & Merge buttons
-    const splitBtn = document.getElementById('splitSubtitleBtn');
-    const mergeBtn = document.getElementById('mergeSubtitlesBtn');
-    if (splitBtn && !splitBtn._bound) { splitBtn._bound = true; splitBtn.addEventListener('click', () => this.splitSelectedSubtitle()); }
-    if (mergeBtn && !mergeBtn._bound) { mergeBtn._bound = true; mergeBtn.addEventListener('click', () => this.mergeSelectedSubtitles()); }
+    const splitBtn = document.getElementById("splitSubtitleBtn");
+    const mergeBtn = document.getElementById("mergeSubtitlesBtn");
+    if (splitBtn && !splitBtn._bound) {
+      splitBtn._bound = true;
+      splitBtn.addEventListener("click", () => this.splitSelectedSubtitle());
+    }
+    if (mergeBtn && !mergeBtn._bound) {
+      mergeBtn._bound = true;
+      mergeBtn.addEventListener("click", () => this.mergeSelectedSubtitles());
+    }
 
     // Sorting select implementation
-    const sortSelect = document.getElementById('subtitleSort');
+    const sortSelect = document.getElementById("subtitleSort");
     if (sortSelect && !sortSelect._bound) {
       sortSelect._bound = true;
-      sortSelect.addEventListener('change', () => {
+      sortSelect.addEventListener("change", () => {
         const mode = sortSelect.value;
-        if (mode === 'start') this.subtitles.sort((a,b)=>a.start_ms-b.start_ms);
-        else if (mode === 'length') this.subtitles.sort((a,b)=>(a.end_ms-a.start_ms)-(b.end_ms-b.start_ms));
+        if (mode === "start")
+          this.subtitles.sort((a, b) => a.start_ms - b.start_ms);
+        else if (mode === "length")
+          this.subtitles.sort(
+            (a, b) => a.end_ms - a.start_ms - (b.end_ms - b.start_ms)
+          );
         this.renderSubtitleSegments();
         this.renderSubtitleTimeline?.();
       });
     }
 
     // Inject search toolbar once
-    const subsPanel = document.querySelector('.subtitles-panel');
-    if (subsPanel && !subsPanel.querySelector('.subtitles-toolbar')) {
-      const toolbar = document.createElement('div');
-      toolbar.className = 'subtitles-toolbar';
+    const subsPanel = document.querySelector(".subtitles-panel");
+    if (subsPanel && !subsPanel.querySelector(".subtitles-toolbar")) {
+      const toolbar = document.createElement("div");
+      toolbar.className = "subtitles-toolbar";
       toolbar.innerHTML = `<input id="subtitleSearch" placeholder="Filter text..." aria-label="Filter subtitles"><span id="subtitleFilterCount" style="font-size:11px;opacity:.7;">0</span>`;
-      const list = subsPanel.querySelector('.subtitles-list');
+      const list = subsPanel.querySelector(".subtitles-list");
       subsPanel.insertBefore(toolbar, list);
-      const searchInput = toolbar.querySelector('#subtitleSearch');
-      const counter = toolbar.querySelector('#subtitleFilterCount');
-      searchInput.addEventListener('input', () => {
+      const searchInput = toolbar.querySelector("#subtitleSearch");
+      const counter = toolbar.querySelector("#subtitleFilterCount");
+      searchInput.addEventListener("input", () => {
         const q = searchInput.value.toLowerCase();
         let visible = 0;
-        this.subtitles.forEach(s => {
+        this.subtitles.forEach((s) => {
           const el = this.segmentsList?.querySelector(`[data-id="${s.id}"]`);
           if (!el) return;
-          if (!q || s.text.toLowerCase().includes(q)) { el.classList.remove('filtered-out'); visible++; }
-          else el.classList.add('filtered-out');
+          if (!q || s.text.toLowerCase().includes(q)) {
+            el.classList.remove("filtered-out");
+            visible++;
+          } else el.classList.add("filtered-out");
         });
-        counter.textContent = visible + '/' + this.subtitles.length;
+        counter.textContent = visible + "/" + this.subtitles.length;
       });
     }
 
     // Keyboard shortcuts (N new, Delete remove selected, Enter jump next)
     if (!this._subtitleKeyBound) {
       this._subtitleKeyBound = true;
-      window.addEventListener('keydown', (e) => {
-        if (e.key.toLowerCase()==='n' && !e.metaKey && !e.ctrlKey) { e.preventDefault(); this.addSubtitle(); }
-        if (e.key === 'Delete') { this.deleteSelectedSubtitles(); }
-        if (e.key === 'Enter' && this._lastFocusedSubtitleInput) {
+      window.addEventListener("keydown", (e) => {
+        if (e.key.toLowerCase() === "n" && !e.metaKey && !e.ctrlKey) {
           e.preventDefault();
-          const items = Array.from(this.segmentsList?.querySelectorAll('.subtitle-segment-item')||[]);
-          const idx = items.findIndex(i=>i.contains(this._lastFocusedSubtitleInput));
-          if (idx>=0 && idx < items.length-1) {
-            const next = items[idx+1].querySelector('.segment-text-input');
-            if (next) { next.focus(); next.select(); }
+          this.addSubtitle();
+        }
+        if (e.key === "Delete") {
+          this.deleteSelectedSubtitles();
+        }
+        if (e.key === "Enter" && this._lastFocusedSubtitleInput) {
+          e.preventDefault();
+          const items = Array.from(
+            this.segmentsList?.querySelectorAll(".subtitle-segment-item") || []
+          );
+          const idx = items.findIndex((i) =>
+            i.contains(this._lastFocusedSubtitleInput)
+          );
+          if (idx >= 0 && idx < items.length - 1) {
+            const next = items[idx + 1].querySelector(".segment-text-input");
+            if (next) {
+              next.focus();
+              next.select();
+            }
           }
         }
       });
@@ -504,30 +597,35 @@ class VideoEditorModule extends VideoEditorCore {
     this.safeStatus(`Added subtitle #${this.subtitles.length}`);
   }
 
-  _selectSubtitleElement(el, additive=false) {
+  _selectSubtitleElement(el, additive = false) {
     if (!el) return;
     if (!additive) {
-      this.segmentsList?.querySelectorAll('.subtitle-segment-item.is-selected').forEach(x=>x.classList.remove('is-selected'));
+      this.segmentsList
+        ?.querySelectorAll(".subtitle-segment-item.is-selected")
+        .forEach((x) => x.classList.remove("is-selected"));
       this._selectedSubtitleIds = [];
     }
     const id = el.dataset.id;
-    el.classList.add('is-selected');
+    el.classList.add("is-selected");
     this._selectedSubtitleIds = this._selectedSubtitleIds || [];
-    if (!this._selectedSubtitleIds.includes(id)) this._selectedSubtitleIds.push(id);
+    if (!this._selectedSubtitleIds.includes(id))
+      this._selectedSubtitleIds.push(id);
     this._updateSelectionButtons();
   }
 
   _updateSelectionButtons() {
-    const splitBtn = document.getElementById('splitSubtitleBtn');
-    const mergeBtn = document.getElementById('mergeSubtitlesBtn');
-    const count = (this._selectedSubtitleIds||[]).length;
+    const splitBtn = document.getElementById("splitSubtitleBtn");
+    const mergeBtn = document.getElementById("mergeSubtitlesBtn");
+    const count = (this._selectedSubtitleIds || []).length;
     if (splitBtn) splitBtn.disabled = count !== 1;
     if (mergeBtn) mergeBtn.disabled = count !== 2;
   }
 
   deleteSelectedSubtitles() {
     if (!this._selectedSubtitleIds || !this._selectedSubtitleIds.length) return;
-    this.subtitles = this.subtitles.filter(s => !this._selectedSubtitleIds.includes(String(s.id)));
+    this.subtitles = this.subtitles.filter(
+      (s) => !this._selectedSubtitleIds.includes(String(s.id))
+    );
     this._selectedSubtitleIds = [];
     this.renderSubtitleSegments();
     this.renderSubtitleTimeline?.();
@@ -535,35 +633,50 @@ class VideoEditorModule extends VideoEditorCore {
   }
 
   splitSelectedSubtitle() {
-    if (!this._selectedSubtitleIds || this._selectedSubtitleIds.length !== 1) return;
+    if (!this._selectedSubtitleIds || this._selectedSubtitleIds.length !== 1)
+      return;
     const id = this._selectedSubtitleIds[0];
-    const sub = this.subtitles.find(s => String(s.id) === String(id));
+    const sub = this.subtitles.find((s) => String(s.id) === String(id));
     if (!sub) return;
     const mid = Math.round((sub.start_ms + sub.end_ms) / 2);
-    if (mid - sub.start_ms < 120 || sub.end_ms - mid < 120) { this.safeStatus('Segment too short to split'); return; }
-    const second = { id: Date.now()+"_split", text: sub.text, start_ms: mid, end_ms: sub.end_ms };
+    if (mid - sub.start_ms < 120 || sub.end_ms - mid < 120) {
+      this.safeStatus("Segment too short to split");
+      return;
+    }
+    const second = {
+      id: Date.now() + "_split",
+      text: sub.text,
+      start_ms: mid,
+      end_ms: sub.end_ms,
+    };
     sub.end_ms = mid - 40;
     this.subtitles.push(second);
-    this.subtitles.sort((a,b)=>a.start_ms-b.start_ms);
+    this.subtitles.sort((a, b) => a.start_ms - b.start_ms);
     this.renderSubtitleSegments();
     this.renderSubtitleTimeline?.();
-    this.safeStatus('Segment split');
+    this.safeStatus("Segment split");
   }
 
   mergeSelectedSubtitles() {
-    if (!this._selectedSubtitleIds || this._selectedSubtitleIds.length !== 2) return;
+    if (!this._selectedSubtitleIds || this._selectedSubtitleIds.length !== 2)
+      return;
     const ids = this._selectedSubtitleIds.map(String);
-    const picks = this.subtitles.filter(s => ids.includes(String(s.id))).sort((a,b)=>a.start_ms-b.start_ms);
+    const picks = this.subtitles
+      .filter((s) => ids.includes(String(s.id)))
+      .sort((a, b) => a.start_ms - b.start_ms);
     if (picks.length !== 2) return;
-    const [a,b] = picks;
-    if (b.start_ms < a.end_ms) { a.end_ms = Math.max(a.end_ms, b.end_ms); }
-    else { a.end_ms = b.end_ms; }
-    a.text = (a.text + ' ' + b.text).trim();
-    this.subtitles = this.subtitles.filter(s => s !== b);
+    const [a, b] = picks;
+    if (b.start_ms < a.end_ms) {
+      a.end_ms = Math.max(a.end_ms, b.end_ms);
+    } else {
+      a.end_ms = b.end_ms;
+    }
+    a.text = (a.text + " " + b.text).trim();
+    this.subtitles = this.subtitles.filter((s) => s !== b);
     this._selectedSubtitleIds = [String(a.id)];
     this.renderSubtitleSegments();
     this.renderSubtitleTimeline?.();
-    this.safeStatus('Segments merged');
+    this.safeStatus("Segments merged");
   }
 
   /**
@@ -2331,8 +2444,9 @@ class VideoEditorModule extends VideoEditorCore {
   renderSubtitleSegments() {
     // Support both legacy #segmentsList and current #subtitlesList containers
     if (!this.segmentsList) {
-      const alt = document.getElementById('subtitlesList');
-      if (alt) this.segmentsList = alt; else return;
+      const alt = document.getElementById("subtitlesList");
+      if (alt) this.segmentsList = alt;
+      else return;
     }
 
     // Update count
@@ -2342,13 +2456,13 @@ class VideoEditorModule extends VideoEditorCore {
     }
 
     // Clear existing segments
-  this.segmentsList.innerHTML = "";
+    this.segmentsList.innerHTML = "";
 
     this.subtitles.forEach((subtitle, index) => {
       const segmentDiv = document.createElement("div");
       segmentDiv.className = "subtitle-segment-item";
       segmentDiv.dataset.id = subtitle.id;
-      segmentDiv.addEventListener('click', (e) => {
+      segmentDiv.addEventListener("click", (e) => {
         const additive = e.ctrlKey || e.metaKey || e.shiftKey;
         this._selectSubtitleElement(segmentDiv, additive);
       });
@@ -2366,9 +2480,10 @@ class VideoEditorModule extends VideoEditorCore {
             )}" data-field="end" />
           </div>
           <div class="seg-col seg-text">
-            <input type="text" class="segment-text-input" value="${
-              subtitle.text.replace(/"/g,'&quot;')
-            }" />
+            <input type="text" class="segment-text-input" value="${subtitle.text.replace(
+              /"/g,
+              "&quot;"
+            )}" />
           </div>
           <div class="seg-col seg-actions">
             <button class="btn btn-xs btn-danger" data-act="del" title="Delete"><i class="fas fa-trash"></i></button>
@@ -2384,39 +2499,43 @@ class VideoEditorModule extends VideoEditorCore {
         textInput.addEventListener("input", () => {
           this.updateSubtitleTextLive(subtitle.id, textInput.value);
         });
-        textInput.addEventListener('focus', () => { this._lastFocusedSubtitleInput = textInput; });
+        textInput.addEventListener("focus", () => {
+          this._lastFocusedSubtitleInput = textInput;
+        });
       }
       // Timing edits
-      const startInput = segmentDiv.querySelector('.seg-start');
-      const endInput = segmentDiv.querySelector('.seg-end');
+      const startInput = segmentDiv.querySelector(".seg-start");
+      const endInput = segmentDiv.querySelector(".seg-end");
       const parseClock = (val) => {
-        const parts = val.split(':');
+        const parts = val.split(":");
         if (parts.length === 2) {
-          const m = parseInt(parts[0],10)||0; const s = parseFloat(parts[1])||0; return (m*60+s)*1000;
+          const m = parseInt(parts[0], 10) || 0;
+          const s = parseFloat(parts[1]) || 0;
+          return (m * 60 + s) * 1000;
         }
-        return parseFloat(val)*1000 || 0;
+        return parseFloat(val) * 1000 || 0;
       };
       const applyTiming = () => {
         const newStart = parseClock(startInput.value);
         const newEnd = parseClock(endInput.value);
         if (newEnd - newStart >= 100) {
           subtitle.start_ms = newStart;
-            subtitle.end_ms = newEnd;
-            this.renderSubtitleTimeline?.();
+          subtitle.end_ms = newEnd;
+          this.renderSubtitleTimeline?.();
         }
       };
       if (startInput && endInput) {
-        startInput.addEventListener('change', applyTiming);
-        endInput.addEventListener('change', applyTiming);
+        startInput.addEventListener("change", applyTiming);
+        endInput.addEventListener("change", applyTiming);
       }
       // Delete button
       const delBtn = segmentDiv.querySelector('[data-act="del"]');
       if (delBtn) {
-        delBtn.addEventListener('click', () => {
-          this.subtitles = this.subtitles.filter(s => s.id !== subtitle.id);
+        delBtn.addEventListener("click", () => {
+          this.subtitles = this.subtitles.filter((s) => s.id !== subtitle.id);
           this.renderSubtitleSegments();
           this.renderSubtitleTimeline?.();
-          this.safeStatus('Deleted segment');
+          this.safeStatus("Deleted segment");
         });
       }
 
@@ -2770,12 +2889,13 @@ window.VideoEditorModule = VideoEditorModule;
 
 // Helper methods appended after class definition (non-breaking augmentation)
 VideoEditorModule.prototype.getTranscriptText = function () {
-  if (this.videoTranscript && this.videoTranscript.value.trim().length > 0) {
-    return this.videoTranscript.value.trim();
-  }
-  const alt = this._altTextInput || document.getElementById("textInput");
-  if (alt && alt.value) return alt.value.trim();
-  return "";
+  // Precedence: dedicated transcript textarea > altText > legacy textInput
+  const direct = document.getElementById('videoTranscript');
+  if (direct && direct.value.trim()) return direct.value.trim();
+  if (this.videoTranscript && this.videoTranscript.value.trim()) return this.videoTranscript.value.trim();
+  const alt = this._altTextInput || document.getElementById('textInput');
+  if (alt && alt.value.trim()) return alt.value.trim();
+  return '';
 };
 console.log(
   "✅ VideoEditorModule class defined and added to window successfully"
