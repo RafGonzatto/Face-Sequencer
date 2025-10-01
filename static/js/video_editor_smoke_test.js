@@ -8,6 +8,8 @@
   // Only run in explicit FRONTEND_TEST_MODE or when hash includes smoke
   const envFlag = (window.__TEST_MODE__ || window.__FRONTEND_TEST_MODE__);
   const hashFlag = window.location.hash.includes('smoke');
+  const noSmoke = window.location.search.includes('NO_SMOKE=1') || window.location.hash.includes('NO_SMOKE');
+  if(noSmoke) { console.log('[smoke] Skipped due to NO_SMOKE flag'); return; }
   if(!envFlag && !hashFlag) return; // gated
 
   try {

@@ -1,191 +1,21 @@
 // video_editor.js - Video Editor Module for Face Sequencer Pro
 console.log("🎬 Loading VideoEditorModule class...");
 
-class VideoEditorModule extends EventTarget {
-  constructor(appRef) {
-    super();
-    // Accept optional hosting app (FaceSequencerApp) providing showStatus/showError APIs
-    this.app = appRef || window.faceSequencerApp || window.app || null;
-    // Provide resilient fallbacks so calls like this.app.showStatus do not throw
-    if(!this.app){
-      const statusLog = (...m)=>console.log('[video-editor status]', ...m);
-      const errorLog = (msg)=>console.error('[video-editor error]', msg);
-      this.app = {
-        showStatus: statusLog,
-        showError: errorLog,
-        reportError: (m)=>errorLog(m),
-        errorToasts: { show: (m)=>errorLog(m) },
-        state: {}
-      };
-      console.warn('[VideoEditorModule] No host app supplied; using internal no-op logger app');
-    } else {
-      // Ensure required surface methods exist even if partial
-      this.app.showStatus = this.app.showStatus || function(m){ console.log('[video-editor status]', m); };
-  // Legacy fallback kept for backward compatibility; prefer this.safeError everywhere
-  this.app.showError = this.app.showError || function(m){ console.error('[video-editor error]', m); };
-      this.app.errorToasts = this.app.errorToasts || { show: (m,o)=>console.log('[toast]', m,o||'') };
-    }
-
-    // Helper wrappers to centralize guarded calls
-    this.safeStatus = (msg)=>{ try { this.app && this.app.showStatus && this.app.showStatus(msg); } catch(e){ console.log('[safeStatus]', msg); } };
-    this.safeError = (msg)=>{ try { this.app && this.app.showError && this.app.showError(msg); } catch(e){ console.error('[safeError]', msg); } };
-    this.safeToast = (msg, opts)=>{ try { this.app && this.app.errorToasts && this.app.errorToasts.show && this.app.errorToasts.show(msg, opts); } catch(e){ console.log('[safeToast]', msg, opts||''); } };
-    // Core overlay & subtitle state
-    this.overlayElement = null; // movable wrapper
-    this.overlayTextElement = null; // inner text element
-    this._overlayDragState = null;
-    this._overlayKeyListener = null;
-    this.overlayPosition = { xPercent: 50, yPercent: 80, custom: false };
-    this.precisionMode = "balanced";
-    this.subtitles = [];
-    this.isVideoLoaded = false;
-    this.subtitleUpdateListener = null;
-
-    // Delay attaching undo/redo until after DOM paint
-    setTimeout(
-      () => this.attachUndoRedoShortcuts && this.attachUndoRedoShortcuts(),
-      0
-    );
-
-    // Cache frequently used DOM elements (video controls & containers)
-    this.generateSubtitlesBtn = document.getElementById("generateSubtitlesBtn");
-    // Handle (legacy) duplicate button blocks in template – keep a list to sync states
-    this._generateBtnDuplicates = Array.from(
-      document.querySelectorAll("#generateSubtitlesBtn")
-    );
-    if (this._generateBtnDuplicates.length > 1) {
-      // Prefer the first (Selenium will also pick first). We'll mirror state to others.
-      this.generateSubtitlesBtn = this._generateBtnDuplicates[0];
-    }
-    this.clearSubtitlesBtn = document.getElementById("clearSubtitlesBtn");
-    this.frameSnapStepSelect = document.getElementById("frameSnapStep");
-    this.videoTranscript = document.getElementById("videoTranscript");
-    // Fallback legacy/global text input used in some tests or modes
-    this._altTextInput = document.getElementById("textInput");
-    this.subtitleTimeline = document.getElementById("subtitleTimeline");
-    this.segmentsList = document.getElementById("segmentsList");
-    this.previewSubtitles = document.getElementById("previewSubtitles");
-    this.exportVideoWithSubtitles = document.getElementById(
-      "exportVideoWithSubtitles"
-    );
-    // Video core elements
-    this.loadVideoBtn = document.getElementById("loadVideoBtn");
-    this.videoPreview = document.getElementById("videoPreview");
-    this.videoPlaceholder = document.getElementById("videoPlaceholder");
-    this.playPauseBtn = document.getElementById("playPauseBtn");
-    this.stopVideoBtn = document.getElementById("stopVideoBtn");
-    // Interfaces / mode buttons if present
-    this.videoEditorInterface = document.getElementById("videoEditorInterface");
-    this.faceAnimationInterface = document.getElementById(
-      "faceAnimationInterface"
-    );
-    this.videoEditorMode = document.getElementById("videoEditorMode");
-    this.faceAnimationMode = document.getElementById("faceAnimationMode");
-    this.externalAudioInput = document.getElementById("externalAudioInput");
-    this.precisionModeSelect = document.getElementById("precisionMode");
-    if (!this.precisionModeSelect) {
-      const hostControls = document.querySelector(
-        ".video-editor-controls, .player-controls, .video-controls"
-      );
-      if (hostControls) {
-        const sel = document.createElement("select");
-        sel.id = "precisionMode";
-        sel.innerHTML = `
-          <option value="fast">Rápido</option>
-          <option value="balanced" selected>Balanceado</option>
-          <option value="maximum">Máximo</option>`;
-        sel.style.marginLeft = "8px";
-        sel.title = "Modo de precisão das legendas (velocidade vs sincronia)";
-        hostControls.appendChild(sel);
-        this.precisionModeSelect = sel;
-      }
-    }
-
-    // Style controls
-    this.presetButtons = document.querySelectorAll(".preset-btn");
-    this.fontFamily = document.getElementById("fontFamily");
-    this.fontSize = document.getElementById("fontSize");
-    this.fontWeight = document.getElementById("fontWeight");
-    this.textColor = document.getElementById("textColor");
-    this.backgroundColor = document.getElementById("backgroundColor");
-    this.backgroundOpacity = document.getElementById("backgroundOpacity");
-    this.outlineColor = document.getElementById("outlineColor");
-    this.outlineWidth = document.getElementById("outlineWidth");
-    this.verticalPosition = document.getElementById("verticalPosition");
-    this.horizontalAlign = document.getElementById("horizontalAlign");
-    this.maxWidth = document.getElementById("maxWidth");
-
-    // Effects panel (fade & karaoke)
-    this.effectsPanel = document.getElementById("subtitleEffectsPanel");
-    if (!this.effectsPanel) {
-      const container = document.querySelector(
-        "#subtitleStylePanel, .subtitle-style-panel, .style-controls"
-      );
-      if (container) {
-        const panel = document.createElement("div");
-        panel.id = "subtitleEffectsPanel";
-        Object.assign(panel.style, {
-          marginTop: "12px",
-          padding: "8px",
-          border: "1px solid #333",
-          borderRadius: "4px",
-          background: "#1e1e1e",
-        });
-        panel.innerHTML = `
-          <div style="font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:6px;">
-            <span>Efeitos</span>
-            <small style="opacity:0.6;font-weight:400;">fade & karaoke</small>
-          </div>
-          <div style="display:flex;flex-direction:column;gap:6px;">
-            <label style="display:flex;flex-direction:column;font-size:12px;gap:2px;">
-              Fade In (ms)
-              <input type="range" min="0" max="1000" step="10" value="150" id="fadeInMs" />
-              <span style="font-size:11px;opacity:0.7;" id="fadeInMsValue">150 ms</span>
-            </label>
-            <label style="display:flex;flex-direction:column;font-size:12px;gap:2px;">
-              Fade Out (ms)
-              <input type="range" min="0" max="1500" step="10" value="150" id="fadeOutMs" />
-              <span style="font-size:11px;opacity:0.7;" id="fadeOutMsValue">150 ms</span>
-            </label>
-            <label style="display:flex;align-items:center;gap:6px;font-size:12px;">
-              <input type="checkbox" id="karaokeToggle" /> Karaoke (experimental)
-            </label>
-          </div>`;
-        container.appendChild(panel);
-        this.effectsPanel = panel;
-      }
-    }
-    this.fadeInMs = document.getElementById("fadeInMs");
-    this.fadeOutMs = document.getElementById("fadeOutMs");
-    this.fadeInMsValue = document.getElementById("fadeInMsValue");
-    this.fadeOutMsValue = document.getElementById("fadeOutMsValue");
-    this.karaokeToggle = document.getElementById("karaokeToggle");
-
-    // Hidden file input for video uploads
-    this.videoInput = document.createElement("input");
-    this.videoInput.type = "file";
-    // Inclui explicitamente extensões comuns para garantir que o Windows exiba .mov
-    // Alguns ambientes não mostram MOV apenas com video/*
-    this.videoInput.accept = ".mp4,.mov,.mkv,.webm,.avi,.m4v,video/*";
-    this.videoInput.style.display = "none";
-    document.body.appendChild(this.videoInput);
-
-    // Enhanced timeline
+class VideoEditorModule extends VideoEditorCore {
+  constructor(appRef){
+    super(appRef);
+    // Post-core initialization (features beyond core caching)
     this.enhancedTimeline = null;
     this.initializeEnhancedTimeline();
-
-    // Advanced editor state & UI (frame stepping, grid, locking)
-    this.alignmentFps = 30.0; // will update from alignment responses
+    this.alignmentFps = 30.0;
     this.overlayLocked = false;
     this._advancedUiInjected = false;
     this._gridCanvas = null;
     this._injectEditorStyles();
     this._injectEditorControls();
-
-    // Event wiring & drag/drop setup
     this.bindEvents();
     this.setupFileDrop();
-    console.log("🎬 Video Editor Module initialized");
+    console.log('🎬 Video Editor Module initialized (core extended)');
   }
 
   bindEvents() {
