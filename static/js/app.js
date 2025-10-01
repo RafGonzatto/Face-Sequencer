@@ -1363,6 +1363,7 @@ class FaceSequencerApp {
 
   updateCharCount() {
     const count = this.state.project.text.length;
+    if (!this.charCount) return; // defensive safeguard
     this.charCount.textContent = `${count} character${count !== 1 ? "s" : ""}`;
   }
 
@@ -1377,6 +1378,7 @@ class FaceSequencerApp {
       }
     });
 
+    if (!this.mappingStatus) return; // defensive safeguard
     if (uniqueChars.length === 0) {
       this.mappingStatus.textContent = "Ready";
       this.mappingStatus.className = "mapping-status";
