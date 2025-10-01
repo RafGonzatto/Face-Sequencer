@@ -856,3 +856,185 @@ body.video-editor-active .video-placeholder i {
   opacity: 1;
   transform: translateX(0);
 }
+
+/* =============================
+   Visual Enhancements (2025-09)
+   - Better spacing / panel delineation
+   - Accessible focus states & subtle theming
+   - Empty state messaging & improved sliders
+   - Aspect ratio handling for video container
+   ============================= */
+
+/* Establish CSS vars with graceful fallbacks */
+:root {
+  --ve-bg-surface: #111827;
+  --ve-bg-elevated: #1e2531;
+  --ve-border: #2a3342;
+  --ve-border-subtle: #243041;
+  --ve-shadow: 0 1px 2px rgba(0,0,0,.4), 0 0 0 1px rgba(255,255,255,0.02) inset;
+  --ve-radius-sm: 4px;
+  --ve-radius-md: 6px;
+  --ve-radius-lg: 8px;
+  --ve-focus: 0 0 0 2px rgba(59,130,246,.4);
+}
+
+body.video-editor-active {
+  --ve-bg-surface: #ffffff;
+  --ve-bg-elevated: #f8fafc;
+  --ve-border: #d8dee5;
+  --ve-border-subtle: #e2e8f0;
+  --ve-shadow: 0 1px 2px rgba(0,0,0,.06), 0 0 0 1px rgba(0,0,0,0.03) inset;
+}
+
+/* Layout refinements */
+.video-editor-main {
+  grid-template-columns: minmax(440px, 1.05fr) 1fr 360px;
+  gap: 0; /* remove harsh grid line, use panel borders */
+}
+
+.video-preview-panel,
+.subtitle-timeline-panel,
+.subtitle-properties-panel {
+  background: var(--ve-bg-surface) !important;
+  box-shadow: var(--ve-shadow);
+  border-right: 1px solid var(--ve-border-subtle);
+}
+.subtitle-properties-panel { border-right: none; }
+
+/* Header polish */
+.video-editor-header {
+  background: linear-gradient(135deg,#1f2937,#111827) !important;
+  border-bottom: 1px solid var(--ve-border);
+}
+body.video-editor-active .video-editor-header {
+  background: linear-gradient(90deg,#ffffff,#f1f5f9) !important;
+}
+
+.video-editor-header h2 { font-size: 22px; letter-spacing:.25px; }
+
+/* Top action buttons grouping */
+.video-editor-header .header-right {
+  display:flex;
+  gap:8px;
+  align-items:center;
+}
+.video-editor-header .header-right .btn { height:36px; display:inline-flex; align-items:center; }
+.video-editor-header .header-right .btn i { font-size:13px; }
+
+/* Disabled primary buttons clarity */
+.btn[disabled] { opacity:.45; cursor:not-allowed; }
+.btn.btn-primary[disabled] { background:#1e3a8a !important; }
+
+/* Video container aspect ratio */
+.video-wrapper { padding:16px 20px 8px; }
+.video-wrapper .video-container { position:relative; width:100%; background:#000; border-radius:var(--ve-radius-lg); overflow:hidden; aspect-ratio:16/9; }
+/* Fallback for browsers without aspect-ratio */
+.video-wrapper .video-container::before { content:""; float:left; padding-top:56.25%; }
+.video-wrapper .video-container::after { content:""; display:block; clear:both; }
+.video-wrapper video { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
+
+/* Progress / seek alignment */
+#videoSeek { flex:1; margin:0 8px; }
+.video-controls { display:flex; align-items:center; gap:8px; border-top:1px solid var(--ve-border); background:var(--ve-bg-elevated); }
+
+/* Timeline / subtitles empty state */
+#subtitlesList:empty::before {
+  content: "No subtitles yet. Click 'Generate Subtitles' or 'Add' to create the first segment.";
+  display:block;
+  padding:32px 24px;
+  text-align:center;
+  font-size:13px;
+  line-height:1.5;
+  color: var(--text-secondary, #9ca3af);
+  opacity:.85;
+}
+
+/* Scroll smoothing & nicer scrollbar */
+.subtitles-list, .subtitle-timeline-container, .segments-list { scroll-behavior:smooth; }
+.subtitles-list::-webkit-scrollbar { width:10px; }
+.subtitles-list::-webkit-scrollbar-track { background:rgba(255,255,255,0.04); }
+.subtitles-list::-webkit-scrollbar-thumb { background:#475569; border-radius:6px; border:2px solid rgba(0,0,0,0.15); }
+body.video-editor-active .subtitles-list::-webkit-scrollbar-thumb { background:#cbd5e1; border:2px solid #f1f5f9; }
+
+/* Segment item active / focus */
+.subtitle-segment-item.active { border-color: var(--primary-500,#3b82f6); background: linear-gradient(135deg, rgba(59,130,246,0.15), rgba(59,130,246,0.05)); }
+.subtitle-segment-item:focus-within { outline:none; box-shadow: var(--ve-focus); }
+
+/* Range inputs visual upgrade */
+input[type=range] { appearance:none; -webkit-appearance:none; height:4px; border-radius:2px; background:linear-gradient(90deg,#3b82f6 0%,#1e40af 100%); cursor:pointer; }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; height:16px; width:16px; border-radius:50%; background:#fff; border:2px solid #2563eb; box-shadow:0 1px 2px rgba(0,0,0,.5); transition:.15s; }
+input[type=range]::-webkit-slider-thumb:hover { transform:scale(1.05); }
+input[type=range]:focus { outline:none; box-shadow: var(--ve-focus); }
+body.video-editor-active input[type=range] { background:linear-gradient(90deg,#3b82f6 0%,#60a5fa 100%); }
+
+/* Color input ring */
+input[type=color] { border:1px solid var(--ve-border); box-shadow:0 0 0 2px rgba(255,255,255,0.05) inset; }
+input[type=color]:focus { outline:none; box-shadow: var(--ve-focus); }
+
+/* Value display badge styling */
+.control-group .value-display { background:rgba(255,255,255,0.06); padding:2px 6px; border-radius:var(--ve-radius-sm); font-variant-numeric:tabular-nums; }
+body.video-editor-active .control-group .value-display { background:#e2e8f0; color:#0f172a; }
+
+/* Properties panel section separation */
+.subtitle-properties-panel .section { background:var(--ve-bg-elevated); padding:16px 18px 20px; border:1px solid var(--ve-border-subtle); border-radius:var(--ve-radius-md); box-shadow:0 1px 1px rgba(0,0,0,0.25); }
+.subtitle-properties-panel .section + .section { margin-top:16px; }
+body.video-editor-active .subtitle-properties-panel .section { background:#ffffff; }
+
+/* Section headings refinement */
+.subtitle-properties-panel .section h4 { font-size:12px; letter-spacing:.75px; opacity:.85; }
+
+/* Compact preset buttons grid -> responsive */
+.preset-buttons { grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); }
+
+/* Hover elevation */
+.preset-btn { position:relative; overflow:hidden; }
+.preset-btn::after { content:""; position:absolute; inset:0; background:linear-gradient(120deg,rgba(255,255,255,0.04),transparent 60%); opacity:0; transition:opacity .25s; }
+.preset-btn:hover::after { opacity:1; }
+
+/* Annotation toolbar elevation */
+.annotation-toolbar { background:var(--ve-bg-elevated); border-top:1px solid var(--ve-border-subtle); padding:6px 8px; box-shadow:0 -1px 2px rgba(0,0,0,0.25); }
+
+/* Improve placeholder contrast in light mode */
+body.video-editor-active #subtitlesList:empty::before { color:#64748b; }
+
+/* Responsive fine-tune */
+@media (max-width:1400px) {
+  .video-editor-main { grid-template-columns: minmax(420px,1fr) 1fr 340px; }
+}
+@media (max-width:1100px) {
+  .video-editor-main { grid-template-columns: 1fr 340px; grid-auto-rows:minmax(320px,auto); }
+  .subtitle-timeline-panel { grid-column:1 / -1; order:3; }
+}
+@media (max-width:880px) {
+  .video-editor-main { grid-template-columns:1fr; }
+  .subtitle-properties-panel { order:3; }
+}
+
+/* Focus ring for buttons */
+.btn:focus-visible { outline:none; box-shadow: var(--ve-focus); }
+
+/* Subtle panel fade-in */
+.video-editor-interface.active .video-preview-panel,
+.video-editor-interface.active .subtitle-timeline-panel,
+.video-editor-interface.active .subtitle-properties-panel { animation: vePanelFade .4s ease both; }
+@keyframes vePanelFade { from { opacity:0; transform:translateY(6px);} to { opacity:1; transform:translateY(0);} }
+
+/* Improve contrast for timeline placeholder icon */
+.timeline-placeholder i { color:#475569; }
+body.video-editor-active .timeline-placeholder i { color:#94a3b8; }
+
+/* Drag-over state refinement */
+.video-editor-interface.drag-over { border:2px dashed var(--primary-500,#3b82f6); background:rgba(59,130,246,0.08); backdrop-filter:blur(2px); }
+
+/* Badge styling for segment-count */
+.segment-count { background:rgba(59,130,246,0.15); color:#93c5fd; }
+body.video-editor-active .segment-count { background:#e0f2fe; color:#0369a1; }
+
+/* Monospace timing elements */
+#currentVideoTime,#totalVideoDuration,.segment-timing { font-variant-numeric:tabular-nums; }
+
+/* Improve disabled contrast accessibility */
+.btn[disabled] i { opacity:.9; }
+
+/* Subtitle overlay text readability */
+.subtitle-text { text-shadow:0 2px 4px rgba(0,0,0,.65), 0 0 6px rgba(0,0,0,.5); }
