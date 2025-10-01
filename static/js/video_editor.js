@@ -17,9 +17,77 @@ class VideoEditorModule extends VideoEditorCore {
     this.bindEvents();
     this.setupFileDrop();
     this._setupStickyHeaderObserver();
-    this._videoScaleModes = ["fit","fill","1:1"]; // cycle
+    this._videoScaleModes = ["fit", "fill", "1:1"]; // cycle
     this._videoScaleIndex = 0;
     console.log("🎬 Video Editor Module initialized (core extended)");
+  }
+
+  /**
+   * Inject (or ensure) editor-specific style overrides. This previously existed
+   * before a manual edit removed it; constructor still calls it. To avoid a
+   * runtime TypeError we reintroduce it as an idempotent no-op that can later
+   * be expanded for dynamic theme injection.
+   */
+  _injectEditorStyles() {
+    if (this._stylesInjected) return;
+    this._stylesInjected = true;
+    try {
+      // If a dynamic style tag was used in earlier versions, re-create only if missing
+      const existing = document.querySelector('style[data-video-editor-dynamic]');
+      if (!existing) {
+        // Currently we rely on static css (video-editor.css). Keep placeholder for future runtime tweaks.
+        const style = document.createElement('style');
+        style.setAttribute('data-video-editor-dynamic', '');
+        style.textContent = `/* video editor dynamic overrides placeholder */`;
+        document.head.appendChild(style);
+      }
+    } catch (e) {
+      console.warn('[VideoEditor] Failed to inject dynamic styles (non-fatal):', e);
+    }
+  }
+
+  /**
+   * Collect DOM references for the editor UI. Earlier refactors relied on a
+   * helper removed accidentally; restoring ensures subsequent code has the
+   * expected element handles. Safe (re)assignment each call.
+   */
+  _injectEditorControls() {
+    // Root interfaces & mode buttons
+    this.videoEditorInterface = document.getElementById('videoEditorInterface') || this.videoEditorInterface;
+    this.faceAnimationInterface = document.getElementById('faceAnimationInterface') || this.faceAnimationInterface;
+    this.videoEditorMode = document.getElementById('videoEditorMode') || this.videoEditorMode;
+    this.faceAnimationMode = document.getElementById('faceAnimationMode') || this.faceAnimationMode;
+
+    // Video region
+    this.videoPreview = document.getElementById('videoPreview') || this.videoPreview;
+    this.videoPlaceholder = document.getElementById('videoPlaceholder') || this.videoPlaceholder;
+    this.loadVideoBtn = document.getElementById('loadVideoBtn') || this.loadVideoBtn;
+    this.videoInput = document.getElementById('videoInput') || this.videoInput;
+    this.playPauseBtn = document.getElementById('playPauseBtn') || this.playPauseBtn;
+    this.stopVideoBtn = document.getElementById('stopVideoBtn') || this.stopVideoBtn;
+
+    // Subtitle / transcript
+    this.generateSubtitlesBtn = document.getElementById('generateSubtitlesBtn') || this.generateSubtitlesBtn;
+    this._altTextInput = document.getElementById('altTextInput') || this._altTextInput || document.getElementById('textInput');
+    this.videoTranscript = document.getElementById('videoTranscript') || this.videoTranscript;
+
+    // Timeline & related controls
+    this.subtitleTimeline = document.getElementById('subtitleTimeline') || this.subtitleTimeline;
+    this.frameSnapStepSelect = document.getElementById('frameSnapStepSelect') || this.frameSnapStepSelect;
+
+    // Optional advanced panels (silently ignore if absent)
+    this.presetButtonsHome = document.getElementById('presetButtonsHome') || this.presetButtonsHome;
+    this.compactPresetToolbar = document.getElementById('compactPresetToolbar') || this.compactPresetToolbar;
+
+    // Defensive logging (only once)
+    if (!this._controlLogOnce) {
+      this._controlLogOnce = true;
+      console.log('[VideoEditor] Controls injected', {
+        videoPreview: !!this.videoPreview,
+        generateBtn: !!this.generateSubtitlesBtn,
+        subtitleTimeline: !!this.subtitleTimeline,
+      });
+    }
   }
 
   setupFileDrop() {
@@ -226,33 +294,122 @@ class VideoEditorModule extends VideoEditorCore {
     }
 
     // (duplicate drag/drop handlers removed during decomposition)
-    const compactBtn = document.getElementById('toggleCompactModeBtn');
+    const compactBtn = document.getElementById("toggleCompactModeBtn");
     if (compactBtn) {
-      compactBtn.addEventListener('click', () => {
+      compactBtn.addEventListener("click", () => {
         this._compactMode = !this._compactMode;
-        document.body.classList.toggle('video-editor-compact', this._compactMode);
-        compactBtn.classList.toggle('active', this._compactMode);
-        compactBtn.innerHTML = this._compactMode ? '<i class="fas fa-expand"></i> Expand' : '<i class="fas fa-compress"></i> Compact';
-        try { localStorage.setItem('videoEditorCompact', this._compactMode ? '1':'0'); } catch(e){}
+        document.body.classList.toggle(
+          "video-editor-compact",
+          this._compactMode
+        );
+        compactBtn.classList.toggle("active", this._compactMode);
+        compactBtn.innerHTML = this._compactMode
+          ? '<i class="fas fa-expand"></i> Expand'
+          : '<i class="fas fa-compress"></i> Compact';
+        try {
+          localStorage.setItem(
+            "videoEditorCompact",
+            this._compactMode ? "1" : "0"
+          );
+        } catch (e) {}
       });
       // restore preference
-      try { if (localStorage.getItem('videoEditorCompact')==='1') compactBtn.click(); } catch(e){}
+      try {
+        if (localStorage.getItem("videoEditorCompact") === "1")
+          compactBtn.click();
+      } catch (e) {}
     }
-    const scaleBtn = document.getElementById('videoScaleModeBtn');
+    const scaleBtn = document.getElementById("videoScaleModeBtn");
     if (scaleBtn) {
-      scaleBtn.addEventListener('click', () => {
-        this._videoScaleIndex = (this._videoScaleIndex + 1) % this._videoScaleModes.length;
+      scaleBtn.addEventListener("click", () => {
+        this._videoScaleIndex =
+          (this._videoScaleIndex + 1) % this._videoScaleModes.length;
         const mode = this._videoScaleModes[this._videoScaleIndex];
-        const container = document.getElementById('videoContainer');
-        if (container) container.setAttribute('data-scale', mode);
-        scaleBtn.classList.toggle('active', mode !== 'fit');
-        scaleBtn.innerHTML = `<i class="fas fa-expand-arrows-alt"></i> ${mode === 'fit' ? 'Fit' : mode === 'fill' ? 'Fill' : '1:1'}`;
+        const container = document.getElementById("videoContainer");
+        if (container) container.setAttribute("data-scale", mode);
+        scaleBtn.classList.toggle("active", mode !== "fit");
+        scaleBtn.innerHTML = `<i class="fas fa-expand-arrows-alt"></i> ${
+          mode === "fit" ? "Fit" : mode === "fill" ? "Fill" : "1:1"
+        }`;
       });
     }
     // Floating preset toolbar in compact mode
     this._initCompactPresetToolbar();
     // Stats periodic update
     this._initHeaderStatsUpdater();
+  }
+
+  /**
+   * Create/maintain a floating presets toolbar when in compact mode.
+   * Clones buttons from the hidden home container (#presetButtonsHome) so we
+   * don't break existing logic that queries by .preset-btn.
+   */
+  _initCompactPresetToolbar() {
+    // Avoid double binding
+    if (this._compactToolbarBound) return;
+    this._compactToolbarBound = true;
+
+    const toolbar = document.getElementById('compactPresetToolbar');
+    const home = document.getElementById('presetButtonsHome');
+    if (!toolbar || !home) return; // graceful exit
+
+    const cloneButtons = () => {
+      toolbar.innerHTML = '';
+      const sourceBtns = home.querySelectorAll('.preset-btn');
+      sourceBtns.forEach((btn) => {
+        const cloned = btn.cloneNode(true);
+        // Re-wire click to also activate original button (keep single source of truth)
+        cloned.addEventListener('click', (e) => {
+          e.preventDefault();
+            // Deactivate all originals
+            home.querySelectorAll('.preset-btn').forEach((b) => b.classList.remove('active'));
+            // Find matching original
+            btn.classList.add('active');
+            cloned.classList.add('active');
+            this.updateGenerateButton();
+        });
+        if (btn.classList.contains('active')) cloned.classList.add('active');
+        toolbar.appendChild(cloned);
+      });
+    };
+
+    // Initial clone
+    cloneButtons();
+
+    // Observe mutations to source container (e.g., dynamic additions)
+    try {
+      const observer = new MutationObserver(() => cloneButtons());
+      observer.observe(home, { childList: true, subtree: true });
+      this._compactToolbarObserver = observer;
+    } catch (e) {
+      console.warn('[VideoEditor] Failed to observe preset home mutations:', e);
+    }
+  }
+
+  /**
+   * Sets up a simple stats updater that updates the header badge (#videoEditorStats)
+   * with segment count & total duration. Uses a lightweight interval; can be
+   * replaced later by event-driven triggers.
+   */
+  _initHeaderStatsUpdater() {
+    if (this._headerStatsBound) return;
+    this._headerStatsBound = true;
+    const statsEl = document.getElementById('videoEditorStats');
+    if (!statsEl) return;
+    const update = () => {
+      if (!this.subtitles || !this.subtitles.length) {
+        statsEl.textContent = '0 segments';
+        return;
+      }
+      const count = this.subtitles.length;
+      const totalMs = Math.max(...this.subtitles.map(s => s.end_ms || 0));
+      const seconds = Math.round(totalMs / 1000);
+      const mm = String(Math.floor(seconds / 60)).padStart(2,'0');
+      const ss = String(seconds % 60).padStart(2,'0');
+      statsEl.textContent = `${count} seg • ${mm}:${ss}`;
+    };
+    update();
+    this._headerStatsInterval = setInterval(update, 1500);
   }
 
   preventDefaults(e) {
@@ -412,6 +569,42 @@ class VideoEditorModule extends VideoEditorCore {
 
     // Update UI state
     this.updateUIState();
+  }
+
+  /**
+   * Refreshes UI control enabled/disabled states and visibility based on current editor state.
+   * This helper was referenced after refactors but missing, causing runtime errors.
+   */
+  updateUIState() {
+    try {
+      const hasVideo = !!this.videoFile || !!this.isVideoLoaded;
+      // Toggle placeholder visibility
+      if (this.videoPlaceholder) {
+        this.videoPlaceholder.style.display = hasVideo ? 'none' : 'flex';
+      }
+      if (this.videoPreview) {
+        this.videoPreview.classList.toggle('loaded', hasVideo);
+      }
+      // Enable transport controls only if video loaded
+      if (this.playPauseBtn) this.playPauseBtn.disabled = !hasVideo;
+      if (this.stopVideoBtn) this.stopVideoBtn.disabled = !hasVideo;
+      // Generate button already handled elsewhere, but ensure consistency
+      this.updateGenerateButton?.();
+      // Stats immediate refresh if available
+      if (this._headerStatsBound) {
+        const statsEl = document.getElementById('videoEditorStats');
+        if (statsEl && this.subtitles?.length) {
+          const count = this.subtitles.length;
+            const totalMs = Math.max(...this.subtitles.map(s => s.end_ms || 0));
+            const seconds = Math.round(totalMs / 1000);
+            const mm = String(Math.floor(seconds / 60)).padStart(2,'0');
+            const ss = String(seconds % 60).padStart(2,'0');
+            statsEl.textContent = `${count} seg • ${mm}:${ss}`;
+        }
+      }
+    } catch (e) {
+      console.warn('[VideoEditor] updateUIState failed (non-fatal):', e);
+    }
   }
 
   // Fallback robusto para detectar se é vídeo suportado mesmo quando file.type está vazio
@@ -2075,7 +2268,7 @@ class VideoEditorModule extends VideoEditorCore {
         left: leftPct + "%",
         transform: "translateX(-1px)",
       });
-           this._snapLayer.appendChild(line);
+      this._snapLayer.appendChild(line);
     });
   }
 
@@ -2278,20 +2471,24 @@ class VideoEditorModule extends VideoEditorCore {
     });
   }
 
-  _setupStickyHeaderObserver(){
+  _setupStickyHeaderObserver() {
     // Make header sticky only when scrolling within editor area
-    const header = document.querySelector('.video-editor-header');
-    const main = document.querySelector('.video-editor-main');
+    const header = document.querySelector(".video-editor-header");
+    const main = document.querySelector(".video-editor-main");
     if (!header || !main) return;
-    header.classList.add('ve-sticky-ready');
-    main.addEventListener('scroll', () => {
-      const sc = main.scrollTop;
-      if (sc > 12) {
-        header.classList.add('ve-sticky');
-      } else {
-        header.classList.remove('ve-sticky');
-      }
-    }, { passive: true });
+    header.classList.add("ve-sticky-ready");
+    main.addEventListener(
+      "scroll",
+      () => {
+        const sc = main.scrollTop;
+        if (sc > 12) {
+          header.classList.add("ve-sticky");
+        } else {
+          header.classList.remove("ve-sticky");
+        }
+      },
+      { passive: true }
+    );
   }
 }
 
