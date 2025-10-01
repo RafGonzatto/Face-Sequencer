@@ -19,6 +19,10 @@ class VideoEditorModule extends VideoEditorCore {
     this._setupStickyHeaderObserver();
     this._videoScaleModes = ["fit", "fill", "1:1"]; // cycle
     this._videoScaleIndex = 0;
+    // History stacks (were referenced by extracted history module)
+    this._undoStack = [];
+    this._redoStack = [];
+    this._maxHistory = 200;
     console.log("🎬 Video Editor Module initialized (core extended)");
   }
 
@@ -388,6 +392,9 @@ class VideoEditorModule extends VideoEditorCore {
    */
   addSubtitle() {
     if (!this.subtitles) this.subtitles = [];
+    // Ensure history stacks exist (in case history module loaded after)
+    if (!this._undoStack) this._undoStack = [];
+    if (!this._redoStack) this._redoStack = [];
     const nowMs = (this.videoPreview?.currentTime || 0) * 1000;
     let start = 0;
     let end = 2000;
@@ -402,7 +409,8 @@ class VideoEditorModule extends VideoEditorCore {
     // Clamp end if video duration known
     const durationMs = (this.videoPreview?.duration || 0) * 1000;
     if (durationMs && end > durationMs) end = durationMs;
-    if (durationMs && start > durationMs - 300) start = Math.max(0, durationMs - 1200);
+    if (durationMs && start > durationMs - 300)
+      start = Math.max(0, durationMs - 1200);
     const id = Date.now() + "_" + Math.random().toString(36).slice(2, 7);
     const segment = {
       id,
@@ -417,6 +425,17 @@ class VideoEditorModule extends VideoEditorCore {
     this.renderSubtitleTimeline && this.renderSubtitleTimeline();
     this.renderSubtitleSegments && this.renderSubtitleSegments();
     this.updateUIState && this.updateUIState();
+    // Focus the newly added segment's input if present
+    try {
+      const container = this.segmentsList || document.getElementById('segmentsList') || document.getElementById('subtitlesList');
+      if (container) {
+        const last = container.querySelector('.subtitle-segment-item:last-child input.segment-text-input');
+        if (last) {
+          last.focus();
+          last.select();
+        }
+      }
+    } catch (e) {}
     this.safeStatus(`Added subtitle #${this.subtitles.length}`);
   }
 
