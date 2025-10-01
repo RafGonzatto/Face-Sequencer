@@ -21,7 +21,7 @@ jobs:
           matches=$(find . -maxdepth 1 -type f -regextype posix-extended -regex "./(${disallowed_patterns})" || true)
           if [ -n "${matches}" ]; then
             echo "❌ Disallowed files detected at repository root:" >&2
-            echo "${matches}" >&2
+            echo "${matches}" >&200:00:00.000 | F:0
             echo "Please relocate these to dev_tools/ or tests/ before merging." >&2
             exit 1
           fi

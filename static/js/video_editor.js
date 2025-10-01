@@ -225,68 +225,119 @@ class VideoEditorModule extends VideoEditorCore {
     );
 
     // Transcript textarea logic (if present)
-    const transcriptEl = document.getElementById('videoTranscript');
-    const transcriptCharCount = document.getElementById('transcriptCharCount');
-    const alignFromTextBtn = document.getElementById('alignFromTranscriptBtn');
-    const transcriptLangSel = document.getElementById('transcriptLanguage');
+    const transcriptEl = document.getElementById("videoTranscript");
+    const transcriptCharCount = document.getElementById("transcriptCharCount");
+    const alignFromTextBtn = document.getElementById("alignFromTranscriptBtn");
+    const transcriptLangSel = document.getElementById("transcriptLanguage");
     if (transcriptEl && !transcriptEl._bound) {
       transcriptEl._bound = true;
       const updateTranscriptMeta = () => {
         const len = transcriptEl.value.trim().length;
-        if (transcriptCharCount) transcriptCharCount.textContent = len + ' caracteres';
-        if (alignFromTextBtn) alignFromTextBtn.disabled = !(len > 12 && (this.videoFile || this.externalAudioBlob));
+        if (transcriptCharCount)
+          transcriptCharCount.textContent = len + " caracteres";
+        if (alignFromTextBtn)
+          alignFromTextBtn.disabled = !(
+            len > 12 &&
+            (this.videoFile || this.externalAudioBlob)
+          );
       };
-      transcriptEl.addEventListener('input', () => { updateTranscriptMeta(); this.updateGenerateButton(); });
+      transcriptEl.addEventListener("input", () => {
+        updateTranscriptMeta();
+        this.updateGenerateButton();
+      });
       updateTranscriptMeta();
     }
     if (alignFromTextBtn && !alignFromTextBtn._bound) {
       alignFromTextBtn._bound = true;
-      alignFromTextBtn.addEventListener('click', async () => {
+      alignFromTextBtn.addEventListener("click", async () => {
         try {
           if (!this.videoFile && !this.externalAudioBlob) {
-            this.safeError('Carregue um vídeo ou áudio antes de alinhar.'); return;
+            this.safeError("Carregue um vídeo ou áudio antes de alinhar.");
+            return;
           }
-          const transcriptEl = document.getElementById('videoTranscript');
-          const text = (transcriptEl?.value || '').trim();
-          if (text.length < 12) { this.safeError('Transcrição muito curta.'); return; }
+          const transcriptEl = document.getElementById("videoTranscript");
+          const text = (transcriptEl?.value || "").trim();
+          if (text.length < 12) {
+            this.safeError("Transcrição muito curta.");
+            return;
+          }
           this._cancelRequested = false;
           this._enterGeneratingState();
-          this.safeStatus('Alinhando texto com o áudio...');
+          this.safeStatus("Alinhando texto com o áudio...");
           // Garantir áudio (usa vídeo ou externo)
           let audioBlob = this.externalAudioBlob;
           if (!audioBlob) {
-            this._updateProgressDetail('Extraindo áudio do vídeo...');
+            this._updateProgressDetail("Extraindo áudio do vídeo...");
             audioBlob = await this.extractAudioFromVideo(this.videoFile);
           }
-          if (this._cancelRequested) throw new Error('Generation cancelled');
-          const progressCb = (p) => { if (!this._cancelRequested) this._updateProgressDetail(p); };
-          const alignmentResult = await this.alignAudioWithText(audioBlob, text, progressCb);
-          if (!alignmentResult || !alignmentResult.alignment) throw new Error('Falha no alinhamento');
-          this._updateProgressDetail('Gerando legendas otimizadas...');
-          const enhanced = await this.generateEnhancedSubtitles(alignmentResult.alignment);
+          if (this._cancelRequested) throw new Error("Generation cancelled");
+          const progressCb = (p) => {
+            if (!this._cancelRequested) this._updateProgressDetail(p);
+          };
+          const alignmentResult = await this.alignAudioWithText(
+            audioBlob,
+            text,
+            progressCb
+          );
+          if (!alignmentResult || !alignmentResult.alignment)
+            throw new Error("Falha no alinhamento");
+          this._updateProgressDetail("Gerando legendas otimizadas...");
+          const enhanced = await this.generateEnhancedSubtitles(
+            alignmentResult.alignment
+          );
           if (enhanced && enhanced.segments) {
             // Converter para estrutura esperada
             this.subtitles = enhanced.segments.map((seg, i) => ({
               id: seg.id || i + 1,
               text: seg.text,
               start_ms: Math.round(seg.start_time * 1000),
-              end_ms: Math.round(seg.end_time * 1000)
+              end_ms: Math.round(seg.end_time * 1000),
             }));
             this.subtitleMetrics = enhanced.metrics;
             this.displaySubtitleMetrics?.(enhanced.metrics);
           } else {
-            // Fallback: usar alignment direto
-            const base = alignmentResult.alignment.segments || alignmentResult.alignment;
-            this.subtitles = base.map((s, i) => ({ id: s.id || i+1, text: s.text || s.label || '', start_ms: Math.round(s.start * 1000 || s.start_ms || 0), end_ms: Math.round(s.end * 1000 || s.end_ms || 0) }));
+            // Fallback: usar alignment direto (diversos formatos possíveis)
+            let base = null;
+            const raw = alignmentResult.alignment;
+            if (raw) {
+              if (Array.isArray(raw)) base = raw; // already array of segments
+              else if (Array.isArray(raw.segments)) base = raw.segments;
+              else if (Array.isArray(raw.tokens)) {
+                // Converter tokens em segmentos simples (cada token vira segmento mínimo)
+                base = raw.tokens.map((t, idx) => ({
+                  id: t.id || idx + 1,
+                  text: (t.text || '').trim(),
+                  start: (t.start_ms != null ? t.start_ms / 1000 : t.start) || 0,
+                  end: (t.end_ms != null ? t.end_ms / 1000 : t.end) || 0,
+                }));
+              }
+            }
+            if (!base || !Array.isArray(base)) base = [];
+            this.subtitles = base
+              .filter((s) => (s.text || '').trim())
+              .map((s, i) => ({
+                id: s.id || i + 1,
+                text: s.text || s.label || '',
+                start_ms: Math.round(
+                  s.start_ms != null
+                    ? s.start_ms
+                    : s.start != null
+                    ? s.start * 1000
+                    : 0
+                ),
+                end_ms: Math.round(
+                  s.end_ms != null ? s.end_ms : s.end != null ? s.end * 1000 : 0
+                ),
+              }));
           }
           this.renderSubtitleTimeline?.();
           this.renderSubtitleSegments?.();
           this.updateUIState?.();
           this.previewWithSubtitles?.();
-          this.safeStatus('Legendas geradas a partir da transcrição.');
+          this.safeStatus("Legendas geradas a partir da transcrição.");
         } catch (err) {
-          console.error('[AlignFromText] failed', err);
-          this.safeError('Falha ao gerar legendas: ' + (err.message || err));
+          console.error("[AlignFromText] failed", err);
+          this.safeError("Falha ao gerar legendas: " + (err.message || err));
         } finally {
           this._exitGeneratingState();
         }
@@ -1121,11 +1172,26 @@ class VideoEditorModule extends VideoEditorCore {
         );
         if (this._cancelRequested) throw new Error("Generation cancelled");
 
-        if (enhancedResult && enhancedResult.enhanced) {
-          this.subtitles = enhancedResult.segments;
+        if (enhancedResult && enhancedResult.segments) {
+          // Normalize segments to internal ms-based structure
+          this.subtitles = enhancedResult.segments.map((s, i) => ({
+            id: s.id || i + 1,
+            text: s.text || '',
+            start_ms: Math.round(
+              s.start_ms != null ? s.start_ms : (s.start_time || s.start || 0) * 1000
+            ),
+            end_ms: Math.round(
+              s.end_ms != null ? s.end_ms : (s.end_time || s.end || 0) * 1000
+            ),
+            confidence: s.confidence ?? 1,
+          }));
           this.subtitleMetrics = enhancedResult.metrics;
           this.displaySubtitleMetrics(enhancedResult.metrics);
-          console.log("✨ Enhanced subtitle generation successful");
+          console.log(
+            `✨ Enhanced subtitle generation successful (${
+              enhancedResult.enhanced ? 'enhanced' : 'fallback'
+            })`
+          );
         } else {
           // Fallback to standard generation
           this.subtitles = this.convertAlignmentToSubtitles(
@@ -1287,14 +1353,30 @@ class VideoEditorModule extends VideoEditorCore {
       }
 
       const result = await response.json();
-
-      if (result.success) {
-        return result.data;
-      } else {
-        throw new Error(
-          result.message || "Enhanced subtitle generation failed"
-        );
+      // success_response(message, **payload) => { success, message, ...payload }
+      if (result && result.success) {
+        // Backend returns segments/metrics directly (no nested data key)
+        if (result.segments) {
+          return {
+            segments: result.segments.map((s, i) => ({
+              id: s.id || i + 1,
+              text: s.text || "",
+              start_time: s.start_time ?? s.start ?? (s.start_ms ? s.start_ms / 1000 : 0),
+              end_time: s.end_time ?? s.end ?? (s.end_ms ? s.end_ms / 1000 : 0),
+              confidence: s.confidence ?? 1,
+              platform_optimized: s.platform_optimized || {},
+              style_overrides: s.style_overrides || {},
+            })),
+            metrics: result.metrics || {},
+            enhanced: result.enhanced || false,
+            fallback: result.fallback || false,
+          };
+        }
+        // Some legacy shapes may place data in result.data
+        if (result.data && result.data.segments) return result.data;
+        throw new Error("Enhanced generation response missing segments");
       }
+      throw new Error(result?.message || "Enhanced subtitle generation failed");
     } catch (error) {
       console.warn(
         "Enhanced subtitle generation failed, falling back to standard:",
@@ -1671,7 +1753,13 @@ class VideoEditorModule extends VideoEditorCore {
     }
     formData.append("audio", audioBlob, "extracted_audio.webm");
     formData.append("text", text);
-    formData.append("language", "pt-BR"); // Could be configurable
+    // Dynamic language propagation (fallback pt-BR)
+    let lang = "pt-BR";
+    try {
+      const sel = document.getElementById("transcriptLanguage");
+      if (sel && sel.value) lang = sel.value;
+    } catch (_) {}
+    formData.append("language", lang);
 
     try {
       // Upload audio file first (with progress)
@@ -1769,7 +1857,7 @@ class VideoEditorModule extends VideoEditorCore {
             text: text,
             fps: 30,
             method: "auto",
-            language: "pt-BR",
+            language: lang,
             precision_mode: this.precisionMode,
           }),
           signal: alignController.signal,
@@ -1942,14 +2030,12 @@ class VideoEditorModule extends VideoEditorCore {
               Math.min(100, Math.max(0, pct)) + "%";
           }
         };
-        const payload = {
-          filename,
-          text,
-          fps: 30,
-          method: "auto",
-          language: "pt-BR",
-          precision_mode: this.precisionMode,
-        };
+        let lang = "pt-BR";
+        try {
+          const sel = document.getElementById("transcriptLanguage");
+          if (sel && sel.value) lang = sel.value;
+        } catch (_) {}
+        const payload = { filename, text, fps: 30, method: "auto", language: lang, precision_mode: this.precisionMode };
         if (this._lastCacheKey) payload.resume_cache_key = this._lastCacheKey;
         if (resumeFromTokens > 0) payload.resume_from_tokens = resumeFromTokens;
         const es = new EventSource("/api/audio/align-enhanced/stream");
@@ -2890,12 +2976,13 @@ window.VideoEditorModule = VideoEditorModule;
 // Helper methods appended after class definition (non-breaking augmentation)
 VideoEditorModule.prototype.getTranscriptText = function () {
   // Precedence: dedicated transcript textarea > altText > legacy textInput
-  const direct = document.getElementById('videoTranscript');
+  const direct = document.getElementById("videoTranscript");
   if (direct && direct.value.trim()) return direct.value.trim();
-  if (this.videoTranscript && this.videoTranscript.value.trim()) return this.videoTranscript.value.trim();
-  const alt = this._altTextInput || document.getElementById('textInput');
+  if (this.videoTranscript && this.videoTranscript.value.trim())
+    return this.videoTranscript.value.trim();
+  const alt = this._altTextInput || document.getElementById("textInput");
   if (alt && alt.value.trim()) return alt.value.trim();
-  return '';
+  return "";
 };
 console.log(
   "✅ VideoEditorModule class defined and added to window successfully"

@@ -2788,3 +2788,14 @@ if 'phase4_export' not in existing:
             app_logger.warning(f"Phase 4 registration failed: {e}")
 
 # Subtitle endpoints migrated to app_core.routes_subtitles
+if 'subtitles' not in existing:  # ensure migrated subtitle routes are active
+    try:  # pragma: no cover - defensive registration
+        from app_core.routes_subtitles import subtitles_bp  # type: ignore
+        app.register_blueprint(subtitles_bp)
+        existing.add('subtitles')
+        app_logger.info("Subtitles blueprint registered (migrated endpoints active)")
+    except Exception as e:  # noqa: BLE001
+        try:
+            app_logger.warning(f"Failed to register subtitles blueprint: {e}")
+        except Exception:
+            pass
