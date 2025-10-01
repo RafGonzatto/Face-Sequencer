@@ -1,0 +1,392 @@
+{% macro face_animation_interface() %}
+<div
+  id="faceAnimationInterface"
+  class="face-animation-interface active"
+  style="display: block"
+>
+  <div class="panel left-panel" id="folderSelectionPanel">
+    <div class="panel-header">
+      <h2><i class="fas fa-folder-open"></i> Project Setup</h2>
+    </div>
+    <div class="section" id="imageFolderSection">
+      <h3>Image Folder</h3>
+      <p class="help-text">Select the folder containing character images</p>
+      <div
+        class="folder-input-group"
+        style="display: flex; gap: 8px; align-items: stretch; flex-wrap: wrap"
+      >
+        <label for="folderPath" class="visually-hidden"
+          >Image Folder Path</label
+        >
+        <input
+          type="text"
+          id="folderPath"
+          placeholder="Enter or browse folder"
+          autocomplete="off"
+          style="flex: 1; min-width: 240px"
+        />
+        <button
+          class="btn btn-outline"
+          id="browseFolderBtn"
+          type="button"
+          title="Browse for folder"
+        >
+          <i class="fas fa-folder"></i> Browse
+        </button>
+        <button
+          class="btn btn-primary"
+          id="scanFolderBtn"
+          type="button"
+          title="Scan folder for images"
+        >
+          <i class="fas fa-search"></i> Scan
+        </button>
+      </div>
+      <small class="help-text"
+        >After scanning, map characters below then build the sequence.</small
+      >
+    </div>
+
+    <div class="section" id="textInputSection">
+      <h3>Input Text</h3>
+      <textarea
+        id="textInput"
+        rows="3"
+        placeholder="Type the text for the lip-sync sequence"
+        style="width: 100%; resize: vertical"
+      ></textarea>
+      <div
+        id="charCount"
+        class="char-count"
+        aria-live="polite"
+        style="margin-top: 4px; font-size: 12px; opacity: 0.75"
+      >
+        0 characters
+      </div>
+    </div>
+
+    <div class="section" id="exportActionsSection">
+      <h3>Export</h3>
+      <button
+        class="btn btn-outline"
+        id="exportVideo"
+        type="button"
+        title="Open export modal"
+      >
+        <i class="fas fa-file-export"></i> Export Video
+      </button>
+    </div>
+
+    <div class="section" id="timingSettingsSection">
+      <h3>Timing & Quality</h3>
+      <div
+        class="form-grid"
+        style="
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+          gap: 8px;
+          align-items: end;
+        "
+      >
+        <div class="form-field">
+          <label for="frameDuration">Frame (ms)</label>
+          <input
+            type="number"
+            id="frameDuration"
+            min="1"
+            max="1000"
+            value="80"
+          />
+        </div>
+        <div class="form-field">
+          <label for="pauseDuration">Pause (ms)</label>
+          <input
+            type="number"
+            id="pauseDuration"
+            min="1"
+            max="3000"
+            value="120"
+          />
+        </div>
+        <div class="form-field">
+          <label for="fps">FPS</label>
+          <input type="number" id="fps" min="1" max="120" value="30" />
+        </div>
+        <div class="form-field">
+          <label for="quality">CRF</label>
+          <input type="number" id="quality" min="1" max="40" value="14" />
+        </div>
+      </div>
+    </div>
+
+    <div class="section" id="enhancedAlignmentSection">
+      <h3>Enhanced Alignment</h3>
+      <div
+        class="form-row"
+        style="display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end"
+      >
+        <label style="display: flex; align-items: center; gap: 6px">
+          <input type="checkbox" id="useEnhancedAlignment" /> Use Enhanced
+          Alignment
+        </label>
+        <div
+          id="alignmentMethodContainer"
+          style="flex: 1; min-width: 150px; display: none"
+        >
+          <label
+            for="alignmentMethod"
+            style="display: block; font-size: 12px; opacity: 0.8"
+            >Method</label
+          >
+          <select id="alignmentMethod" style="width: 100%">
+            <option value="auto">Auto</option>
+            <option value="basic">Basic</option>
+            <option value="advanced">Advanced</option>
+          </select>
+        </div>
+        <div
+          id="targetFpsContainer"
+          style="flex: 1; min-width: 120px; display: none"
+        >
+          <label
+            for="targetFps"
+            style="display: block; font-size: 12px; opacity: 0.8"
+            >Target FPS</label
+          >
+          <input
+            type="number"
+            id="targetFps"
+            min="1"
+            max="120"
+            value="30"
+            style="width: 100%"
+          />
+        </div>
+        <div
+          id="enhancementStatus"
+          style="
+            font-size: 12px;
+            color: #64748b;
+            flex-basis: 100%;
+            margin-top: 4px;
+          "
+        >
+          Disabled
+        </div>
+      </div>
+    </div>
+
+    <div class="section" id="audioUploadSection">
+      <h3>Audio</h3>
+      <div
+        style="display: flex; gap: 8px; align-items: stretch; flex-wrap: wrap"
+      >
+        <input
+          type="file"
+          id="audioUpload"
+          accept="audio/*"
+          style="flex: 1; min-width: 200px"
+        />
+        <button
+          class="btn btn-outline"
+          id="uploadAudioBtn"
+          type="button"
+          title="Upload selected audio"
+        >
+          <i class="fas fa-upload"></i> Upload
+        </button>
+      </div>
+      <small class="help-text"
+        >Optional: upload audio for advanced alignment</small
+      >
+    </div>
+
+    <div class="section" id="projectPersistenceSection">
+      <h3>Project</h3>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap">
+        <button
+          class="btn btn-outline"
+          id="saveProject"
+          type="button"
+          title="Save current project"
+        >
+          <i class="fas fa-save"></i> Save
+        </button>
+        <button
+          class="btn btn-outline"
+          id="loadProject"
+          type="button"
+          title="Load a saved project"
+        >
+          <i class="fas fa-folder-open"></i> Load
+        </button>
+        <input
+          type="file"
+          id="projectInput"
+          accept=".json"
+          style="display: none"
+        />
+      </div>
+    </div>
+  </div>
+
+  <div class="panel center-panel">
+    <div class="panel-header">
+      <h2><i class="fas fa-grip"></i> Character Mapping</h2>
+      <div class="mapping-controls">
+        <button class="btn btn-outline btn-sm" id="autoMapBtn">
+          <i class="fas fa-magic"></i
+          ><span data-i18n-key="auto_map_btn">Auto Map</span>
+        </button>
+        <button class="btn btn-outline btn-sm" id="clearMappingBtn">
+          <i class="fas fa-trash"></i
+          ><span data-i18n-key="clear_all_btn">Clear All</span>
+        </button>
+        <button class="btn btn-outline btn-sm" id="bulkImportBtn">
+          <i class="fas fa-images"></i
+          ><span data-i18n-key="bulk_import_btn">Bulk Import</span>
+        </button>
+        <button
+          class="btn btn-outline btn-sm"
+          id="showDragHelpBtn"
+          style="display: none"
+        >
+          <i class="fas fa-question-circle"></i
+          ><span data-i18n-key="drag_help_btn">Drag Help</span>
+        </button>
+        <input
+          type="file"
+          id="bulkImportInput"
+          accept="image/*"
+          multiple
+          style="display: none"
+          aria-hidden="true"
+        />
+      </div>
+    </div>
+    <div class="mapping-grid" id="mappingGrid"></div>
+    <div
+      id="mappingStatus"
+      class="mapping-status"
+      aria-live="polite"
+      style="margin-top: 6px; font-size: 12px; opacity: 0.75"
+    >
+      Ready
+    </div>
+  </div>
+
+  <div class="panel right-panel">
+    <div class="panel-header">
+      <h2><i class="fas fa-film"></i> Sequence Timeline</h2>
+      <div class="timeline-controls">
+        <button class="btn btn-outline btn-sm" id="playBtn">
+          <i class="fas fa-play"></i>
+        </button>
+        <button class="btn btn-outline btn-sm" id="stopBtn">
+          <i class="fas fa-stop"></i>
+        </button>
+        <span class="timeline-info" id="timelineInfo">0 frames</span>
+        <div class="timeline-size-controls">
+          <button
+            class="btn btn-outline btn-xs"
+            id="timelineExpandBtn"
+            title="Expand Timeline"
+          >
+            <i class="fas fa-expand-arrows-alt"></i>
+          </button>
+          <button
+            class="btn btn-outline btn-xs"
+            id="timelineCollapseBtn"
+            title="Collapse Timeline"
+            style="display: none"
+          >
+            <i class="fas fa-compress-arrows-alt"></i>
+          </button>
+          <div class="timeline-height-slider">
+            <input
+              type="range"
+              id="timelineHeightSlider"
+              min="200"
+              max="600"
+              value="300"
+              step="50"
+              title="Timeline Height"
+            />
+            <span class="slider-label">Height</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div
+      class="audio-visualization"
+      id="audioVisualizationContainer"
+      style="display: none"
+    >
+      <div class="waveform-container" id="waveformContainer"></div>
+      <div class="audio-controls">
+        <button class="audio-control-btn" id="audioPlayBtn">
+          <i class="fas fa-play"></i>
+        </button>
+        <span class="audio-time" id="currentTime">0:00</span>
+        <div class="audio-progress" id="audioProgress">
+          <div
+            class="audio-progress-bar"
+            id="audioProgressBar"
+            style="width: 0%"
+          ></div>
+        </div>
+        <span class="audio-time" id="duration">0:00</span>
+      </div>
+      <div class="sync-controls">
+        <button class="btn btn-primary" id="syncPlaybackBtn">
+          <i class="fas fa-film"></i> <i class="fas fa-music"></i> Play Audio +
+          Animation
+        </button>
+      </div>
+    </div>
+
+    <div class="preview-container">
+      <div class="preview-frame" id="previewFrame">
+        <div class="preview-placeholder">
+          <i class="fas fa-image"></i><span>No preview</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="timeline-container" id="timelineContainer">
+      <div class="timeline-resize-handle" id="timelineResizeHandle">
+        <div class="resize-handle-grip"><i class="fas fa-grip-lines"></i></div>
+      </div>
+      <div class="timeline-content" id="timelineContent">
+        <div class="timeline-header">
+          <div class="timeline-scrubber" id="timelineScrubber">
+            <div class="scrubber-handle" id="scrubberHandle"></div>
+          </div>
+        </div>
+        <div class="timeline-frames-wrapper" id="timelineFramesWrapper">
+          <div class="timeline-frames" id="timelineFrames"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="frame-editor" id="frameEditor" style="display: none">
+      <h3>Frame Editor</h3>
+      <div class="editor-controls">
+        <div class="setting-item">
+          <label for="selectedFrameDuration">Duration (ms)</label
+          ><input type="number" id="selectedFrameDuration" min="1" max="5000" />
+        </div>
+        <div class="editor-actions">
+          <button class="btn btn-outline btn-sm" id="duplicateFrameBtn">
+            <i class="fas fa-copy"></i> Duplicate
+          </button>
+          <button class="btn btn-danger btn-sm" id="deleteFrameBtn">
+            <i class="fas fa-trash"></i> Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endmacro %}

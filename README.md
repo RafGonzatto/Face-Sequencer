@@ -81,21 +81,23 @@ source fragments have changed.
 
 ```
 Face Sequencer Pro/
-├── app.py                 # Main Flask web application
-├── lipanim_core.py       # Core animation functionality
-├── project_templates.py  # Project templates and management
-├── launch.py             # Startup script with dependency management
-├── requirements.txt      # Python dependencies
-├── templates/
-│   └── index.html        # Main web interface
-├── static/
-│   ├── css/
-│   │   └── styles.css    # Modern UI styles
-│   └── js/
-│       └── app.js        # Frontend JavaScript application
-├── projects/             # Saved projects directory
-└── uploads/              # Temporary files and exports
+├── app.py                      # Main Flask web application
+├── launch.py                   # Startup script with dependency management
+├── dev_tools/
+│   ├── reorganize_files.py     # Automation for relocating debug/test scripts
+│   └── debug/                  # Former root debug_*.py scripts (manual diagnostics)
+├── tests/                      # All test_*.py (unit/integration/e2e)
+│   └── perf/                   # Performance / smoke perf tests (if any)
+├── templates/                  # Jinja2 templates (modularized base + partials)
+├── static/                     # Frontend assets (css/js)
+├── projects/                   # Saved projects directory
+├── uploads/                    # Temporary files and exports
+└── requirements.txt            # Python dependencies
 ```
+
+> Note: Legacy root-level `debug_*.py` and `test_*.py` files are now automatically
+> migrated via `reorganize_files.bat`. New debug helpers should live in
+> `dev_tools/debug/` and new tests directly under `tests/`.
 
 ## 🎯 Usage Guide
 
@@ -150,19 +152,18 @@ Automated end-to-end tests rely on a lightweight frontend test harness:
 - File: `static/js/test_harness.js`
 - Activation: server injects `window.__TEST_MODE__ = true` when either `TEST_MODE` (backend test mode) or `FRONTEND_TEST_MODE` is set.
 - Provides:
-   - Early `window.videoEditor` stub so Selenium tests can monkey‑patch before the full editor loads.
-   - A guaranteed `.partial-transcript-panel` element the tests wait for.
-   - Helper `window.__updateTestTranscriptPanel(msg)` utility.
+  - Early `window.videoEditor` stub so Selenium tests can monkey‑patch before the full editor loads.
+  - A guaranteed `.partial-transcript-panel` element the tests wait for.
+  - Helper `window.__updateTestTranscriptPanel(msg)` utility.
 
 Environment flags:
 
-| Variable | Purpose |
-| -------- | ------- |
-| `TEST_MODE` | Broad backend test mode (skips heavy inits) and enables frontend harness. |
-| `FRONTEND_TEST_MODE` | Enables only the frontend harness without broader backend shortcuts. |
+| Variable             | Purpose                                                                   |
+| -------------------- | ------------------------------------------------------------------------- |
+| `TEST_MODE`          | Broad backend test mode (skips heavy inits) and enables frontend harness. |
+| `FRONTEND_TEST_MODE` | Enables only the frontend harness without broader backend shortcuts.      |
 
 Harness loads only when test mode script is injected; there is no webdriver heuristic.
-
 
 ## 🎨 Customization
 

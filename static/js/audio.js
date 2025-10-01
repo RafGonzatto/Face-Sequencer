@@ -20,7 +20,10 @@ class AudioManager {
 
   initElements() {
     // Audio file upload elements
-    this.audioFileInput = document.getElementById("audioFileInput");
+    // Prefer legacy id audioFileInput; fallback to newly restored audioUpload
+    this.audioFileInput =
+      document.getElementById("audioFileInput") ||
+      document.getElementById("audioUpload");
     this.selectedAudioFile = document.getElementById("selectedAudioFile");
     this.uploadAudioBtn = document.getElementById("uploadAudioBtn");
 
@@ -100,7 +103,7 @@ class AudioManager {
         this.handleFileSelection(e);
       });
     } else {
-      console.error("AudioFileInput element not found");
+      console.error("AudioFileInput/audioUpload element not found");
     }
 
     // Upload button event
@@ -211,7 +214,7 @@ class AudioManager {
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) {
         const pct = Math.round((e.loaded / e.total) * 100);
-  // UploadProgress removed
+        // UploadProgress removed
         if (this.uploadAudioBtn) {
           this.uploadAudioBtn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Uploading ${pct}%`;
         }

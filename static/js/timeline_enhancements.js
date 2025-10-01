@@ -62,18 +62,24 @@ class TimelineEnhancer {
       container.firstElementChild;
 
     if (timelineFrames && container.contains(timelineFrames)) {
-      try {
-        container.insertBefore(rulerWrapper, timelineFrames);
-      } catch (error) {
-        console.warn("Timeline insertion failed, using fallback:", error);
+      if (timelineFrames.parentNode === container) {
+        try {
+          container.insertBefore(rulerWrapper, timelineFrames);
+        } catch (error) {
+          console.warn(
+            "Timeline insertion failed (inner), fallback append:",
+            error.message
+          );
+          container.appendChild(rulerWrapper);
+        }
+      } else {
+        // parent mismatch
         container.appendChild(rulerWrapper);
+        console.log("Timeline frames parent mismatch, appended ruler instead");
       }
     } else {
-      // Fallback: append to container
       container.appendChild(rulerWrapper);
-      console.log(
-        "Timeline frames not found or not a child, appending ruler to container"
-      );
+      console.log("Timeline frames missing, appended ruler to container");
     }
 
     // Waveform overlay

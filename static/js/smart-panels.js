@@ -4,14 +4,16 @@ class SmartPanelManager {
     this.app = app;
     this.currentTab = "setup";
     try {
-      if (!document.querySelector('.left-panel')) {
-        console.warn('[SmartPanels] .left-panel not found – disabling SmartPanelManager');
+      if (!document.querySelector(".left-panel")) {
+        console.warn(
+          "[SmartPanels] .left-panel not found – disabling SmartPanelManager"
+        );
         this.disabled = true;
         return;
       }
       this.init();
     } catch (err) {
-      console.error('[SmartPanels] Initialization failed:', err);
+      console.error("[SmartPanels] Initialization failed:", err);
       this.disabled = true;
     }
   }
@@ -174,7 +176,7 @@ class SmartPanelManager {
 
   // ===== SMART WORKFLOW GUIDANCE =====
   improveWorkflow() {
-  if (this.disabled) return;
+    if (this.disabled) return;
     // Add workflow indicator
     this.addWorkflowIndicator();
 
@@ -254,7 +256,9 @@ class SmartPanelManager {
 
     const leftPanel = document.querySelector(".left-panel");
     if (!leftPanel) {
-      console.warn('[SmartPanels] Cannot append suggestions, .left-panel missing');
+      console.warn(
+        "[SmartPanels] Cannot append suggestions, .left-panel missing"
+      );
       return;
     }
     leftPanel.appendChild(suggestionContainer);
@@ -334,7 +338,7 @@ class SmartPanelManager {
 
   getSuggestions() {
     const suggestions = [];
-  if (this.disabled) return;
+    if (this.disabled) return;
     const setupComplete = this.checkSetupComplete();
     const contentComplete = this.checkContentComplete();
     const hasSequence = this.app.state.sequence?.length > 0;
@@ -419,21 +423,36 @@ class SmartPanelManager {
 
   // ===== LAYOUT OPTIMIZATION =====
   optimizeLayout() {
-    this.addLayoutToggle();
-    this.improvePreviewArea();
+    try {
+      this.addLayoutToggle();
+    } catch (e) {
+      console.warn("[SmartPanels] addLayoutToggle skipped:", e.message);
+    }
+    try {
+      this.improvePreviewArea();
+    } catch (e) {
+      console.warn("[SmartPanels] improvePreviewArea skipped:", e.message);
+    }
   }
 
   addLayoutToggle() {
-    // Add button to toggle between different layouts
+    // Defensive layout toggle insertion
     const header = document.querySelector(".app-header");
+    if (!header) {
+      throw new Error("app-header not found");
+    }
+    const headerRight = header.querySelector(".header-right");
+    if (!headerRight) {
+      throw new Error("header-right not found");
+    }
+    if (headerRight.querySelector(".layout-toggle")) return; // avoid duplicates
     const toggleBtn = document.createElement("button");
     toggleBtn.className = "btn btn-outline btn-sm layout-toggle";
-    toggleBtn.innerHTML = '<i class="fas fa-layout"></i>';
+    toggleBtn.type = "button";
+    toggleBtn.setAttribute("aria-label", "Toggle compact layout");
+    toggleBtn.innerHTML = '<i class="fas fa-table"></i>';
     toggleBtn.title = "Toggle Layout";
-
-    const headerRight = header.querySelector(".header-right");
-    headerRight.insertBefore(toggleBtn, headerRight.firstChild);
-
+    headerRight.insertBefore(toggleBtn, headerRight.firstChild || null);
     toggleBtn.addEventListener("click", () => {
       document.body.classList.toggle("compact-layout");
     });

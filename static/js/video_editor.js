@@ -2,7 +2,7 @@
 console.log("🎬 Loading VideoEditorModule class...");
 
 class VideoEditorModule extends VideoEditorCore {
-  constructor(appRef){
+  constructor(appRef) {
     super(appRef);
     // Post-core initialization (features beyond core caching)
     this.enhancedTimeline = null;
@@ -15,7 +15,46 @@ class VideoEditorModule extends VideoEditorCore {
     this._injectEditorControls();
     this.bindEvents();
     this.setupFileDrop();
-    console.log('🎬 Video Editor Module initialized (core extended)');
+    console.log("🎬 Video Editor Module initialized (core extended)");
+  }
+
+  setupFileDrop() {
+    const dropZone =
+      document.getElementById("videoDropZone") ||
+      this.videoEditorInterface ||
+      document.body;
+    if (!dropZone) return;
+    const highlight = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropZone.classList.add("drag-over");
+    };
+    const unhighlight = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropZone.classList.remove("drag-over");
+    };
+    ["dragenter", "dragover"].forEach((ev) =>
+      dropZone.addEventListener(ev, highlight, false)
+    );
+    ["dragleave", "drop"].forEach((ev) =>
+      dropZone.addEventListener(ev, unhighlight, false)
+    );
+    dropZone.addEventListener(
+      "drop",
+      (e) => {
+        const dt = e.dataTransfer;
+        if (dt && dt.files && dt.files[0]) {
+          const f = dt.files[0];
+          if (this._isVideoFile && this._isVideoFile(f)) {
+            this.loadVideo(f);
+          } else {
+            this.safeError("Unsupported file (expected video)");
+          }
+        }
+      },
+      false
+    );
   }
 
   bindEvents() {
@@ -30,7 +69,9 @@ class VideoEditorModule extends VideoEditorCore {
         this.switchToFaceAnimationMode();
       });
     } else {
-      console.warn("⚠️ faceAnimationMode button not found");
+      if (!window.__SILENCE_MODE_BUTTON_WARNINGS__) {
+        console.warn("⚠️ faceAnimationMode button not found");
+      }
     }
 
     if (this.videoEditorMode) {
@@ -52,7 +93,9 @@ class VideoEditorModule extends VideoEditorCore {
         }, 10);
       });
     } else {
-      console.warn("⚠️ videoEditorMode button not found");
+      if (!window.__SILENCE_MODE_BUTTON_WARNINGS__) {
+        console.warn("⚠️ videoEditorMode button not found");
+      }
     } // Video controls
     this.loadVideoBtn?.addEventListener("click", () => this.videoInput.click());
     this.videoInput?.addEventListener("change", (e) =>
@@ -80,13 +123,16 @@ class VideoEditorModule extends VideoEditorCore {
     // Frame snap step persistence load
     try {
       const saved = localStorage.getItem("frameSnapStep");
-      if (saved) this._frameSnapStep = parseInt(saved, 10) || this._frameSnapStep;
-    } catch(e){}
+      if (saved)
+        this._frameSnapStep = parseInt(saved, 10) || this._frameSnapStep;
+    } catch (e) {}
     this.frameSnapStepSelect?.addEventListener("change", () => {
       const v = parseInt(this.frameSnapStepSelect.value, 10);
       if (!isNaN(v) && v > 0) {
         this._frameSnapStep = v;
-        try { localStorage.setItem("frameSnapStep", String(v)); } catch(e){}
+        try {
+          localStorage.setItem("frameSnapStep", String(v));
+        } catch (e) {}
         if (this._snappingEnabled)
           this.app?.showStatus?.(`Snap step: every ${v} frame(s)`);
       }
@@ -128,24 +174,34 @@ class VideoEditorModule extends VideoEditorCore {
       toggleStrictSnap.checked = this._strictSnap || false;
       toggleStrictSnap.addEventListener("change", () => {
         this._strictSnap = toggleStrictSnap.checked;
-        try { localStorage.setItem("strictSnap", this._strictSnap ? "1" : "0"); } catch(e){}
-        this.app?.showStatus?.(this._strictSnap ? "Strict snap ON" : "Strict snap OFF");
+        try {
+          localStorage.setItem("strictSnap", this._strictSnap ? "1" : "0");
+        } catch (e) {}
+        this.app?.showStatus?.(
+          this._strictSnap ? "Strict snap ON" : "Strict snap OFF"
+        );
       });
     }
     if (snapThresholdRange) {
-      try { const saved = localStorage.getItem("snapThreshold"); if(saved) this._snapThreshold = parseInt(saved,10); } catch(e){}
-      if (this._snapThreshold) snapThresholdRange.value = String(this._snapThreshold);
-      snapThresholdRange.addEventListener("input", ()=>{
-        const v = parseInt(snapThresholdRange.value,10);
-        if(!isNaN(v)){
+      try {
+        const saved = localStorage.getItem("snapThreshold");
+        if (saved) this._snapThreshold = parseInt(saved, 10);
+      } catch (e) {}
+      if (this._snapThreshold)
+        snapThresholdRange.value = String(this._snapThreshold);
+      snapThresholdRange.addEventListener("input", () => {
+        const v = parseInt(snapThresholdRange.value, 10);
+        if (!isNaN(v)) {
           this._snapThreshold = v;
-          try { localStorage.setItem("snapThreshold", String(v)); } catch(e){}
+          try {
+            localStorage.setItem("snapThreshold", String(v));
+          } catch (e) {}
         }
       });
     }
     // Drag/drop area bindings
     const dropZone = document.getElementById("videoDropZone");
-    if (dropZone){
+    if (dropZone) {
       ["dragenter", "dragover"].forEach((eventName) => {
         dropZone.addEventListener(
           eventName,
@@ -157,7 +213,7 @@ class VideoEditorModule extends VideoEditorCore {
       ["dragleave", "drop"].forEach((eventName) => {
         dropZone.addEventListener(
           eventName,
-            () => this.unhighlight(dropZone),
+          () => this.unhighlight(dropZone),
           false
         );
       });
@@ -321,7 +377,7 @@ class VideoEditorModule extends VideoEditorCore {
     }
 
     // Show success message
-  this.safeStatus(`Video loaded: ${file.name}`);
+    this.safeStatus(`Video loaded: ${file.name}`);
 
     // Update UI state
     this.updateUIState();
@@ -451,9 +507,7 @@ class VideoEditorModule extends VideoEditorCore {
       this._cancelRequested = false;
       this._enterGeneratingState();
       console.log("🎬 Generating enhanced subtitles for video...");
-      this.safeStatus(
-        "Generating intelligent subtitles from video audio..."
-      );
+      this.safeStatus("Generating intelligent subtitles from video audio...");
 
       // Extract audio from video and use existing alignment system
       let audioBlob = null;
@@ -518,9 +572,7 @@ class VideoEditorModule extends VideoEditorCore {
         this.renderSubtitleSegments();
         this.updateUIState();
 
-        this.safeStatus(
-          `Generated ${this.subtitles.length} subtitle segments`
-        );
+        this.safeStatus(`Generated ${this.subtitles.length} subtitle segments`);
         this.previewWithSubtitles();
       } else {
         throw new Error("Failed to generate subtitle alignment");
@@ -528,13 +580,13 @@ class VideoEditorModule extends VideoEditorCore {
     } catch (error) {
       console.error("❌ Subtitle generation failed:", error);
       if (error.message === "Generation cancelled") {
-  this.safeStatus("Generation cancelled");
+        this.safeStatus("Generation cancelled");
       } else if (/MediaRecorder/i.test(error.message)) {
         this.safeError(
           "Audio extraction not supported in this browser. Provide an external audio track or try a different browser."
         );
       } else {
-  this.safeError(`Subtitle generation failed: ${error.message}`);
+        this.safeError(`Subtitle generation failed: ${error.message}`);
       }
     } finally {
       this._exitGeneratingState();
@@ -789,7 +841,7 @@ class VideoEditorModule extends VideoEditorCore {
       console.log("🎯 Auto-aligning subtitle segments...");
 
       if (!this.subtitles || this.subtitles.length === 0) {
-  this.safeError("No subtitle segments to align");
+        this.safeError("No subtitle segments to align");
         return;
       }
 
@@ -808,9 +860,7 @@ class VideoEditorModule extends VideoEditorCore {
         if (validation.success) {
           const issues = validation.data.total_issues;
           if (issues > 0) {
-            this.safeStatus(
-              `Found ${issues} issues that need optimization`
-            );
+            this.safeStatus(`Found ${issues} issues that need optimization`);
 
             // Optimize segments
             await this.optimizeCurrentSubtitles();
@@ -821,7 +871,7 @@ class VideoEditorModule extends VideoEditorCore {
       }
     } catch (error) {
       console.error("Auto-alignment failed:", error);
-  this.safeError("Auto-alignment failed");
+      this.safeError("Auto-alignment failed");
     }
   }
 
@@ -2234,7 +2284,7 @@ class VideoEditorModule extends VideoEditorCore {
       this.renderSubtitleTimeline();
       this.renderSubtitleSegments();
       this.updateUIState();
-  this.safeStatus("Subtitles cleared");
+      this.safeStatus("Subtitles cleared");
     }
   }
 
@@ -2250,7 +2300,7 @@ class VideoEditorModule extends VideoEditorCore {
     // This would create a subtitle overlay on the video
     this.createSubtitleOverlay();
 
-  this.safeStatus("Subtitle preview enabled");
+    this.safeStatus("Subtitle preview enabled");
   }
 
   createSubtitleOverlay() {
@@ -2659,7 +2709,7 @@ class VideoEditorModule extends VideoEditorCore {
 
     try {
       console.log("📤 Exporting video with subtitles...");
-  this.safeStatus("Preparing video export with subtitles...");
+      this.safeStatus("Preparing video export with subtitles...");
 
       // Prepare export data
       const exportData = {
@@ -2673,7 +2723,7 @@ class VideoEditorModule extends VideoEditorCore {
       const result = await this.processVideoExport(exportData);
 
       if (result.success) {
-  this.safeStatus("Video exported successfully with subtitles!");
+        this.safeStatus("Video exported successfully with subtitles!");
 
         // Trigger download if URL provided
         if (result.downloadUrl) {

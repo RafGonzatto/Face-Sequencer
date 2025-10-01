@@ -1,0 +1,45 @@
+{% macro app_header() %}
+<header
+  class="app-header"
+  id="appHeader"
+  style="
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 14px;
+    background: #ffffff;
+    border-bottom: 1px solid #e2e8f0;
+  "
+>
+  <div class="header-left">
+    <div
+      class="app-title"
+      style="font-weight: 600; display: flex; align-items: center; gap: 6px"
+    >
+      <i class="fas fa-head-side-mouth" aria-hidden="true"></i>
+      <span>Face Sequencer Pro</span>
+    </div>
+  </div>
+  <div
+    class="header-right"
+    style="display: flex; gap: 8px; align-items: center"
+  >
+    <button
+      id="faceAnimationMode"
+      class="btn btn-outline btn-sm active"
+      type="button"
+      title="Face Animation Mode"
+    >
+      Face Animation
+    </button>
+    <button
+      id="videoEditorMode"
+      class="btn btn-outline btn-sm"
+      type="button"
+      title="Video Editor Mode"
+    >
+      Video Editor
+    </button>
+  </div>
+</header>
+{% endmacro %}

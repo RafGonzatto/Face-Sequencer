@@ -130,10 +130,10 @@ Example config.json:
 
 Two environment variables influence the frontend test harness behavior:
 
-| Variable | Purpose | Effect |
-| -------- | ------- | ------ |
-| `TEST_MODE` | Enables backend test behaviors (already used in Python tests) and signals the template to inject a `<script>window.__TEST_MODE__=true;</script>` flag. | Frontend gains deterministic shortcuts (early panel, synthetic alignment fallback logic). |
-| `FRONTEND_TEST_MODE` | Lightweight alternative when you only want frontend test harness features without broader backend test mode semantics. | Injects the same `window.__TEST_MODE__` flag as above, but leaves other backend TEST_MODE logic untouched. |
+| Variable             | Purpose                                                                                                                                                | Effect                                                                                                     |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `TEST_MODE`          | Enables backend test behaviors (already used in Python tests) and signals the template to inject a `<script>window.__TEST_MODE__=true;</script>` flag. | Frontend gains deterministic shortcuts (early panel, synthetic alignment fallback logic).                  |
+| `FRONTEND_TEST_MODE` | Lightweight alternative when you only want frontend test harness features without broader backend test mode semantics.                                 | Injects the same `window.__TEST_MODE__` flag as above, but leaves other backend TEST_MODE logic untouched. |
 
 The harness now activates only through explicit environment flags (no implicit webdriver fallback), keeping production loads minimal.
 
@@ -153,4 +153,3 @@ If you introduce a production build step and wish to exclude the heuristic fallb
 ### Migration Notes
 
 Some synthetic alignment fallback remains in `static/js/video_editor.js` (guarded by `window.__e2eUploaded` and `window.__TEST_MODE__`). It can be relocated into the harness later to further isolate test-only logic. Keep it for now to avoid risk while tests depend on timing of existing logic.
-

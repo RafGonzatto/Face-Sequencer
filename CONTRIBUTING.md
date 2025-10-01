@@ -43,6 +43,19 @@ stable and tests green.
 - Avoid direct mutation of `app.view_functions`; prefer blueprint updates.
 - When adding new endpoints, consider adding minimal contract tests under `tests/`.
 
+## Debug & Test File Organization
+
+- Place new ad-hoc investigation scripts inside `dev_tools/debug/` and name them descriptively (avoid `final` / `new` / `fix2`).
+- Keep execution logic under a `main()` and guard with `if __name__ == '__main__':`.
+- Never leave large one-off debug scripts at the repository root.
+- Root scanning CI (planned) plus `dev_tools/reorganize_files.py` enforce this layout.
+
+### Adding a New Test
+
+1. Create the file under `tests/` prefixed with `test_`.
+2. For performance / timing stress tests, prefer `tests/perf/`.
+3. Keep test runtime minimal; long-running flows should be marked or skipped by default.
+
 ## Current Blueprints
 
 | Domain    | File                    | Tag       | Purpose                                     |
