@@ -1344,6 +1344,10 @@
     <script src="{{ url_for('static', filename='js/timeline-integration.js') }}"></script>
     <script src="{{ url_for('static', filename='js/enhanced_subtitle_timeline.js') }}"></script>
     <script src="{{ url_for('static', filename='js/video_editor.js') }}"></script>
+  {% if test_mode_script %}
+  <!-- Optional smoke test for headless instantiation (runs only with FRONTEND_TEST_MODE/hash flag) -->
+  <script src="{{ url_for('static', filename='js/video_editor_smoke_test.js') }}"></script>
+  {% endif %}
     <style>
       @keyframes spin {
         from {
