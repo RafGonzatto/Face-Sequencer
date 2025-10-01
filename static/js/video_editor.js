@@ -135,183 +135,50 @@ class VideoEditorModule extends VideoEditorCore {
         this.app?.showStatus?.(
           this._showFrameGrid ? "Frame grid ON" : "Frame grid OFF"
         );
-        if (this._snapLayer) this._clearSnapMarkers();
       });
     }
     if (toggleStrictSnap) {
-      try {
-        const saved = localStorage.getItem("strictSnapMode");
-        if (saved) this._strictSnapMode = saved === "1";
-      } catch (e) {}
-      toggleStrictSnap.checked = this._strictSnapMode;
+      toggleStrictSnap.checked = this._strictSnap || false;
       toggleStrictSnap.addEventListener("change", () => {
-        this._strictSnapMode = toggleStrictSnap.checked;
-        try {
-          localStorage.setItem(
-            "strictSnapMode",
-            this._strictSnapMode ? "1" : "0"
-          );
-        } catch (e) {}
-        this.app?.showStatus?.(
-          this._strictSnapMode ? "Strict snap ON" : "Strict snap OFF"
-        );
+        this._strictSnap = toggleStrictSnap.checked;
+        try { localStorage.setItem("strictSnap", this._strictSnap ? "1" : "0"); } catch(e){}
+        this.app?.showStatus?.(this._strictSnap ? "Strict snap ON" : "Strict snap OFF");
       });
     }
     if (snapThresholdRange) {
-      try {
-        const saved = localStorage.getItem("snapThresholdMs");
-        if (saved) {
-          const p = parseInt(saved, 10);
-          if (!isNaN(p)) this._snapThresholdMs = p;
-        }
-      } catch (e) {}
-      snapThresholdRange.value = this._snapThresholdMs;
-      snapThresholdRange.addEventListener("input", () => {
-        const v = parseInt(snapThresholdRange.value, 10);
-        if (!isNaN(v)) {
-          this._snapThresholdMs = v;
-          try {
-            localStorage.setItem("snapThresholdMs", String(v));
-          } catch (e) {}
+      try { const saved = localStorage.getItem("snapThreshold"); if(saved) this._snapThreshold = parseInt(saved,10); } catch(e){}
+      if (this._snapThreshold) snapThresholdRange.value = String(this._snapThreshold);
+      snapThresholdRange.addEventListener("input", ()=>{
+        const v = parseInt(snapThresholdRange.value,10);
+        if(!isNaN(v)){
+          this._snapThreshold = v;
+          try { localStorage.setItem("snapThreshold", String(v)); } catch(e){}
         }
       });
     }
-    this.previewSubtitles?.addEventListener("click", () =>
-      this.previewWithSubtitles()
-    );
-    this.exportVideoWithSubtitles?.addEventListener("click", () =>
-      this.exportVideo()
-    );
-    if (this.precisionModeSelect) {
-      this.precisionModeSelect.addEventListener("change", () => {
-        const v = this.precisionModeSelect.value;
-        if (["fast", "balanced", "maximum"].includes(v)) {
-          this.precisionMode = v;
-          this.app?.showStatus?.("Modo de precisão: " + v);
-        }
-      });
-    }
-
-    // Effects live update handlers
-    const updateEffectLabel = (input, label) => {
-      if (!input || !label) return;
-      label.textContent = `${input.value} ms`;
-    };
-    if (this.fadeInMs && this.fadeInMsValue) {
-      this.fadeInMs.addEventListener("input", () => {
-        updateEffectLabel(this.fadeInMs, this.fadeInMsValue);
-        this.updateSubtitleStyle();
-      });
-    }
-    if (this.fadeOutMs && this.fadeOutMsValue) {
-      this.fadeOutMs.addEventListener("input", () => {
-        updateEffectLabel(this.fadeOutMs, this.fadeOutMsValue);
-        this.updateSubtitleStyle();
-      });
-    }
-    if (this.karaokeToggle) {
-      this.karaokeToggle.addEventListener("change", () => {
-        this.updateSubtitleStyle();
-        this.app?.showStatus?.(
-          this.karaokeToggle.checked
-            ? "Karaoke ativado (se existir timing de palavras)"
-            : "Karaoke desativado"
+    // Drag/drop area bindings
+    const dropZone = document.getElementById("videoDropZone");
+    if (dropZone){
+      ["dragenter", "dragover"].forEach((eventName) => {
+        dropZone.addEventListener(
+          eventName,
+          () => this.highlight(dropZone),
+          false
         );
       });
+
+      ["dragleave", "drop"].forEach((eventName) => {
+        dropZone.addEventListener(
+          eventName,
+            () => this.unhighlight(dropZone),
+          false
+        );
+      });
+
+      dropZone.addEventListener("drop", (e) => this.handleDrop(e), false);
     }
 
-    // Transcript input
-    this.videoTranscript?.addEventListener("input", () =>
-      this.updateGenerateButton()
-    );
-
-    // Style controls
-    this.presetButtons?.forEach((btn) => {
-      btn.addEventListener("click", () => this.applyPreset(btn.dataset.preset));
-    });
-
-    // Range inputs with value display
-    this.bindRangeInputs();
-
-    // Video events
-    if (this.videoPreview) {
-      this.videoPreview.addEventListener("loadedmetadata", () =>
-        this.onVideoLoaded()
-      );
-      this.videoPreview.addEventListener("timeupdate", () =>
-        this.updateVideoTime()
-      );
-      this.videoPreview.addEventListener("play", () =>
-        this.updatePlayButton(true)
-      );
-      this.videoPreview.addEventListener("pause", () =>
-        this.updatePlayButton(false)
-      );
-    }
-  }
-
-  bindRangeInputs() {
-    const rangeInputs = [
-      { input: this.fontSize, display: "px" },
-      { input: this.backgroundOpacity, display: "%" },
-      { input: this.outlineWidth, display: "px" },
-      { input: this.maxWidth, display: "%" },
-    ];
-
-    rangeInputs.forEach(({ input, display }) => {
-      if (input) {
-        const valueDisplay =
-          input.parentElement.querySelector(".value-display");
-        if (valueDisplay) {
-          input.addEventListener("input", () => {
-            valueDisplay.textContent = input.value + display;
-            this.updateSubtitleStyle();
-          });
-        }
-      }
-    });
-
-    // Color and select inputs
-    [
-      this.fontFamily,
-      this.fontWeight,
-      this.textColor,
-      this.backgroundColor,
-      this.outlineColor,
-      this.verticalPosition,
-      this.horizontalAlign,
-    ].forEach((input) => {
-      if (input) {
-        input.addEventListener("change", () => this.updateSubtitleStyle());
-      }
-    });
-  }
-
-  setupFileDrop() {
-    const dropZone = this.videoEditorInterface;
-    if (!dropZone) return;
-
-    ["dragenter", "dragover", "dragleave", "drop"].forEach((eventName) => {
-      dropZone.addEventListener(eventName, this.preventDefaults, false);
-    });
-
-    ["dragenter", "dragover"].forEach((eventName) => {
-      dropZone.addEventListener(
-        eventName,
-        () => this.highlight(dropZone),
-        false
-      );
-    });
-
-    ["dragleave", "drop"].forEach((eventName) => {
-      dropZone.addEventListener(
-        eventName,
-        () => this.unhighlight(dropZone),
-        false
-      );
-    });
-
-    dropZone.addEventListener("drop", (e) => this.handleDrop(e), false);
+    // (duplicate drag/drop handlers removed during decomposition)
   }
 
   preventDefaults(e) {
@@ -2382,138 +2249,6 @@ class VideoEditorModule extends VideoEditorCore {
       this.updateUIState();
   this.safeStatus("Subtitles cleared");
     }
-  }
-
-  // Platform Presets
-  applyPreset(presetName) {
-    console.log("🎨 Applying preset:", presetName);
-
-    // Remove active class from all preset buttons
-    this.presetButtons?.forEach((btn) => btn.classList.remove("active"));
-
-    // Add active class to selected preset
-    const selectedBtn = document.querySelector(`[data-preset="${presetName}"]`);
-    if (selectedBtn) {
-      selectedBtn.classList.add("active");
-    }
-
-    this.currentPreset = presetName;
-
-    // Apply preset-specific settings
-    const presets = {
-      "instagram-story": {
-        fontSize: 32,
-        fontWeight: "bold",
-        textColor: "#ffffff",
-        backgroundColor: "#000000",
-        backgroundOpacity: 60,
-        outlineWidth: 2,
-        verticalPosition: "bottom",
-        horizontalAlign: "center",
-        maxWidth: 85,
-      },
-      "instagram-reel": {
-        fontSize: 28,
-        fontWeight: "600",
-        textColor: "#ffffff",
-        backgroundColor: "#000000",
-        backgroundOpacity: 70,
-        outlineWidth: 2,
-        verticalPosition: "bottom",
-        horizontalAlign: "center",
-        maxWidth: 90,
-      },
-      tiktok: {
-        fontSize: 36,
-        fontWeight: "bold",
-        textColor: "#ffffff",
-        backgroundColor: "#000000",
-        backgroundOpacity: 50,
-        outlineWidth: 3,
-        verticalPosition: "bottom",
-        horizontalAlign: "center",
-        maxWidth: 80,
-      },
-      "youtube-shorts": {
-        fontSize: 30,
-        fontWeight: "bold",
-        textColor: "#ffffff",
-        backgroundColor: "#000000",
-        backgroundOpacity: 65,
-        outlineWidth: 2,
-        verticalPosition: "bottom",
-        horizontalAlign: "center",
-        maxWidth: 85,
-      },
-    };
-
-    const preset = presets[presetName];
-    if (preset) {
-      // Apply settings to controls
-      if (this.fontSize) {
-        this.fontSize.value = preset.fontSize;
-        this.fontSize.dispatchEvent(new Event("input"));
-      }
-      if (this.fontWeight) this.fontWeight.value = preset.fontWeight;
-      if (this.textColor) this.textColor.value = preset.textColor;
-      if (this.backgroundColor)
-        this.backgroundColor.value = preset.backgroundColor;
-      if (this.backgroundOpacity) {
-        this.backgroundOpacity.value = preset.backgroundOpacity;
-        this.backgroundOpacity.dispatchEvent(new Event("input"));
-      }
-      if (this.outlineWidth) {
-        this.outlineWidth.value = preset.outlineWidth;
-        this.outlineWidth.dispatchEvent(new Event("input"));
-      }
-      if (this.verticalPosition)
-        this.verticalPosition.value = preset.verticalPosition;
-      if (this.horizontalAlign)
-        this.horizontalAlign.value = preset.horizontalAlign;
-      if (this.maxWidth) {
-        this.maxWidth.value = preset.maxWidth;
-        this.maxWidth.dispatchEvent(new Event("input"));
-      }
-
-      this.updateSubtitleStyle();
-  this.safeStatus(`Applied ${presetName.replace("-", " ")} preset`);
-    }
-  }
-
-  updateSubtitleStyle() {
-    // This will be used for real-time preview
-    console.log("🎨 Updating subtitle style");
-
-    const style = this.getCurrentStyle();
-
-    // Apply to video preview if subtitles are being previewed
-    this.applyStyleToPreview(style);
-  }
-
-  getCurrentStyle() {
-    return {
-      fontFamily: this.fontFamily?.value || "Arial, sans-serif",
-      fontSize: this.fontSize?.value || 24,
-      fontWeight: this.fontWeight?.value || "normal",
-      textColor: this.textColor?.value || "#ffffff",
-      backgroundColor: this.backgroundColor?.value || "#000000",
-      backgroundOpacity: this.backgroundOpacity?.value || 70,
-      outlineColor: this.outlineColor?.value || "#000000",
-      outlineWidth: this.outlineWidth?.value || 2,
-      verticalPosition: this.verticalPosition?.value || "bottom",
-      horizontalAlign: this.horizontalAlign?.value || "center",
-      maxWidth: this.maxWidth?.value || 80,
-      effects: {
-        fadeInMs: this.fadeInMs ? parseInt(this.fadeInMs.value, 10) : 150,
-        fadeOutMs: this.fadeOutMs ? parseInt(this.fadeOutMs.value, 10) : 150,
-        karaoke: this.karaokeToggle ? !!this.karaokeToggle.checked : false,
-      },
-    };
-  }
-
-  applyStyleToPreview(style) {
-    // This would apply the style to any subtitle preview overlay
-    // Implementation depends on the preview system
   }
 
   // Preview and Export
