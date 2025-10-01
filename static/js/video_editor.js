@@ -427,9 +427,14 @@ class VideoEditorModule extends VideoEditorCore {
     this.updateUIState && this.updateUIState();
     // Focus the newly added segment's input if present
     try {
-      const container = this.segmentsList || document.getElementById('segmentsList') || document.getElementById('subtitlesList');
+      const container =
+        this.segmentsList ||
+        document.getElementById("segmentsList") ||
+        document.getElementById("subtitlesList");
       if (container) {
-        const last = container.querySelector('.subtitle-segment-item:last-child input.segment-text-input');
+        const last = container.querySelector(
+          ".subtitle-segment-item:last-child input.segment-text-input"
+        );
         if (last) {
           last.focus();
           last.select();
@@ -2202,7 +2207,11 @@ class VideoEditorModule extends VideoEditorCore {
   }
 
   renderSubtitleSegments() {
-    if (!this.segmentsList) return;
+    // Support both legacy #segmentsList and current #subtitlesList containers
+    if (!this.segmentsList) {
+      const alt = document.getElementById('subtitlesList');
+      if (alt) this.segmentsList = alt; else return;
+    }
 
     // Update count
     const countElement = document.querySelector(".segment-count");
@@ -2211,7 +2220,7 @@ class VideoEditorModule extends VideoEditorCore {
     }
 
     // Clear existing segments
-    this.segmentsList.innerHTML = "";
+  this.segmentsList.innerHTML = "";
 
     this.subtitles.forEach((subtitle, index) => {
       const segmentDiv = document.createElement("div");
@@ -2219,35 +2228,70 @@ class VideoEditorModule extends VideoEditorCore {
       segmentDiv.dataset.id = subtitle.id;
 
       segmentDiv.innerHTML = `
-        <div class="segment-header">
-          <span class="segment-number">#${index + 1}</span>
-          <span class="segment-timing">${this.formatTime(
-            subtitle.start_ms / 1000
-          )} - ${this.formatTime(subtitle.end_ms / 1000)}</span>
-        </div>
-        <div class="segment-text-content">
-          <input type="text" class="segment-text-input" value="${
-            subtitle.text
-          }" />
-        </div>
-        <div class="segment-actions">
-          <button class="btn btn-sm" onclick="videoEditor.deleteSubtitle(${
-            subtitle.id
-          })">
-            <i class="fas fa-trash"></i>
-          </button>
-        </div>
-      `;
+        <div class="segment-row">
+          <div class="seg-col seg-index">${index + 1}</div>
+          <div class="seg-col seg-time">
+            <input type="text" class="seg-start" value="${this.formatTime(
+              subtitle.start_ms / 1000
+            )}" data-field="start" />
+            <span class="time-sep">→</span>
+            <input type="text" class="seg-end" value="${this.formatTime(
+              subtitle.end_ms / 1000
+            )}" data-field="end" />
+          </div>
+          <div class="seg-col seg-text">
+            <input type="text" class="segment-text-input" value="${
+              subtitle.text.replace(/"/g,'&quot;')
+            }" />
+          </div>
+          <div class="seg-col seg-actions">
+            <button class="btn btn-xs btn-danger" data-act="del" title="Delete"><i class="fas fa-trash"></i></button>
+          </div>
+        </div>`;
 
       // Add text editing handler
       const textInput = segmentDiv.querySelector(".segment-text-input");
-      textInput.addEventListener("change", () => {
-        this.updateSubtitleText(subtitle.id, textInput.value);
-      });
-      // Atualização ao vivo enquanto digita
-      textInput.addEventListener("input", () => {
-        this.updateSubtitleTextLive(subtitle.id, textInput.value);
-      });
+      if (textInput) {
+        textInput.addEventListener("change", () => {
+          this.updateSubtitleText(subtitle.id, textInput.value);
+        });
+        textInput.addEventListener("input", () => {
+          this.updateSubtitleTextLive(subtitle.id, textInput.value);
+        });
+      }
+      // Timing edits
+      const startInput = segmentDiv.querySelector('.seg-start');
+      const endInput = segmentDiv.querySelector('.seg-end');
+      const parseClock = (val) => {
+        const parts = val.split(':');
+        if (parts.length === 2) {
+          const m = parseInt(parts[0],10)||0; const s = parseFloat(parts[1])||0; return (m*60+s)*1000;
+        }
+        return parseFloat(val)*1000 || 0;
+      };
+      const applyTiming = () => {
+        const newStart = parseClock(startInput.value);
+        const newEnd = parseClock(endInput.value);
+        if (newEnd - newStart >= 100) {
+          subtitle.start_ms = newStart;
+            subtitle.end_ms = newEnd;
+            this.renderSubtitleTimeline?.();
+        }
+      };
+      if (startInput && endInput) {
+        startInput.addEventListener('change', applyTiming);
+        endInput.addEventListener('change', applyTiming);
+      }
+      // Delete button
+      const delBtn = segmentDiv.querySelector('[data-act="del"]');
+      if (delBtn) {
+        delBtn.addEventListener('click', () => {
+          this.subtitles = this.subtitles.filter(s => s.id !== subtitle.id);
+          this.renderSubtitleSegments();
+          this.renderSubtitleTimeline?.();
+          this.safeStatus('Deleted segment');
+        });
+      }
 
       this.segmentsList.appendChild(segmentDiv);
     });
