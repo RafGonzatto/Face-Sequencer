@@ -1,0 +1,484 @@
+{% macro video_editor_interface() %}
+<div
+  class="video-editor-interface"
+  id="videoEditorInterface"
+  style="display: none"
+>
+  <div class="video-editor-header">
+    <div class="header-left">
+      <h2><i class="fas fa-video"></i> Video s Editor</h2>
+      <span
+        id="videoEditorStats"
+        class="video-editor-stats"
+        aria-live="polite"
+        title="Subtitle segments / total duration"
+        >0 seg • 0:00</span
+      >
+    </div>
+    <div class="header-right">
+      <button class="btn btn-outline btn-sm" id="loadVideoBtn">
+        <i class="fas fa-upload"></i> Load Video
+      </button>
+      <button class="btn btn-outline btn-sm" id="attachExternalAudioBtn">
+        <i class="fas fa-music"></i> Attach Audio
+      </button>
+      <button class="btn btn-primary btn-sm" id="generateSubtitlesBtn">
+        <i class="fas fa-magic"></i> Generate Subtitles
+      </button>
+      <button
+        class="btn btn-outline btn-sm"
+        id="toggleCompactModeBtn"
+        title="Toggle compact layout (hide style panel)"
+      >
+        <i class="fas fa-compress"></i> Compact
+      </button>
+      <button
+        class="btn btn-outline btn-sm"
+        id="videoScaleModeBtn"
+        title="Cycle video scale mode (Fit / Fill / 1:1)"
+      >
+        <i class="fas fa-expand-arrows-alt"></i> Fit
+      </button>
+      <button
+        class="btn btn-outline btn-sm"
+        id="exportSubtitledVideoBtn"
+        disabled
+      >
+        <i class="fas fa-file-export"></i> Export
+      </button>
+    </div>
+  </div>
+
+  <section
+    id="pendingUploadsPanel"
+    class="pending-uploads"
+    aria-live="polite"
+    hidden
+  >
+    <header class="pending-uploads__header">
+      <strong>Arquivos pendentes</strong>
+      <span class="pending-uploads__hint">
+        Assim que o editor estiver pronto, os arquivos ser�o processados automaticamente. Voc� pode administr�-los abaixo.
+      </span>
+    </header>
+    <ul class="pending-uploads__list" id="pendingUploadsList"></ul>
+    <p class="pending-uploads__empty" id="pendingUploadsEmpty">
+      Nenhum arquivo pendente.
+    </p>
+  </section>
+
+  <div class="video-editor-main">
+    <div class="panel video-panel">
+      <div class="video-wrapper">
+        <div
+          class="video-container"
+          id="videoContainer"
+          style="max-height: 30vh"
+        >
+          <video
+            id="videoPreview"
+            class="video-preview"
+            crossorigin="anonymous"
+          ></video>
+          <div id="subtitleOverlay" class="subtitle-overlay"></div>
+        </div>
+        <div class="video-controls" role="group" aria-label="Video controls">
+          <div class="controls-left">
+            <button class="btn btn-outline btn-sm" id="playPauseBtn" aria-label="Play" aria-pressed="false">
+              <i class="fas fa-play"></i>
+            </button>
+            <button class="btn btn-outline btn-sm" id="stopVideoBtn" aria-label="Stop">
+              <i class="fas fa-stop"></i>
+            </button>
+            <span id="currentVideoTime" class="time-display">0:00</span>
+          </div>
+          <div class="controls-seek">
+            <label class="sr-only" for="videoSeek">Video timeline</label>
+            <input
+              type="range"
+              id="videoSeek"
+              min="0"
+              max="100"
+              value="0"
+              step="0.01"
+              aria-label="Video timeline"
+            />
+          </div>
+          <div class="controls-right">
+            <span id="totalVideoDuration" class="time-display">0:00</span>
+            <button class="btn btn-outline btn-sm" id="muteVideoBtn" aria-label="Mute" aria-pressed="false">
+              <i class="fas fa-volume-up"></i>
+            </button>
+            <label class="sr-only" for="videoVolume">Volume</label>
+            <input
+              type="range"
+              id="videoVolume"
+              min="0"
+              max="1"
+              step="0.01"
+              value="1"
+              aria-label="Volume"
+            />
+            <label class="sr-only" for="playbackRate">Playback speed</label>
+            <select id="playbackRate" class="btn btn-outline btn-sm" aria-label="Playback speed">
+              <option value="0.5">0.5x</option>
+              <option value="0.75">0.75x</option>
+              <option value="1" selected>1x</option>
+              <option value="1.25">1.25x</option>
+              <option value="1.5">1.5x</option>
+              <option value="2">2x</option>
+            </select>
+            <button class="btn btn-outline btn-sm" id="fullscreenBtn" aria-label="Enter fullscreen" aria-pressed="false">
+              <i class="fas fa-expand"></i>
+            </button>
+          </div>
+        </div>
+        <div
+          class="annotation-toolbar"
+          id="annotationToolbar"
+          style="display: none"
+        >
+          <button class="btn btn-xs" data-annot="bold" title="Bold">
+            <b>B</b>
+          </button>
+          <button class="btn btn-xs" data-annot="italic" title="Italic">
+            <i>I</i>
+          </button>
+          <button class="btn btn-xs" data-annot="underline" title="Underline">
+            <u>U</u>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel subtitles-panel">
+      <div class="subtitles-header">
+        <h3><i class="fas fa-closed-captioning"></i> Subtitles</h3>
+        <div class="subtitle-actions">
+          <button class="btn btn-outline btn-sm" id="addSubtitleBtn">
+            <i class="fas fa-plus"></i> Add
+          </button>
+          <button
+            class="btn btn-outline btn-sm"
+            id="mergeSubtitlesBtn"
+            disabled
+          >
+            <i class="fas fa-object-group"></i> Merge
+          </button>
+          <button class="btn btn-outline btn-sm" id="splitSubtitleBtn" disabled>
+            <i class="fas fa-cut"></i> Split
+          </button>
+          <select id="subtitleSort" class="btn btn-outline btn-sm">
+            <option value="start">Sort: Start Time</option>
+            <option value="length">Sort: Length</option>
+          </select>
+        </div>
+      </div>
+      <div class="subtitles-list" id="subtitlesList"></div>
+    </div>
+
+    <div class="panel transcript-panel">
+      <div class="transcript-header">
+        <h3><i class="fas fa-file-alt"></i> Transcript</h3>
+        <small style="opacity: 0.7"
+          >Cole ou digite o texto completo que corresponde ao áudio do
+          vídeo</small
+        >
+      </div>
+      <textarea
+        id="videoTranscript"
+        rows="5"
+        placeholder="Cole aqui a transcrição completa do áudio do vídeo..."
+        style="
+          width: 100%;
+          resize: vertical;
+          margin-top: 8px;
+          font: 13px/1.4 system-ui, sans-serif;
+          padding: 8px;
+          border: 1px solid #334155;
+          border-radius: 6px;
+          background: #0f172a;
+          color: #f1f5f9;
+        "
+      ></textarea>
+      <div
+        style="
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-top: 6px;
+          gap: 8px;
+          flex-wrap: wrap;
+        "
+      >
+        <div id="transcriptCharCount" style="font-size: 12px; opacity: 0.65">
+          0 caracteres
+        </div>
+        <div style="display: flex; gap: 6px; align-items: center">
+          <select
+            id="transcriptLanguage"
+            class="btn btn-outline btn-sm"
+            title="Idioma da transcrição"
+            style="min-width: 110px"
+          >
+            <option value="pt-BR" selected>Português</option>
+            <option value="en">English</option>
+            <option value="es">Español</option>
+            <option value="fr">Français</option>
+          </select>
+          <button
+            class="btn btn-primary btn-sm"
+            id="alignFromTranscriptBtn"
+            title="Gerar legendas alinhando o texto com o áudio carregado"
+            disabled
+          >
+            <i class="fas fa-wave-square"></i> Align From Text
+          </button>
+        </div>
+      </div>
+      <small
+        style="display: block; margin-top: 6px; font-size: 11px; opacity: 0.6"
+        >Requisitos: vídeo ou áudio anexado + texto suficiente. O alinhamento
+        usa o endpoint /api/audio/align-enhanced e depois gera legendas
+        otimizadas.</small
+      >
+    </div>
+
+    <div class="panel properties-panel">
+      <h3><i class="fas fa-sliders-h"></i> Subtitle Style</h3>
+      <div class="section">
+        <h4>Quick Presets</h4>
+        <div class="preset-buttons" id="presetButtons"></div>
+        <div id="presetButtonsHome" style="display: none"></div>
+      </div>
+      <div class="section">
+        <h4>Text</h4>
+        <div class="style-controls">
+          <div class="control-group">
+            <label for="fontFamily">Font Family</label>
+            <select id="fontFamily" data-style="fontFamily">
+              <option value="Inter, system-ui, sans-serif" selected>Inter</option>
+              <option value="Arial, sans-serif">Arial</option>
+              <option value="Segoe UI, sans-serif">Segoe UI</option>
+              <option value="Roboto, sans-serif">Roboto</option>
+              <option value="Montserrat, sans-serif">Montserrat</option>
+            </select>
+          </div>
+          <div class="control-group">
+            <label for="fontStyle">Font Style</label>
+            <select id="fontStyle" data-style="fontStyle">
+              <option value="normal" selected>Normal</option>
+              <option value="italic">Italic</option>
+            </select>
+          </div>
+          <div class="control-group">
+            <label for="fontWeight">Font Weight</label>
+            <select id="fontWeight" data-style="fontWeight">
+              <option value="400">Regular</option>
+              <option value="600" selected>Semibold</option>
+              <option value="700">Bold</option>
+            </select>
+          </div>
+          <div class="control-group">
+            <label for="fontSize">Font Size</label>
+            <input
+              type="range"
+              id="fontSize"
+              data-style="fontSize"
+              min="12"
+              max="72"
+              value="42"
+            />
+            <span class="value-display">42px</span>
+          </div>
+          <div class="control-group">
+            <label for="lineHeight">Line Height</label>
+            <input
+              type="range"
+              id="lineHeight"
+              data-style="lineHeight"
+              min="1"
+              max="2"
+              step="0.05"
+              value="1.2"
+            />
+            <span class="value-display">1.20</span>
+          </div>
+          <div class="control-group">
+            <label for="letterSpacing">Letter Spacing</label>
+            <input
+              type="range"
+              id="letterSpacing"
+              data-style="letterSpacing"
+              min="-2"
+              max="10"
+              step="0.5"
+              value="0"
+            />
+            <span class="value-display">0px</span>
+          </div>
+          <div class="control-group">
+            <label for="horizontalAlign">Text Align</label>
+            <select id="horizontalAlign" data-style="textAlign">
+              <option value="left">Left</option>
+              <option value="center" selected>Center</option>
+              <option value="right">Right</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="section">
+        <h4>Colors & Outline</h4>
+        <div class="style-controls">
+          <div class="control-group">
+            <label for="textColor">Text Color</label>
+            <input type="color" id="textColor" data-style="color" value="#ffffff" />
+          </div>
+          <div class="control-group">
+            <label for="outlineColor">Outline Color</label>
+            <input type="color" id="outlineColor" data-style="strokeColor" value="#000000" />
+          </div>
+          <div class="control-group">
+            <label for="outlineWidth">Outline Width</label>
+            <input
+              type="range"
+              id="outlineWidth"
+              data-style="strokeWidth"
+              min="0"
+              max="10"
+              value="0"
+            />
+            <span class="value-display">0px</span>
+          </div>
+          <div class="control-group">
+            <label for="backgroundColor">Background</label>
+            <input type="color" id="backgroundColor" data-style="bgColor" value="#000000" />
+          </div>
+          <div class="control-group">
+            <label for="backgroundOpacity">Background Opacity</label>
+            <input
+              type="range"
+              id="backgroundOpacity"
+              data-style="bgOpacity"
+              min="0"
+              max="1"
+              step="0.05"
+              value="0.6"
+            />
+            <span class="value-display">0.60</span>
+          </div>
+        </div>
+      </div>
+      <div class="section">
+        <h4>Box & Effects</h4>
+        <div class="style-controls">
+          <div class="control-group">
+            <label for="padding">Padding</label>
+            <input
+              type="range"
+              id="padding"
+              data-style="padding"
+              min="0"
+              max="64"
+              value="12"
+            />
+            <span class="value-display">12px</span>
+          </div>
+          <div class="control-group">
+            <label for="borderRadius">Border Radius</label>
+            <input
+              type="range"
+              id="borderRadius"
+              data-style="borderRadius"
+              min="0"
+              max="64"
+              value="12"
+            />
+            <span class="value-display">12px</span>
+          </div>
+          <div class="control-group control-group--checkbox">
+            <label for="textShadow">Shadow</label>
+            <input type="checkbox" id="textShadow" data-style="shadow" checked />
+          </div>
+          <div class="control-group control-group--checkbox">
+            <label for="textGlow">Glow</label>
+            <input type="checkbox" id="textGlow" />
+          </div>
+        </div>
+      </div>
+      <div class="section">
+        <h4>Layout</h4>
+        <div class="style-controls">
+          <div class="control-group">
+            <label for="verticalPosition">Vertical Position</label>
+            <select id="verticalPosition" data-style="position">
+              <option value="top">Top</option>
+              <option value="center">Center</option>
+              <option value="bottom" selected>Bottom</option>
+            </select>
+          </div>
+          <div class="control-group">
+            <label for="maxWidth">Max Width</label>
+            <input
+              type="range"
+              id="maxWidth"
+              data-style="maxWidth"
+              min="40"
+              max="100"
+              value="90"
+            />
+            <span class="value-display">90%</span>
+          </div>
+          <div class="control-group">
+            <label for="marginY">Vertical Margin</label>
+            <input
+              type="range"
+              id="marginY"
+              data-style="marginY"
+              min="0"
+              max="20"
+              step="0.5"
+              value="5"
+            />
+            <span class="value-display">5%</span>
+          </div>
+          <div class="control-group">
+            <label for="marginX">Horizontal Margin</label>
+            <input
+              type="range"
+              id="marginX"
+              data-style="marginX"
+              min="0"
+              max="20"
+              step="0.5"
+              value="5"
+            />
+            <span class="value-display">5%</span>
+          </div>
+        </div>
+      </div>
+      <div class="section">
+        <h4>Preview</h4>
+        <button class="btn btn-primary" id="previewSubtitles" disabled>
+          <i class="fas fa-eye"></i> Preview Subtitles
+        </button>
+        <div class="preview-info">
+          <small>Preview shows subtitles overlaid on video</small>
+        </div>
+      </div>
+    </div><!-- Floating compact preset toolbar (shown only in compact mode) -->
+  <div
+    id="compactPresetToolbar"
+    class="compact-preset-toolbar"
+    aria-hidden="true"
+  ></div>
+</div>
+{% endmacro %}
+
+
+
+
+
+
+
+

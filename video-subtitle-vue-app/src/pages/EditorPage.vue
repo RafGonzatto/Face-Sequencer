@@ -10,13 +10,11 @@
           </p>
         </div>
         <div class="status-pills">
-          <span v-if="workflow.uploading" class="pill">Uploading...</span>
-          <span v-if="workflow.aligning" class="pill">Aligning...</span>
-          <span v-if="workflow.generating" class="pill">Generating...</span>
-          <span v-if="workflow.exporting" class="pill">Exporting...</span>
-          <span v-if="workflow.error" class="pill error">{{
-            workflow.error
-          }}</span>
+          <span v-if="uploading" class="pill">Uploading...</span>
+          <span v-if="aligning" class="pill">Aligning...</span>
+          <span v-if="generating" class="pill">Generating...</span>
+          <span v-if="exportingVideo" class="pill">Exporting...</span>
+          <span v-if="error" class="pill error">{{ error }}</span>
         </div>
       </header>
 
@@ -37,8 +35,8 @@
             <span v-if="pendingFile" class="file-meta"
               >{{ pendingFile.name }} (local)</span
             >
-            <span v-else-if="workflow.lastUploadFilename" class="file-meta"
-              >Server: {{ workflow.lastUploadFilename }}</span
+            <span v-else-if="lastUploadFilename" class="file-meta"
+              >Server: {{ lastUploadFilename }}</span
             >
           </div>
           <div class="toggles">
@@ -55,7 +53,7 @@
             <button
               type="button"
               class="ghost"
-              :disabled="!pendingFile || workflow.uploading"
+              :disabled="!pendingFile || uploading"
               @click="uploadPending"
             >
               Upload Media
@@ -63,7 +61,7 @@
             <button
               type="button"
               class="ghost"
-              :disabled="!workflow.lastUploadFilename"
+              :disabled="!lastUploadFilename"
               @click="workflow.refreshLatestFile"
             >
               Refresh Latest
@@ -73,29 +71,23 @@
         <div class="transcript-column">
           <label class="heading">Transcript</label>
           <textarea
-            v-model="workflow.rawText"
+            v-model="localTranscript"
             rows="5"
             placeholder="Paste transcript for alignment and caption generation"
+            @input="
+              () =>
+                console.log('TEXTAREA2 INPUT:', localTranscript.length, 'chars')
+            "
           ></textarea>
           <div class="transcript-actions">
-            <select v-model="workflow.language">
-              <option value="pt-BR">Portugu�s</option>
+            <select v-model="language">
+              <option value="pt-BR">Português</option>
               <option value="en">English</option>
             </select>
-            <button
-              type="button"
-              class="ghost"
-              :disabled="!workflow.lastUploadFilename || !workflow.rawText"
-              @click="alignAudio"
-            >
+            <button type="button" class="ghost" @click="alignAudio">
               Align Audio
             </button>
-            <button
-              type="button"
-              class="primary"
-              :disabled="!workflow.lastUploadFilename || !workflow.rawText"
-              @click="generateSubtitles"
-            >
+            <button type="button" class="primary" @click="generateSubtitles">
               Generate Captions
             </button>
             <button
@@ -106,21 +98,83 @@
             >
               Smart Split
             </button>
+            <label class="inline-control">
+              <input type="checkbox" v-model="charLevel" />
+              Separação por caracteres (karaokê)
+            </label>
+            <label class="inline-control">
+              <input type="checkbox" v-model="forceUppercase" />
+              Converter para MAIÚSCULAS
+            </label>
+            <label class="inline-control">
+              <input type="checkbox" v-model="wrapLinesOnExport" />
+              Quebrar linhas no SRT (20–26 colunas)
+            </label>
+            <div
+              v-if="wrapLinesOnExport"
+              class="inline-control"
+              style="gap: 8px; align-items: center"
+            >
+              <small>mín:</small>
+              <input
+                type="number"
+                v-model.number="wrapMin"
+                min="10"
+                max="80"
+                style="width: 64px"
+              />
+              <small>máx:</small>
+              <input
+                type="number"
+                v-model.number="wrapMax"
+                min="10"
+                max="80"
+                style="width: 64px"
+              />
+            </div>
+            <!-- Debug panel to visualize state after generation -->
+            <div style="margin-left: auto; font-size: 12px; opacity: 0.8">
+              <span>hasLayers: {{ hasLayers ? 'yes' : 'no' }}</span>
+              <span style="margin-left: 8px"
+                >layers: {{ activeLayers.length }}</span
+              >
+              <span style="margin-left: 8px"
+                >cues:
+                {{
+                  Array.isArray(subtitleStore.cues)
+                    ? subtitleStore.cues.length
+                    : subtitleStore.cues?.value?.length || 0
+                }}</span
+              >
+              <button
+                class="ghost"
+                type="button"
+                style="margin-left: 8px"
+                @click="hydrateEditorFromSubtitleStore()"
+              >
+                Hydrate now
+              </button>
+            </div>
           </div>
         </div>
       </section>
 
-      <section class="workspace" v-if="hasLayers">
+      <!-- Alterado: antes só mostrava workspace se já existissem layers.
+           Agora mostramos assim que há um vídeo selecionado/upload (videoSource ou lastUploadFilename) -->
+      <section class="workspace" v-if="videoSource || lastUploadFilename">
         <div class="preview-column">
           <VideoPlayer
-            :video-src="videoSource"
-            :filename="workflow.lastUploadFilename || ''"
+            ref="playerRef"
+            :video-src="videoSrcEffective"
+            :filename="lastUploadFilename || ''"
             :current-time="playback.currentTime"
             :layers="activeLayers"
             :aspect-ratio="editorStore.aspectRatio"
             :active-layer-ids="editorStore.selection.order"
             :safe-zone-enabled="editorStore.safeZoneEnabled"
             :grid-visible="editorStore.gridVisible"
+            :backend-preview-url="backendPreviewUrl"
+            :show-backend-preview="backendPreviewEnabled && !playback.isPlaying"
             @update:currentTime="editorStore.setPlaybackTime"
             @update:duration="editorStore.setPlaybackDuration"
             @update:playing="editorStore.setPlaybackState"
@@ -129,6 +183,19 @@
             @double-click-layer="openRenameLayer"
             @update-layer-position="updateLayerPosition"
           />
+          <div v-if="!hasLayers" class="no-layers-hint">
+            <p>
+              <strong>Pré-visualização carregada.</strong> Ainda não há layers
+              de texto porque você não gerou legendas.
+            </p>
+            <ol>
+              <li>Insira / cole um transcript no campo Transcript.</li>
+              <li>
+                Clique em "Align Audio" (opcional) e depois "Generate Captions".
+              </li>
+              <li>As legendas aparecerão aqui e você poderá editar.</li>
+            </ol>
+          </div>
           <div class="preview-controls">
             <RatioSafeZones
               :presets="aspectPresets"
@@ -137,6 +204,18 @@
               @select="editorStore.setAspectRatio"
               @toggle-safe-zone="editorStore.toggleSafeZone"
             />
+            <div class="backend-toggle">
+              <label>
+                <input type="checkbox" v-model="backendPreviewEnabled" />
+                Backend‑aligned preview (pixel‑perfect)
+              </label>
+              <small
+                v-if="backendPreviewEnabled"
+                style="opacity: 0.75; display: block; margin-top: 4px"
+              >
+                Pausa o vídeo para ver o frame gerado pelo backend.
+              </small>
+            </div>
           </div>
         </div>
         <StylePanel
@@ -174,10 +253,19 @@
 
       <section class="export-bar" v-if="hasLayers">
         <button type="button" class="ghost" @click="exportCaptions('srt')">
-          Export SRT
+          Exportar SRT
         </button>
         <button type="button" class="ghost" @click="exportCaptions('vtt')">
-          Export VTT
+          Exportar VTT
+        </button>
+        <button
+          type="button"
+          class="ghost"
+          :disabled="!canExportVideo"
+          @click="quickExportWebM"
+          title="Experimental: grava a visualização (WebM) no navegador"
+        >
+          Quick export (browser • WebM)
         </button>
         <button
           type="button"
@@ -201,6 +289,7 @@ import {
   onMounted,
   ref,
   watch,
+  nextTick,
 } from 'vue';
 import DefaultLayout from '@/layouts/DefaultLayout.vue';
 import VideoPlayer from '@/components/video/VideoPlayer.vue';
@@ -209,6 +298,7 @@ import TimelineEditor from '@/components/subtitles/TimelineEditor.vue';
 import RatioSafeZones from '@/components/video/RatioSafeZones.vue';
 import { useSubtitleWorkflow } from '@/composables/useSubtitleWorkflow';
 import { useEditorStore } from '@/store/editor-store';
+import { storeToRefs } from 'pinia';
 import { useSubtitleStore } from '@/store/subtitleStore';
 import { ASPECT_RATIO_PRESETS } from '@/modules/editor/editor-constants';
 import type {
@@ -218,6 +308,7 @@ import type {
 } from '@/modules/editor/editor-types';
 import { exportSubtitles, downloadBlob } from '@/api/subtitleExportService';
 import { exportVideoWithSubtitles } from '@/api/videoExportService';
+import { getPreviewFrameUrl } from '@/api/previewService';
 
 interface AlignmentToken {
   text: string;
@@ -238,6 +329,8 @@ export default defineComponent({
   setup() {
     const workflow = useSubtitleWorkflow();
     const editorStore = useEditorStore();
+    // Pinia getters/refs reativos
+    const { orderedLayers, selection } = storeToRefs(editorStore as any);
     const subtitleStore = useSubtitleStore();
 
     const fileInputRef = ref<HTMLInputElement | null>(null);
@@ -245,19 +338,115 @@ export default defineComponent({
     const videoSource = ref<string>('');
     const autoUpload = ref(true);
     const snapping = ref(true);
-  const snapInterval = ref(0.05);
+    const snapInterval = ref(0.05);
+    const charLevel = ref(false);
+    const forceUppercase = ref(false);
+    const wrapLinesOnExport = ref(false);
+    const wrapMin = ref(20);
+    const wrapMax = ref(26);
     const exportingVideo = ref(false);
     const exportMessage = ref('');
+    const backendPreviewEnabled = ref(false);
+    const backendPreviewUrl = ref<string>('');
+    const playerRef = ref<any | null>(null);
+    let lastBackendObjectUrl: string | null = null;
+    // Sequencing to avoid races where an older response revokes the newest blob URL
+    let previewRequestSeq = 0;
+    let lastAppliedSeq = 0;
+
+    // Ref local para o transcript com sincronização bidirecional
+    const localTranscript = ref('');
+
+    // Sincronizar local -> workflow
+    watch(localTranscript, newVal => {
+      workflow.rawText.value = newVal;
+      console.log('LOCAL TRANSCRIPT -> WORKFLOW:', {
+        length: newVal?.length || 0,
+        preview: newVal?.substring(0, 50) || '(vazio)',
+      });
+    });
+
+    // Sincronizar workflow -> local (caso workflow mude por outro motivo)
+    watch(
+      () => workflow.rawText.value,
+      newVal => {
+        if (newVal !== localTranscript.value) {
+          localTranscript.value = newVal;
+          console.log('WORKFLOW -> LOCAL TRANSCRIPT:', {
+            length: newVal?.length || 0,
+          });
+        }
+      },
+      { immediate: true }
+    );
 
     const aspectPresets = ASPECT_RATIO_PRESETS;
 
+    // Expose top-level refs for template reactivity (avoid nested ref unwrapping pitfalls)
+    const uploading = workflow.uploading;
+    const aligning = workflow.aligning;
+    const generating = workflow.generating;
+    const error = workflow.error;
+    const lastUploadFilename = workflow.lastUploadFilename;
+    const language = workflow.language;
+
     const playback = computed(() => editorStore.playback);
     const selectedLayer = computed(() => editorStore.primaryLayer);
-    const activeLayers = computed(() => editorStore.orderedLayers);
-    const hasLayers = computed(() => activeLayers.value.length > 0);
+    // orderedLayers via storeToRefs garante reatividade na template
+    const activeLayers = orderedLayers;
+    const hasLayers = computed(() => (activeLayers.value?.length || 0) > 0);
+
+    // Debug: observe when layers change and when hasLayers flips
+    watch(
+      () => Object.keys(editorStore.layers).length,
+      len => {
+        console.log('EDITOR DEBUG - layers count changed', { count: len });
+      },
+      { immediate: true }
+    );
+    watch(
+      () => activeLayers.value,
+      layers => {
+        console.log('EDITOR DEBUG - orderedLayers update', {
+          count: Array.isArray(layers) ? layers.length : 0,
+          first:
+            Array.isArray(layers) && layers[0]
+              ? {
+                  id: layers[0].id,
+                  text: layers[0].text,
+                  start: layers[0].start,
+                  end: layers[0].end,
+                }
+              : null,
+        });
+      },
+      { immediate: true, deep: true }
+    );
+    watch(
+      () => hasLayers.value,
+      value => {
+        console.log('EDITOR DEBUG - hasLayers changed', { hasLayers: value });
+      },
+      { immediate: true }
+    );
+
+    // Auto-hydrate editor layers when new cues land in subtitleStore
+    let autoHydratedOnce = false;
+    watch(
+      () => subtitleStore.cues,
+      (cues: any) => {
+        const arr = Array.isArray(cues) ? cues : cues?.value;
+        const count = Array.isArray(arr) ? arr.length : 0;
+        if (count > 0 && !hasLayers.value && !autoHydratedOnce) {
+          hydrateEditorFromSubtitleStore();
+          autoHydratedOnce = true;
+        }
+      },
+      { immediate: true, deep: true }
+    );
 
     const alignmentTokens = computed<AlignmentToken[]>(() => {
-      const tokens = workflow.alignment.value?.alignment?.tokens ?? [];
+      const tokens = workflow.alignment.value?.tokens ?? [];
       return tokens
         .filter((token: any) => token)
         .map((token: any) => ({
@@ -271,7 +460,20 @@ export default defineComponent({
         );
     });
 
+    // Computeds to avoid nested ref pitfall in templates
+    const canAlign = computed(() =>
+      Boolean(
+        workflow.lastUploadFilename.value && workflow.rawText.value?.trim()
+      )
+    );
+    const canGenerate = computed(() =>
+      Boolean(
+        workflow.lastUploadFilename.value && workflow.rawText.value?.trim()
+      )
+    );
+
     function openFilePicker() {
+      console.log('FILE PICKER - (1/1) abrir seletor: clique no botão');
       fileInputRef.value?.click();
     }
 
@@ -279,6 +481,14 @@ export default defineComponent({
       if (videoSource.value.startsWith('blob:')) {
         URL.revokeObjectURL(videoSource.value);
       }
+    }
+
+    function revokeBackendPreviewUrl() {
+      if (lastBackendObjectUrl) {
+        URL.revokeObjectURL(lastBackendObjectUrl);
+        lastBackendObjectUrl = null;
+      }
+      backendPreviewUrl.value = '';
     }
 
     function isVideoFile(file: File) {
@@ -290,19 +500,68 @@ export default defineComponent({
       if (!files?.length) return;
       const file = files[0];
       pendingFile.value = file;
+      console.log(
+        'UPLOAD VIDEO - Seleção de arquivo (A) arquivo selecionado no input',
+        {
+          name: file.name,
+          size_bytes: file.size,
+          size_mb: (file.size / (1024 * 1024)).toFixed(2),
+          type: file.type,
+          lastUploadFilenameAtual: workflow.lastUploadFilename.value,
+          isVideo: isVideoFile(file),
+          timestamp: new Date().toISOString(),
+        }
+      );
       if (isVideoFile(file)) {
         revokeVideoSource();
+        console.log(
+          'UPLOAD VIDEO - Pré-visualização (B) gerando ObjectURL anteriorRevogado',
+          {
+            tinhaBlobAnterior: videoSource.value.startsWith('blob:'),
+          }
+        );
         videoSource.value = URL.createObjectURL(file);
+        console.log('UPLOAD VIDEO - Pré-visualização (C) object URL criado', {
+          objectUrl: videoSource.value,
+          dica: 'Será usado como src do <video> antes do upload finalizar',
+        });
       }
       if (autoUpload.value) {
+        console.log(
+          'UPLOAD VIDEO - Disparo automático (D) chamando uploadPending()',
+          {
+            autoUpload: autoUpload.value,
+          }
+        );
         uploadPending();
+      }
+      if (!isVideoFile(file)) {
+        console.log(
+          'UPLOAD VIDEO - Aviso: arquivo não é video/* portanto preview visual pode não aparecer até pós-processamento',
+          { type: file.type }
+        );
       }
     }
 
     async function uploadPending() {
       if (!pendingFile.value) return;
       try {
+        console.log('UPLOAD UI - (1/2) iniciar upload pendente', {
+          filename: pendingFile.value.name,
+          size_mb: (pendingFile.value.size / (1024 * 1024)).toFixed(2),
+          isVideo: isVideoFile(pendingFile.value),
+        });
+        console.log(
+          'UPLOAD VIDEO - Ponte para workflow (pré 1/4) Chamando workflow.doUpload',
+          {
+            filename: pendingFile.value.name,
+          }
+        );
         await workflow.doUpload(pendingFile.value);
+        console.log('UPLOAD UI - (2/2) upload concluído', {
+          serverFilename: lastUploadFilename.value,
+          videoSrcEffective: videoSrcEffective,
+        });
       } catch (error) {
         console.error('Upload failed', error);
       }
@@ -310,7 +569,17 @@ export default defineComponent({
 
     async function alignAudio() {
       try {
+        console.log('ALIGN UI - (1/2) iniciar alinhamento', {
+          hasFilename: !!lastUploadFilename.value,
+          text_len: workflow.rawText.value?.trim()?.length || 0,
+          language: language.value,
+        });
         await workflow.doAlign();
+        const tok = alignmentTokens.value.length;
+        console.log('ALIGN UI - (2/2) concluído com sucesso', {
+          tokens: tok,
+          sample: alignmentTokens.value.slice(0, 3),
+        });
       } catch (error) {
         console.error('Alignment failed', error);
       }
@@ -337,16 +606,84 @@ export default defineComponent({
 
     async function generateSubtitles() {
       try {
-        await workflow.doGenerate();
+        // GARANTIR que localTranscript foi sincronizado com workflow.rawText
+        console.log('GEN UI - (0/4) PRÉ-SYNC', {
+          localTranscript_length: localTranscript.value?.length || 0,
+          workflow_rawText_length: workflow.rawText.value?.length || 0,
+        });
+
+        // Forçar sincronização explícita (caso watcher não tenha executado ainda)
+        if (
+          localTranscript.value &&
+          localTranscript.value !== workflow.rawText.value
+        ) {
+          console.warn('GEN UI - SYNC MANUAL NECESSÁRIO');
+          workflow.rawText.value = localTranscript.value;
+        }
+
+        console.log('GEN UI - (1/4) iniciar geração a partir da UI', {
+          rawText_length: workflow.rawText.value?.length || 0,
+          rawText_preview:
+            workflow.rawText.value?.substring(0, 50) || '(vazio)',
+          rawText_full: workflow.rawText.value,
+          lastUploadFilename: workflow.lastUploadFilename.value,
+        });
+        await workflow.doGenerate({
+          character_level: charLevel.value,
+          uppercase: forceUppercase.value,
+        });
+        console.log('GEN UI - (2/4) retorno do workflow');
+        const raw =
+          (Array.isArray(subtitleStore.cues)
+            ? (subtitleStore.cues as any)
+            : (subtitleStore.cues?.value as any)) ?? [];
+        if (!Array.isArray(raw)) {
+          console.warn(
+            'GEN UI - (3/4) abortado: subtitleStore.cues não é array',
+            {
+              type: typeof raw,
+              value: raw,
+            }
+          );
+          return;
+        }
+        if (!raw.length) {
+          console.log(
+            'GEN UI - (3/4) sem legendas retornadas; nada para hidratar'
+          );
+          return;
+        }
         hydrateEditorFromSubtitleStore();
+        console.log('GEN UI - (4/4) hidratação concluída');
       } catch (error) {
         console.error('Generation failed', error);
       }
     }
 
-    function hydrateEditorFromSubtitleStore() {
-      const cues = subtitleStore.cues.value;
-      if (!cues.length) return;
+    async function hydrateEditorFromSubtitleStore() {
+      console.log('HYDRATE EDITOR - (1/4) verificar cues no store');
+      const raw =
+        (Array.isArray(subtitleStore.cues)
+          ? (subtitleStore.cues as any)
+          : (subtitleStore.cues?.value as any)) ?? [];
+      if (!Array.isArray(raw)) {
+        console.warn(
+          'HYDRATE EDITOR - (X) abortado: subtitleStore.cues não é array',
+          {
+            type: typeof raw,
+            value: raw,
+          }
+        );
+        return;
+      }
+      if (!raw.length) {
+        console.log('HYDRATE EDITOR - (X) sem cues para hidratar');
+        return;
+      }
+      const cues = raw;
+      console.log('HYDRATE EDITOR - (2/4) cues recebidas', {
+        count: cues.length,
+      });
       editorStore.reset();
       const hydratedCues = cues.map((cue: any, index: number) => ({
         id: cue.id ?? `cue-${index}`,
@@ -355,6 +692,10 @@ export default defineComponent({
         end: cue.end,
         words: mapTokensToWords(cue.start, cue.end),
       }));
+      console.log('HYDRATE EDITOR - (3/4) mapeadas para layers', {
+        layers: hydratedCues.length,
+        sample: hydratedCues.slice(0, 2),
+      });
       editorStore.hydrateFromCues({ cues: hydratedCues });
       editorStore.setPlaybackDuration(
         Math.max(
@@ -362,6 +703,21 @@ export default defineComponent({
           hydratedCues.at(-1)?.end ?? playback.value.duration
         )
       );
+      console.log('HYDRATE EDITOR - (4/4) concluído', {
+        layers: hydratedCues.length,
+      });
+      // Checagens pós-hidratação para confirmar reatividade
+      console.log('POST-HYDRATE CHECK - imediato', {
+        orderedLayers_len: editorStore.orderedLayers.length,
+        layersKeys: Object.keys(editorStore.layers).length,
+        selectionCount: editorStore.selection.order.length,
+      });
+      await nextTick();
+      console.log('POST-HYDRATE CHECK - nextTick', {
+        orderedLayers_len: editorStore.orderedLayers.length,
+        layersKeys: Object.keys(editorStore.layers).length,
+        selectionCount: editorStore.selection.order.length,
+      });
     }
 
     function applyTemplate(templateId: string) {
@@ -447,10 +803,17 @@ export default defineComponent({
       }
     }
 
-    function onReorderLayer(payload: { layerId: string; targetTrackId: string; targetIndex: number }) {
+    function onReorderLayer(payload: {
+      layerId: string;
+      targetTrackId: string;
+      targetIndex: number;
+    }) {
       const targetTrack = editorStore.tracks[payload.targetTrackId];
       if (!targetTrack) return;
-      const index = payload.targetIndex === -1 ? targetTrack.layerIds.length : payload.targetIndex;
+      const index =
+        payload.targetIndex === -1
+          ? targetTrack.layerIds.length
+          : payload.targetIndex;
       editorStore.reorderLayer(payload.layerId, index, payload.targetTrackId);
     }
 
@@ -461,6 +824,7 @@ export default defineComponent({
     function smartSplit() {
       const tokens = alignmentTokens.value;
       if (!tokens.length) return;
+      console.log('SMART SPLIT - (1/3) iniciar', { tokens: tokens.length });
       const groups: AlignmentToken[][] = [];
       let currentGroup: AlignmentToken[] = [];
       tokens.forEach((token: AlignmentToken, index: number) => {
@@ -482,6 +846,9 @@ export default defineComponent({
         }
       });
       if (!groups.length) return;
+      console.log('SMART SPLIT - (2/3) grupos formados', {
+        groups: groups.length,
+      });
       editorStore.reset();
       subtitleStore.setSubtitles(
         groups.map((group, index) => ({
@@ -509,49 +876,198 @@ export default defineComponent({
         })),
       }));
       editorStore.hydrateFromCues({ cues: mapped });
+      console.log('SMART SPLIT - (3/3) concluído', {
+        groups: groups.length,
+        layers: mapped.length,
+      });
     }
 
     async function exportCaptions(format: 'srt' | 'vtt') {
       try {
-        const blob = await exportSubtitles(format, subtitleStore.cues.value);
-        downloadBlob(blob, `captions.${format}`);
+        console.log('EXPORT CAPTIONS - (1/2) iniciar', { format });
+        const cuesArr = Array.isArray(subtitleStore.cues)
+          ? (subtitleStore.cues as any)
+          : (subtitleStore.cues?.value as any);
+        const blob = await exportSubtitles(
+          format,
+          cuesArr || [],
+          wrapLinesOnExport.value
+            ? { wrap: true, wrapMin: wrapMin.value, wrapMax: wrapMax.value }
+            : undefined
+        );
+        // Prefer using the uploaded filename as base for the subtitle file
+        const base = (lastUploadFilename.value || 'captions').replace(
+          /\.[^.]+$/,
+          ''
+        );
+        downloadBlob(blob, `${base}.${format}`);
+        console.log('EXPORT CAPTIONS - (2/2) concluído', {
+          format,
+          cueCount: Array.isArray(cuesArr) ? cuesArr.length : 0,
+          blobType: blob.type,
+        });
       } catch (error) {
         console.error('Export failed', error);
       }
     }
 
     const canExportVideo = computed(() =>
-      Boolean(workflow.lastUploadFilename && hasLayers.value)
+      Boolean(workflow.lastUploadFilename.value && hasLayers.value)
     );
 
+    // Map UI aspect ratios to valid backend presets (names must exist in backend)
     const presetMap: Record<string, string> = {
       '9:16': 'instagram_reel',
-      '1:1': 'instagram_story',
-      '16:9': 'youtube_horizontal',
+      '1:1': 'custom_square',
+      '16:9': 'facebook_video',
     };
 
-    function resolveVideoPath(filename: string) {
+    // URL para o browser usar como src do <video>
+    function resolveVideoUrl(filename: string) {
+      return `/uploads/audio/${filename}`;
+    }
+    // Caminho esperado pelo backend (filesystem relativo), SEM barra inicial
+    function resolveVideoFsPath(filename: string) {
       return `uploads/audio/${filename}`;
     }
 
-    async function exportVideoWithCaptions() {
-      if (!workflow.lastUploadFilename || !editorStore.orderedLayers.length)
-        return;
-      exportingVideo.value = true;
-      exportMessage.value = 'Exporting...';
+    const videoSrcEffective = computed(() => {
+      if (videoSource.value) return videoSource.value;
+      if (lastUploadFilename.value)
+        return resolveVideoUrl(lastUploadFilename.value);
+      return '';
+    });
+
+    watch(
+      () => videoSrcEffective.value,
+      (val: string) => {
+        console.log('WORKSPACE - (1/1) vídeo disponível', {
+          src: val || '(vazio)',
+          hasBlob: !!val && val.startsWith('blob:'),
+          isServerFile: !!val && val.includes('/uploads/'),
+        });
+        // invalidate backend preview when source changes
+        revokeBackendPreviewUrl();
+      },
+      { immediate: true }
+    );
+
+    // Debounce helper for lightweight UI
+    function debounce<T extends (...args: any[]) => void>(fn: T, wait = 150) {
+      let t: number | undefined;
+      return (...args: Parameters<T>) => {
+        if (t) window.clearTimeout(t);
+        t = window.setTimeout(() => fn(...args), wait);
+      };
+    }
+
+    const requestBackendPreview = debounce(async () => {
       try {
+        if (!backendPreviewEnabled.value) return;
+        if (!workflow.lastUploadFilename.value) return;
+        const mySeq = ++previewRequestSeq;
+        // Build segments from editor state
         const segments = editorStore.orderedLayers.map((layer: any) => ({
           id: layer.id,
           text: layer.text,
           start_time: layer.start,
           end_time: layer.end,
           confidence: 1,
-          style_overrides: layer.style,
+          style_overrides: { ...layer.style, position: layer.position },
           karaoke: layer.karaoke,
         }));
+        const arId = editorStore.aspectRatio.id;
+        const presetName =
+          (arId === '9:16' && 'instagram_reel') ||
+          (arId === '1:1' && 'custom_square') ||
+          (arId === '16:9' && 'facebook_video') ||
+          'instagram_reel';
+        const url = await getPreviewFrameUrl({
+          inputVideoPath: `uploads/audio/${workflow.lastUploadFilename.value}`,
+          time: playback.value.currentTime,
+          presetName,
+          subtitleSegments: segments,
+          customSettings: {
+            aspectRatio: editorStore.aspectRatio,
+            safeZone: editorStore.safeZoneEnabled,
+          },
+        });
+        // If another request started after this one, discard this result
+        if (mySeq < previewRequestSeq) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+        // Apply new URL, then revoke the previously applied one
+        const prev = lastBackendObjectUrl;
+        backendPreviewUrl.value = url;
+        lastBackendObjectUrl = url;
+        lastAppliedSeq = mySeq;
+        if (prev && prev !== url) {
+          URL.revokeObjectURL(prev);
+        }
+      } catch (e) {
+        console.warn('Backend preview request failed', e);
+      }
+    }, 150);
+
+    // Update backend preview when paused/time/aspect changes
+    watch(
+      () => [
+        backendPreviewEnabled.value,
+        playback.value.isPlaying,
+        playback.value.currentTime,
+        editorStore.aspectRatio.id,
+      ],
+      () => {
+        if (backendPreviewEnabled.value && !playback.value.isPlaying) {
+          requestBackendPreview();
+        }
+      }
+    );
+
+    // Update backend preview when layers change (positions/styles/timing)
+    watch(
+      () => editorStore.orderedLayers,
+      () => {
+        if (backendPreviewEnabled.value && !playback.value.isPlaying) {
+          requestBackendPreview();
+        }
+      },
+      { deep: true }
+    );
+
+    async function exportVideoWithCaptions() {
+      if (!lastUploadFilename.value || !editorStore.orderedLayers.length)
+        return;
+      exportingVideo.value = true;
+      exportMessage.value = 'Exporting...';
+      try {
+        console.log('VIDEO EXPORT - (1/4) início preparação', {
+          filename: lastUploadFilename.value,
+          layerCount: editorStore.orderedLayers.length,
+          aspect: editorStore.aspectRatio.id,
+        });
+        const segments = editorStore.orderedLayers.map((layer: any) => ({
+          id: layer.id,
+          text: layer.text,
+          start_time: layer.start,
+          end_time: layer.end,
+          confidence: 1,
+          style_overrides: {
+            ...layer.style,
+            position: layer.position,
+          },
+          karaoke: layer.karaoke,
+        }));
+        console.log(
+          'VIDEO EXPORT - (2/4) chamando serviço exportVideoWithSubtitles',
+          {
+            segmentCount: segments.length,
+          }
+        );
         const response = await exportVideoWithSubtitles({
-          inputVideoPath: resolveVideoPath(workflow.lastUploadFilename),
-          outputFilename: `${workflow.lastUploadFilename.replace(/\.[^.]+$/, '')}-styled.mp4`,
+          inputVideoPath: resolveVideoFsPath(lastUploadFilename.value),
+          outputFilename: `${String(lastUploadFilename.value).replace(/\.[^.]+$/, '')}-styled.mp4`,
           presetName: presetMap[editorStore.aspectRatio.id] || 'instagram_reel',
           subtitleSegments: segments,
           customSettings: {
@@ -563,14 +1079,33 @@ export default defineComponent({
             safeZone: editorStore.safeZoneEnabled,
           },
         });
+        console.log('VIDEO EXPORT - (3/4) resposta serviço', {
+          success: response.success,
+          job_id: response.job_id,
+          output: response.output_path,
+        });
         if (response.success) {
           exportMessage.value = 'Export ready';
-          if (response.download_url) {
-            window.open(response.download_url, '_blank');
+          // Start download immediately (prefer provided URL; fallback to job-based route)
+          const dlUrl =
+            response.download_url ||
+            (response.job_id
+              ? `/api/v4/export/download/${response.job_id}`
+              : undefined);
+          if (dlUrl) {
+            const a = document.createElement('a');
+            a.href = dlUrl;
+            a.download = '';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
           }
         } else {
           exportMessage.value = response.error || 'Export failed';
         }
+        console.log('VIDEO EXPORT - (4/4) finalizado', {
+          exportMessage: exportMessage.value,
+        });
       } catch (error) {
         console.error('Video export failed', error);
         exportMessage.value = 'Export failed';
@@ -579,6 +1114,74 @@ export default defineComponent({
           exportingVideo.value = false;
           exportMessage.value = '';
         }, 4000);
+      }
+    }
+
+    // Quick WebM export: records the composed <video> + canvas overlay as a WebM using MediaRecorder
+    async function quickExportWebM() {
+      try {
+        const player = playerRef.value;
+        if (!player) return;
+        const videoEl: HTMLVideoElement | null = player.getVideoEl?.() || null;
+        const overlayCanvas: HTMLCanvasElement | null =
+          player.getOverlayCanvas?.() || null;
+        const renderSize = player.getRenderSize?.() || null;
+        if (!videoEl || !overlayCanvas || !renderSize) {
+          console.warn('QuickExport: missing refs');
+          return;
+        }
+        // Build a compositor canvas the same size as the visible render
+        const comp = document.createElement('canvas');
+        comp.width = overlayCanvas.width;
+        comp.height = overlayCanvas.height;
+        const ctx = comp.getContext('2d');
+        if (!ctx) return;
+        const stream = comp.captureStream(30);
+        const opts: MediaRecorderOptions = {
+          mimeType: 'video/webm;codecs=vp9',
+        } as any;
+        const recorder = new MediaRecorder(stream, opts);
+        const chunks: BlobPart[] = [];
+        recorder.ondataavailable = e => e.data && chunks.push(e.data);
+        const done = new Promise<Blob>(resolve => {
+          recorder.onstop = () =>
+            resolve(new Blob(chunks, { type: 'video/webm' }));
+        });
+        recorder.start();
+        const fps = 30;
+        const interval = 1000 / fps;
+        let running = true;
+        let last = performance.now();
+        // Ensure playback while recording
+        videoEl.muted = true; // avoid echo
+        await videoEl.play().catch(() => {});
+        function loop(now: number) {
+          if (!running) return;
+          if (now - last >= interval) {
+            last = now;
+            // draw source video
+            ctx.drawImage(videoEl, 0, 0, comp.width, comp.height);
+            // draw overlay canvas on top
+            ctx.drawImage(overlayCanvas, 0, 0);
+          }
+          requestAnimationFrame(loop);
+        }
+        requestAnimationFrame(loop);
+        // Record for the duration of the timeline or until paused
+        const durationMs = Math.min(
+          (playback.value.duration || 10) * 1000,
+          60000
+        );
+        await new Promise(r => setTimeout(r, durationMs));
+        running = false;
+        recorder.stop();
+        const blob = await done;
+        downloadBlob(
+          blob,
+          `${String(lastUploadFilename.value || 'export')}.webm`
+        );
+      } catch (err) {
+        console.error('Quick export failed', err);
       }
     }
 
@@ -618,20 +1221,52 @@ export default defineComponent({
     );
 
     onMounted(() => {
+      // Fetch presets (may fail transiently if backend just restarted; frontend has a fallback)
       workflow.fetchPresets();
+      // Recover last uploaded filename if the page was reloaded
+      if (!workflow.lastUploadFilename.value && typeof window !== 'undefined') {
+        const persisted = window.localStorage?.getItem('fs:lastUploadFilename');
+        if (persisted) {
+          console.log(
+            'EDITOR MOUNT - recuperado lastUploadFilename do localStorage',
+            { persisted }
+          );
+          workflow.lastUploadFilename.value = persisted;
+        } else {
+          console.log(
+            'EDITOR MOUNT - tentando descobrir último arquivo no servidor'
+          );
+          workflow.refreshLatestFile().then(() => {
+            if (workflow.lastUploadFilename.value) {
+              console.log('EDITOR MOUNT - recuperado via API', {
+                last: workflow.lastUploadFilename.value,
+              });
+            }
+          });
+        }
+      }
     });
 
     onBeforeUnmount(() => {
       revokeVideoSource();
+      revokeBackendPreviewUrl();
     });
 
     return {
       workflow,
       editorStore,
+      subtitleStore,
+      uploading,
+      aligning,
+      generating,
+      error,
+      lastUploadFilename,
+      language,
       playback,
       selectedLayer,
       activeLayers,
       hasLayers,
+      localTranscript,
       fileInputRef,
       pendingFile,
       videoSource,
@@ -639,6 +1274,8 @@ export default defineComponent({
       snapping,
       aspectPresets,
       alignmentTokens,
+      canAlign,
+      canGenerate,
       openFilePicker,
       onFileChange,
       uploadPending,
@@ -655,12 +1292,25 @@ export default defineComponent({
       updateLayerTiming,
       createTrack,
       duplicateSelection,
+      // Expose reorder handlers used by <TimelineEditor> to fix template warnings
+      onReorderLayer,
+      onReorderTrack,
       smartSplit,
       exportCaptions,
       exportVideoWithCaptions,
       canExportVideo,
       exportingVideo,
       exportMessage,
+      playerRef,
+      quickExportWebM,
+      backendPreviewEnabled,
+      backendPreviewUrl,
+      hydrateEditorFromSubtitleStore,
+      videoSrcEffective,
+      openRenameLayer,
+      snapInterval,
+      charLevel,
+      forceUppercase,
     };
   },
 });
@@ -798,11 +1448,62 @@ export default defineComponent({
   gap: 24px;
 }
 
+/* Responsividade geral do workspace */
+@media (max-width: 1400px) {
+  .workspace {
+    gap: 16px;
+  }
+}
+
+@media (max-width: 1200px) {
+  .workspace {
+    flex-direction: column;
+  }
+  .preview-column,
+  .timeline-section {
+    width: 100%;
+  }
+}
+
+@media (max-width: 820px) {
+  .transcript-actions {
+    flex-wrap: wrap;
+  }
+  .transcript-actions button,
+  .transcript-actions select {
+    flex: 1 1 45%;
+    min-width: 140px;
+  }
+}
+
 .preview-column {
   flex: 1;
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+/* Quando não há layers, garantir que a coluna de preview não estoure a viewport vertical */
+.preview-column {
+  max-width: 100%;
+}
+
+.no-layers-hint {
+  font-size: 0.8rem;
+  line-height: 1.2rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  padding: 12px 14px;
+  border-radius: 10px;
+}
+
+.no-layers-hint ol {
+  margin: 6px 0 0 16px;
+  padding: 0;
+}
+
+.no-layers-hint li {
+  margin: 2px 0;
 }
 
 .preview-controls {
@@ -823,5 +1524,12 @@ export default defineComponent({
   display: flex;
   gap: 12px;
   justify-content: flex-end;
+}
+.inline-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  opacity: 0.9;
 }
 </style>

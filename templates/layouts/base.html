@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    {% block head_meta %}
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{% block title %}Face Sequencer Pro{% endblock %}</title>
+    <style>
+      /* Regras críticas para garantir layout correto do painel de vídeo */
+      .video-editor-main {
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+      }
+
+      /* 1) Altura estável e stacking ao wrapper - isolation para criar contexto próprio */
+      .video-editor-main {
+        isolation: isolate !important;
+      }
+
+      .video-preview-panel {
+        min-width: 0 !important;
+        min-height: 0 !important;
+        position: relative !important;
+        z-index: 1000 !important; /* valor aumentado para garantir que fique sempre acima */
+      }
+
+      .subtitle-timeline-panel,
+      .subtitle-properties-panel {
+        min-width: 0 !important;
+        min-height: 0 !important;
+        position: relative !important;
+        z-index: 0 !important; /* irmãos padrão abaixo do vídeo */
+      }
+
+      /* regras específicas para elementos sticky */
+      .subtitle-properties-panel.sticky,
+      .subtitle-properties-panel[style*="position: sticky"],
+      .subtitle-properties-panel .panel-header,
+      .subtitle-properties-panel .section {
+        position: relative !important;
+        z-index: 0 !important;
+      }
+
+      /* Container de vídeo com aspect-ratio para altura estável */
+      .video-preview-container {
+        position: relative !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        aspect-ratio: 16/9 !important;
+        background: #000 !important;
+        overflow: visible !important;
+      }
+
+      /* Camada do vídeo */
+      .video-preview {
+        position: relative !important;
+        z-index: 1 !important;
+        width: 100% !important;
+        height: 100% !important;
+        object-fit: contain !important;
+        display: block !important;
+      }
+
+      /* Fica sobre o vídeo */
+      #subtitleOverlay,
+      #veSubtitleOverlay,
+      .subtitle-overlay {
+        position: absolute !important;
+        inset: 0 !important;
+        z-index: 2 !important;
+        pointer-events: none !important;
+      }
+
+      /* Controles de overlay */
+      #toggleOverlayEditBtn {
+        position: absolute !important;
+        top: 8px !important;
+        left: 8px !important;
+        z-index: 3 !important;
+      }
+
+      @media (max-width: 1024px) {
+        .video-editor-main {
+          flex-direction: column !important;
+        }
+      }
+    </style>
+    {% endblock %} {% block head_styles %}
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/styles.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/sync-controls.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/playback-controls.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/ui-enhancements.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/export-progress.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/css-diagnostic-styles.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/timeline-components.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/animations.css') }}"
+    />
+
+    <!-- ###REVISAR - Recursos que precisam ser movidos do backup para a estrutura atual -->
+    <!-- 
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/video-layout-fix.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/subtitle-panel-fix.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/definitive-stacking-fix.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/video-height-fix.css') }}"
+    />
+    -->
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/timeline.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/errors.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/ux-enhancements.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/smart-panels.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/video-layout-fix.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/interactive-onboarding.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/real-time-guidance.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/expandable-timeline.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/video-editor.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/enhanced-timeline.css') }}"
+    />
+    <!-- ###REVISAR - Importação que precisa ser verificada -->
+    <!-- 
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/advanced-video-editor-phase3.css') }}"
+    />
+    -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
+    />
+    {% endblock %} {% if test_mode_script %}{{ test_mode_script|safe }}{% endif
+    %} {% block head_scripts_pre %}{% endblock %} {% block head_inline %}
+    <script>
+      (function () {
+        const nativeAtob = window.atob;
+        window.atob = function (input) {
+          try {
+            return nativeAtob(input);
+          } catch (err) {
+            try {
+              let s = (input || "").replace(/[^A-Za-z0-9+/=]/g, "");
+              while (s.length % 4 !== 0) s += "=";
+              return nativeAtob(s);
+            } catch (e2) {
+              console.warn(
+                "[safeAtob] fallback decode failed, returning synthetic minimal WebM bytes"
+              );
+              const minimal = [0x1a, 0x45, 0xdf, 0xa3];
+              return minimal.map((c) => String.fromCharCode(c)).join("");
+            }
+          }
+        };
+      })();
+    </script>
+    <style>
+      .face-animation-interface:not(.active) {
+        display: none !important;
+      }
+      .video-editor-interface:not(.active) {
+        display: none !important;
+      }
+      body.video-editor-active .face-animation-interface {
+        display: none !important;
+      }
+      body.video-editor-active .video-editor-interface {
+        display: flex !important;
+      }
+      .video-editor-interface {
+        flex-direction: column;
+      }
+    </style>
+    {% endblock %}
+  </head>
+  <body>
+    {% block body_top %}{% endblock %} {% block content %}{% endblock %} {%
+    block scripts_core %}
+    <script src="https://unpkg.com/wavesurfer.js@6/dist/wavesurfer.js"></script>
+    <script src="{{ url_for('static', filename='js/sse_client.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/export_progress.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/timeline_enhancements.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/ErrorToast.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/error_handler.js') }}"></script>
+    {% endblock %} {% block scripts_app %}
+    <!-- ###REVISAR - Recursos JavaScript que precisam ser verificados -->
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/sync_playback.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/audio.js') }}"></script>
+    <!-- -->
+    <script src="{{ url_for('static', filename='js/keyboard_navigation.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/export_validation.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/ux-enhancements.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/smart-panels.js') }}"></script>
+    {% endblock %} {% block scripts_video_editor %}
+    <!-- Modular core loader wrapper + stub bootstrap -->
+    {% set ve_version = '20251001a' %}
+    <!-- UI moderna de legendas + bridge (scripts legacy removidos) -->
+    <script src="{{ url_for('static', filename='js/video-editor/ui/video-subtitle-ui.js') }}?v={{ ve_version }}"></script>
+    <script src="{{ url_for('static', filename='js/video-editor/editor-bootstrap.js') }}?v={{ ve_version }}"></script>
+    {% endblock %} {% block scripts_after %}{% endblock %}
+  </body>
+</html>

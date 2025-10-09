@@ -1,16 +1,7 @@
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Face Sequencer Pro - Lip Sync Animation Tool</title>
-    <link
-      rel="stylesheet"
-      href="{{ url_for('static', filename='css/styles.css') }}"
-    {% extends 'base.html' %}
-    {% from 'partials/header.html' import app_header %}
-    {% from 'partials/face_animation.html' import face_animation_interface %}
-    {% from 'partials/video_editor_interface.html' import video_editor_interface %}
+﻿{% extends 'layouts/base.html' %}
+    {% from 'components/header.html' import app_header %}
+    {% from 'pages/face-animator/index.html' import face_animation_interface %}
+    {% from 'pages/video-editor/index.html' import video_editor_interface %}
 
     {% block title %}Face Sequencer Pro - Lip Sync Animation Tool{% endblock %}
 
@@ -27,38 +18,84 @@
     {% endblock %}
 
     {% block scripts_after %}
+      <script src="{{ url_for('static', filename='js/mode-switcher.js') }}"></script>
+      <script src="{{ url_for('static', filename='js/button-diagnostics.js') }}"></script>
+    <!-- Removido video-editor-global.js (legacy polling) -->
+    <script src="{{ url_for('static', filename='js/video-editor/direct-transcript-state.js') }}"></script>
+      <script src="{{ url_for('static', filename='js/video-input.js') }}"></script>
       <script src="{{ url_for('static', filename='js/interactive-onboarding.js') }}"></script>
       <script src="{{ url_for('static', filename='js/real-time-guidance.js') }}"></script>
       <script src="{{ url_for('static', filename='js/file-browser-helper.js') }}"></script>
       <script src="{{ url_for('static', filename='js/expandable-timeline.js') }}"></script>
       <script src="{{ url_for('static', filename='js/timeline-integration.js') }}"></script>
+      
+      <!-- ###REVISAR - Scripts que precisam ser verificados -->
+      <!-- 
       <script src="{{ url_for('static', filename='js/enhanced_subtitle_timeline.js') }}"></script>
+      <script src="{{ url_for('static', filename='js/video-aspect-ratio.js') }}"></script>
+      <script src="{{ url_for('static', filename='js/video-aspect-ratio-updater.js') }}"></script>
+      <script src="{{ url_for('static', filename='js/video-stacking.js') }}"></script>
+      -->
+      <script src="{{ url_for('static', filename='js/stacking-context.js') }}"></script>
+      <!-- Scripts com sufixos -fix foram normalizados para melhor manutenÃ§Ã£o -->
+      <script src="{{ url_for('static', filename='js/toggleOverlayButton.js') }}"></script>
+      <script src="{{ url_for('static', filename='js/timeline-manager.js') }}"></script>
+  <!-- Já carregado em base.html: video-subtitle-ui.js -->
+      <script src="{{ url_for('static', filename='js/css-diagnostics.js') }}"></script>
       <script>
         // Initialization script migrated from monolithic index.html
         document.addEventListener('DOMContentLoaded', function(){
           try {
             console.log('Initializing Face Sequencer App (modular template)...');
-            const required = ['#timelineContent','#timelineFrames','#frameEditor','#audioUpload'];
-            const miss = required.filter(s=>!document.querySelector(s));
-            if (miss.length) console.warn('Missing DOM elements:', miss);
+            
+            // Verificar elementos opcionais em vez de requeridos
+            const elementsToCheck = ['#timelineContent','#timelineFrames','#frameEditor','#audioUpload'];
+            const miss = elementsToCheck.filter(s=>!document.querySelector(s));
+            if (miss.length) console.log('Alguns elementos opcionais nÃ£o estÃ£o disponÃ­veis:', miss);
+            
+            // Verificar se a classe FaceSequencerApp existe antes de instanciar
+            if (typeof FaceSequencerApp === 'undefined') {
+              console.log('FaceSequencerApp nÃ£o estÃ¡ definido. InicializaÃ§Ã£o condicional ignorada.');
+              return; // Sair da funÃ§Ã£o sem gerar erro
+            }
+            
+            // Inicializar apenas se a classe existir
             window.faceSequencerApp = new FaceSequencerApp();
             console.log('Face Sequencer App initialized successfully');
-            if (window.VideoEditorModule) {
-              try {
-                window.faceSequencerApp.videoEditor = new VideoEditorModule(window.faceSequencerApp);
-                window.videoEditor = window.faceSequencerApp.videoEditor;
-                window.faceSequencerApp.videoEditor.updateGenerateButton?.();
-                console.log('🎬 VideoEditorModule instance created and attached to app');
-              } catch(e){ console.error('Failed to initialize VideoEditorModule instance:', e); }
-            }
+            
+            // Legacy VideoEditorModule removido: usar bridge + nova UI
+            setTimeout(function(){
+              if (window.videoEditorBridge) {
+                try { window.videoEditorBridge.ensureOverlay('#videoContainer'); } catch(e) {}
+              }
+              const btn = document.getElementById('toggleOverlayEditBtn');
+              if (btn) {
+                btn.style.position = 'absolute';
+                btn.style.top = '8px';
+                btn.style.left = '8px';
+                btn.style.zIndex = '999';
+                btn.style.display = 'block';
+                btn.disabled = false;
+              }
+              // Ajustes layout mínimos
+              const panels = document.querySelectorAll('.video-preview-panel, .subtitle-timeline-panel, .subtitle-properties-panel');
+              panels.forEach(p=>{p.style.minWidth='0';p.style.minHeight='0';});
+            }, 400);
           } catch (error) {
-            console.error('Error initializing Face Sequencer App:', error);
+            // Tratamento de erro mais especÃ­fico
+            if (error.message && error.message.includes('FaceSequencerApp')) {
+              console.log('Nota: MÃ³dulo FaceSequencerApp nÃ£o estÃ¡ disponÃ­vel na pÃ¡gina atual. Isso Ã© esperado em algumas visualizaÃ§Ãµes.');
+            } else {
+              console.log('Aviso: InicializaÃ§Ã£o parcial - alguns componentes opcionais nÃ£o estÃ£o disponÃ­veis.');
+            }
           }
         });
       </script>
     {% endblock %}
     <input type="file" id="imageInput" accept="image/*" style="display: none" />
     <input type="file" id="projectInput" accept=".json" style="display: none" />
+    <input type="file" id="videoInput" accept=".mp4,.mov,.mkv,.webm,.avi,.m4v,video/*" style="display: none" />
+    <input type="file" id="externalAudioInput" accept="audio/*" style="display: none" />
 
     <!-- Modals -->
     <div class="modal" id="exportModal" style="display: none">
@@ -135,7 +172,7 @@
               <p>Upload a video to get started</p>
               <button
                 class="btn btn-primary"
-                onclick="document.getElementById('loadVideoBtn').click()"
+                id="chooseVideoBtn"
               >
                 <i class="fas fa-upload"></i> Choose Video File
               </button>
@@ -240,7 +277,7 @@
             id="subtitleMetrics"
             style="display: none"
           >
-            <h4>📊 Subtitle Quality Metrics</h4>
+            <h4>ðŸ“Š Subtitle Quality Metrics</h4>
             <div class="metrics-grid">
               <div class="metric-item">
                 <span class="metric-label">Reading Speed:</span>
@@ -435,7 +472,7 @@
     <script src="{{ url_for('static', filename='js/ux-enhancements.js') }}"></script>
     <script src="{{ url_for('static', filename='js/smart-panels.js') }}"></script>
     <script>
-      // Fallback mode toggle if VideoEditorModule hasn't yet bound events
+  // (legacy fallback removido)
       document.addEventListener('DOMContentLoaded', ()=>{
         const faceBtn = document.getElementById('faceAnimationMode');
         const videoBtn = document.getElementById('videoEditorMode');
@@ -471,7 +508,7 @@
     <script>
       // Test function for Video Editor toggle
       window.testVideoEditorToggle = function () {
-        console.log("🎬 Testing Video Editor toggle...");
+        console.log("ðŸŽ¬ Testing Video Editor toggle...");
         const faceInterface = document.getElementById("faceAnimationInterface");
         const videoInterface = document.getElementById("videoEditorInterface");
         const faceBtn = document.getElementById("faceAnimationMode");
@@ -493,10 +530,10 @@
           faceBtn.classList.remove("active");
           videoBtn.classList.add("active");
 
-          console.log("✅ Video Editor interface activated!");
+          console.log("âœ… Video Editor interface activated!");
           alert("Video Editor mode activated! Check the interface.");
         } else {
-          console.error("❌ Missing required elements for toggle");
+          console.error("âŒ Missing required elements for toggle");
           alert("Error: Missing required DOM elements");
         }
       };
@@ -505,8 +542,7 @@
       window.debugVideoEditor = function () {
         console.log("=== VIDEO EDITOR DEBUG ===");
         console.log(
-          "VideoEditorModule available:",
-          typeof window.VideoEditorModule
+          "Bridge available:", typeof window.videoEditorBridge
         );
         console.log("FaceSequencerApp:", !!window.faceSequencerApp);
 
@@ -530,7 +566,7 @@
         console.log("Button onclick:", btn?.onclick);
 
         return {
-          moduleAvailable: typeof window.VideoEditorModule !== "undefined",
+          moduleAvailable: typeof window.videoEditorBridge !== "undefined",
           appAvailable: !!window.faceSequencerApp,
           editorInstance: !!(
             window.faceSequencerApp && window.faceSequencerApp.videoEditor
@@ -562,36 +598,14 @@
 
             window.faceSequencerApp = new FaceSequencerApp();
             console.log("Face Sequencer App initialized successfully");
-            if (window.VideoEditorModule) {
-              try {
-                window.faceSequencerApp.videoEditor = new VideoEditorModule(
-                  window.faceSequencerApp
-                );
-                // Provide global alias expected by E2E tests
-                try { window.videoEditor = window.faceSequencerApp.videoEditor; } catch(e) {}
-                // Force initial button state evaluation (headless conditions)
-                try { window.faceSequencerApp.videoEditor.updateGenerateButton(); } catch(e) {}
-                console.log(
-                  "🎬 VideoEditorModule instance created and attached to app"
-                );
-              } catch (veErr) {
-                console.error(
-                  "Failed to initialize VideoEditorModule instance:",
-                  veErr
-                );
-              }
-            } else {
-              console.warn(
-                "VideoEditorModule class not available at app init time"
-              );
-            }
+            console.log('[video-editor] Legacy VideoEditorModule removido; utilizando videoEditorBridge + APIs diretas.');
             // Diagnostics panel (error instrumentation) toggle
             (function () {
               const panel = document.createElement("div");
               panel.id = "diagnosticsPanel";
               panel.style.cssText =
                 "position:fixed;bottom:0;right:0;max-width:380px;width:380px;max-height:50vh;background:#111827;color:#e5e7eb;font:12px/1.4 Inter, sans-serif;border:1px solid #374151;border-bottom:0;border-right:0;border-top-left-radius:6px;display:none;flex-direction:column;z-index:6000;";
-              panel.innerHTML = `\n                <div style="display:flex;align-items:center;gap:.5rem;padding:.4rem .6rem;background:#1f2937;border-top-left-radius:6px;">\n                  <strong style="flex:1;font-size:12px;">Diagnostics</strong>\n                  <button id="diagRefreshBtn" style="background:#2563eb;border:none;color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;cursor:pointer;">Refresh</button>\n                  <button id="diagCloseBtn" style="background:#374151;border:none;color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;cursor:pointer;">×</button>\n                </div>\n                <div id="diagContent" style="overflow:auto;padding:.5rem;font-family:monospace;font-size:11px;white-space:pre-wrap;">No events</div>`;
+              panel.innerHTML = `\n                <div style="display:flex;align-items:center;gap:.5rem;padding:.4rem .6rem;background:#1f2937;border-top-left-radius:6px;">\n                  <strong style="flex:1;font-size:12px;">Diagnostics</strong>\n                  <button id="diagRefreshBtn" style="background:#2563eb;border:none;color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;cursor:pointer;">Refresh</button>\n                  <button id="diagCloseBtn" style="background:#374151;border:none;color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;cursor:pointer;">Ã—</button>\n                </div>\n                <div id="diagContent" style="overflow:auto;padding:.5rem;font-family:monospace;font-size:11px;white-space:pre-wrap;">No events</div>`;
               document.body.appendChild(panel);
               const toggleBtn = document.createElement("button");
               toggleBtn.id = "diagToggleBtn";
@@ -649,17 +663,8 @@
     <script src="{{ url_for('static', filename='js/expandable-timeline.js') }}"></script>
     <script src="{{ url_for('static', filename='js/timeline-integration.js') }}"></script>
     <script src="{{ url_for('static', filename='js/enhanced_subtitle_timeline.js') }}"></script>
-  <script src="{{ url_for('static', filename='js/video_editor_core.js') }}"></script>
-  <script src="{{ url_for('static', filename='js/video_editor.js') }}"></script>
-  <script src="{{ url_for('static', filename='js/video_editor_styles.js') }}"></script>
-  <script src="{{ url_for('static', filename='js/video_editor_timeline_bindings.js') }}"></script>
-  <script src="{{ url_for('static', filename='js/video_editor_export.js') }}"></script>
-  <script src="{{ url_for('static', filename='js/video_editor_history.js') }}"></script>
-  <script src="{{ url_for('static', filename='js/video_editor_unit_tests.js') }}"></script>
-  {% if test_mode_script %}
-  <!-- Optional smoke test for headless instantiation (runs only with FRONTEND_TEST_MODE/hash flag) -->
-  <script src="{{ url_for('static', filename='js/video_editor_smoke_test.js') }}"></script>
-  {% endif %}
+  <!-- Legacy video_editor_mod removido: substituído por editor-bootstrap + nova UI -->
+  <script src="{{ url_for('static', filename='js/video-editor/editor-bootstrap.js') }}"></script>
     <style>
       @keyframes spin {
         from {
@@ -739,6 +744,66 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
     <!-- Phase 3 Advanced Video Editor -->
     <script src="{{ url_for('static', filename='js/advanced_video_editor_phase3.js') }}"></script>
+    <!-- Fallback inline injection for Edit Overlay button (defensive against caching / late DOM) -->
+    <script>
+      (function(){
+        if(window.__VE_INLINE_EDIT_OVERLAY_INIT) return; window.__VE_INLINE_EDIT_OVERLAY_INIT=true;
+        function inject(){
+          var controls = document.querySelector('.video-controls .playback-controls') || document.querySelector('.video-controls');
+          if(!controls) return;
+          if(!document.getElementById('toggleOverlayEditBtn')){
+            var btn=document.createElement('button');
+            btn.id='toggleOverlayEditBtn';
+            btn.className='btn btn-sm';
+            btn.textContent='Edit Overlay';
+            btn.disabled=true;
+            btn.style.minWidth='92px';
+            btn.style.display='inline-block';
+            btn.style.marginLeft='6px';
+            btn.addEventListener('click', function(){
+              var overlay=document.getElementById('subtitleOverlay')||document.getElementById('veSubtitleOverlay');
+              if(!overlay) return;
+              if(!overlay.isContentEditable){
+                overlay.contentEditable='true';
+                overlay.dataset.prevOutline=overlay.style.outline||'none';
+                overlay.style.outline='2px dashed #4da3ff';
+                btn.textContent='Save Text';
+                overlay.focus();
+              }else{
+                overlay.contentEditable='false';
+                overlay.style.outline=overlay.dataset.prevOutline||'none';
+                btn.textContent='Edit Overlay';
+                try {
+                  var ve=window.videoEditor||window.faceSequencerApp?.videoEditor; var subs=ve?.subtitles||[]; var video=document.getElementById('videoPreview');
+                  if(video && subs.length){
+                    var t=video.currentTime*1000; var active=subs.find(function(s){return t>=s.start_ms && t<=s.end_ms;});
+                    if(active){ active.text=(overlay.textContent||'').trim(); ve.renderSubtitleSegments && ve.renderSubtitleSegments(); }
+                  }
+                } catch(e){}
+              }
+            });
+            controls.appendChild(btn);
+            if(window.__VE_DEBUG_OVERLAY) console.log('[InlineFallback] Edit Overlay button injected');
+          }
+          // Enable when subtitles present
+          var ve=window.videoEditor||window.faceSequencerApp?.videoEditor; var b=document.getElementById('toggleOverlayEditBtn');
+          if(b && ve && Array.isArray(ve.subtitles) && ve.subtitles.length){ b.disabled=false; }
+        }
+        // Repeated attempts (in case scripts load after)
+        var tries=0, max=50; // ~25s @500ms
+        var interval=setInterval(function(){ tries++; inject(); if(document.getElementById('toggleOverlayEditBtn') && tries>4) { /* keep enabling but stop after success */ if(tries>max) clearInterval(interval); }
+          if(tries>=max) clearInterval(interval); }, 500);
+        // Mutation observer for dynamic control area
+        var root=document.querySelector('.video-controls');
+        if(root && window.MutationObserver){
+          var mo=new MutationObserver(function(){ inject(); });
+          mo.observe(root,{childList:true,subtree:true});
+        }
+        // First immediate attempt
+        setTimeout(inject, 120);
+        window.__VE_FORCE_INJECT_EDIT_OVERLAY = inject;
+      })();
+    </script>
     <!-- Test assist script: force-enable generate button in headless webdriver to bypass visibility heuristics -->
     <script>
       (function(){
@@ -774,5 +839,76 @@
         document.addEventListener('input', function(e){ if(e.target && e.target.id==='textInput') prepareAndMaybeStart(); });
       })();
     </script>
+    <!-- Script para garantir ajuste de proporÃ§Ã£o e stacking context -->
+    <script>
+      (function() {
+        // 3) Ajuste a proporÃ§Ã£o automaticamente
+        const v = document.getElementById('videoPreview');
+        
+        // FunÃ§Ã£o para atualizar o aspect-ratio
+        function updateVideoAspect() {
+          if (v && v.videoWidth && v.videoHeight) {
+            const wrap = v.closest('.video-preview-container');
+            if (wrap) {
+              wrap.style.aspectRatio = `${v.videoWidth}/${v.videoHeight}`;
+              console.log(`Aspect ratio ajustado para ${v.videoWidth}:${v.videoHeight}`);
+            }
+          }
+        }
+        
+        // Configura event listeners
+        if (v) {
+          v.addEventListener('loadedmetadata', updateVideoAspect);
+          
+          // Se jÃ¡ estiver carregado
+          if (v.readyState >= 1) {
+            updateVideoAspect();
+          }
+        }
+        
+        // Garante que o stacking context esteja correto
+        function fixStackingContext() {
+          // 1) Painel de vÃ­deo acima dos irmÃ£os
+          const videoPanel = document.querySelector('.video-preview-panel');
+          if (videoPanel) {
+            videoPanel.style.position = 'relative';
+            videoPanel.style.zIndex = '10';
+          }
+          
+          // 2) PainÃ©is irmÃ£os abaixo
+          const otherPanels = document.querySelectorAll('.subtitle-timeline-panel, .subtitle-properties-panel');
+          otherPanels.forEach(panel => {
+            panel.style.position = 'relative';
+            panel.style.zIndex = '0';
+          });
+          
+          // Garante que o overlay esteja acima do vÃ­deo
+          const overlay = document.getElementById('subtitleOverlay') || document.getElementById('veSubtitleOverlay');
+          if (overlay) {
+            overlay.style.zIndex = '2';
+          }
+        }
+        
+        // Executa quando o DOM estiver pronto
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', function() {
+            fixStackingContext();
+            setTimeout(updateVideoAspect, 500);
+          });
+        } else {
+          fixStackingContext();
+          setTimeout(updateVideoAspect, 500);
+        }
+        
+        // Monitora cliques no botÃ£o de carregar vÃ­deo
+        document.addEventListener('click', function(e) {
+          if (e.target.id === 'loadVideoBtn' || e.target.closest('#loadVideoBtn')) {
+            setTimeout(updateVideoAspect, 1000);
+          }
+        });
+      })();
+    </script>
   </body>
   </html>
+
+

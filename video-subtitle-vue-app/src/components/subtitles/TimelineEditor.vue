@@ -2,27 +2,58 @@
   <div class="timeline-editor">
     <header class="timeline-toolbar">
       <div class="left">
-        <button type="button" class="btn" @click="$emit('create-track')">Add Text Track</button>
-        <button type="button" class="btn" @click="$emit('duplicate-selection')" :disabled="!activeLayerIds.length">
+        <button type="button" class="btn" @click="$emit('create-track')">
+          Add Text Track
+        </button>
+        <button
+          type="button"
+          class="btn"
+          @click="$emit('duplicate-selection')"
+          :disabled="!activeLayerIds.length"
+        >
           Duplicate Layer
         </button>
       </div>
       <div class="center">
         <label class="zoom">
           <span>Zoom</span>
-          <input type="range" min="40" max="240" step="10" v-model.number="pixelsPerSecond" />
+          <input
+            type="range"
+            min="40"
+            max="240"
+            step="10"
+            v-model.number="pixelsPerSecond"
+          />
         </label>
         <label class="toggle">
-          <input type="checkbox" :checked="snapping" @change="$emit('toggle-snapping', $event.target?.checked)" />
+          <input
+            type="checkbox"
+            :checked="snapping"
+            @change="$emit('toggle-snapping', $event.target?.checked)"
+          />
           <span>Snapping</span>
         </label>
         <label class="zoom" title="Snap interval in seconds">
           <span>Grid</span>
-          <input type="number" min="0.01" step="0.01" :value="snapInterval" @change="$emit('update-snap-interval', Number(($event.target as HTMLInputElement).value) || 0.05)" style="width:64px" />
+          <input
+            type="number"
+            min="0.01"
+            step="0.01"
+            :value="snapInterval"
+            @change="
+              $emit(
+                'update-snap-interval',
+                Number(($event.target as HTMLInputElement).value) || 0.05
+              )
+            "
+            style="width: 64px"
+          />
         </label>
       </div>
       <div class="right">
-        <span class="time">{{ formattedCurrentTime }} / {{ formattedDuration }}</span>
+        <span class="time"
+          >{{ formattedCurrentTime }} / {{ formattedDuration }}</span
+        >
       </div>
     </header>
     <div class="timeline-body">
@@ -66,7 +97,15 @@
 
 <script lang="ts">
 // @ts-nocheck
-import { computed, defineComponent, onBeforeUnmount, onMounted, PropType, ref, watch } from 'vue';
+import {
+  computed,
+  defineComponent,
+  onBeforeUnmount,
+  onMounted,
+  PropType,
+  ref,
+  watch,
+} from 'vue';
 import SubtitleTrack from './SubtitleTrack.vue';
 import type { TextLayer, TextTrack } from '@/modules/editor/editor-types';
 import { formatTime } from '@/utils/time';
@@ -111,7 +150,17 @@ export default defineComponent({
       default: 0.05,
     },
   },
-  emits: ['update:time', 'update-layer', 'select-layer', 'toggle-snapping', 'create-track', 'duplicate-selection', 'reorder-layer', 'reorder-track', 'update-snap-interval'],
+  emits: [
+    'update:time',
+    'update-layer',
+    'select-layer',
+    'toggle-snapping',
+    'create-track',
+    'duplicate-selection',
+    'reorder-layer',
+    'reorder-track',
+    'update-snap-interval',
+  ],
   setup(props, { emit }) {
     const pixelsPerSecond = ref(120);
     const rulerRef = ref<HTMLDivElement | null>(null);
@@ -122,9 +171,13 @@ export default defineComponent({
     const formattedCurrentTime = computed(() => formatTime(props.currentTime));
     const formattedDuration = computed(() => formatTime(props.duration));
 
-    const rulerWidth = computed(() => Math.max(props.duration * pixelsPerSecond.value, 600));
+    const rulerWidth = computed(() =>
+      Math.max(props.duration * pixelsPerSecond.value, 600)
+    );
 
-    const playheadPosition = computed(() => props.currentTime * pixelsPerSecond.value);
+    const playheadPosition = computed(
+      () => props.currentTime * pixelsPerSecond.value
+    );
 
     const ticks = computed(() => {
       const spacing = determineTickSpacing(pixelsPerSecond.value);
@@ -187,7 +240,11 @@ export default defineComponent({
       scrollLeft.value = tracksContainerRef.value.scrollLeft;
     }
 
-    function onUpdateLayer(payload: { layerId: string; start: number; end: number }) {
+    function onUpdateLayer(payload: {
+      layerId: string;
+      start: number;
+      end: number;
+    }) {
       emit('update-layer', payload);
     }
 
@@ -202,11 +259,18 @@ export default defineComponent({
       window.removeEventListener('pointerup', onPointerUp);
     });
 
-    watch(() => props.duration, () => {
-      if (props.duration * pixelsPerSecond.value < 600) {
-        pixelsPerSecond.value = Math.max(40, 600 / Math.max(props.duration, 1));
-      }
-    }, { immediate: true });
+    watch(
+      () => props.duration,
+      () => {
+        if (props.duration * pixelsPerSecond.value < 600) {
+          pixelsPerSecond.value = Math.max(
+            40,
+            600 / Math.max(props.duration, 1)
+          );
+        }
+      },
+      { immediate: true }
+    );
 
     return {
       pixelsPerSecond,

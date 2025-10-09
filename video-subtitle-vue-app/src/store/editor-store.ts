@@ -27,7 +27,10 @@ import {
 import type { SubtitleCue } from '@/modules/subtitles/subtitleTypes';
 
 function findAspectRatio(id: EditorState['aspectRatio']['id']) {
-  return ASPECT_RATIO_PRESETS.find(preset => preset.id === id) || ASPECT_RATIO_PRESETS[0];
+  return (
+    ASPECT_RATIO_PRESETS.find(preset => preset.id === id) ||
+    ASPECT_RATIO_PRESETS[0]
+  );
 }
 
 function normalizeTime(value: number) {
@@ -115,36 +118,53 @@ export const useEditorStore = defineStore('capcut-editor', {
       if (!track) return;
       track.layerIds.forEach((layerId: string) => {
         delete this.layers[layerId];
-        this.selection.order = this.selection.order.filter((current: string) => current !== layerId);
+        this.selection.order = this.selection.order.filter(
+          (current: string) => current !== layerId
+        );
         if (this.selection.primary === layerId) {
           this.selection.primary = null;
         }
       });
       delete this.tracks[id];
-      this.trackOrder = this.trackOrder.filter((trackId: string) => trackId !== id);
+      this.trackOrder = this.trackOrder.filter(
+        (trackId: string) => trackId !== id
+      );
     },
     hydrateFromCues(options: HydrateOptions) {
+      console.log('EDITOR STORE - hydrateFromCues (1/3) start', {
+        cueCount: options.cues.length,
+        hasTemplate: Boolean(options.templateId),
+      });
       const baseTrack = this.ensureTrack(options.trackName || 'Text Track 1');
       const template = options.templateId
-  ? this.templates.find((item: any) => item.id === options.templateId)
+        ? this.templates.find((item: any) => item.id === options.templateId)
         : null;
 
       const createdLayers: string[] = [];
       options.cues.forEach((cue, index) => {
-        const layer = createLayerFromCue(cue, baseTrack.id, {
-          ...DEFAULT_LAYER_STYLE,
-          ...(options.baseStyle || {}),
-          ...(template?.style || {}),
-        }, template?.karaoke);
+        const layer = createLayerFromCue(
+          cue,
+          baseTrack.id,
+          {
+            ...DEFAULT_LAYER_STYLE,
+            ...(options.baseStyle || {}),
+            ...(template?.style || {}),
+          },
+          template?.karaoke
+        );
         if (!layer.name || layer.name.trim().length === 0) {
           layer.name = `Layer ${index + 1}`;
         }
         layer.animation = template?.animation
-          ? ({ ...DEFAULT_LAYER_ANIMATION, ...template.animation } as LayerAnimation)
+          ? ({
+              ...DEFAULT_LAYER_ANIMATION,
+              ...template.animation,
+            } as LayerAnimation)
           : { ...DEFAULT_LAYER_ANIMATION };
-        layer.karaoke.enabled = layer.karaoke.words.length > 0
-          ? layer.karaoke.enabled
-          : DEFAULT_KARAOKE_STATE.enabled;
+        layer.karaoke.enabled =
+          layer.karaoke.words.length > 0
+            ? layer.karaoke.enabled
+            : DEFAULT_KARAOKE_STATE.enabled;
         this.layers[layer.id] = layer;
         baseTrack.layerIds.push(layer.id);
         createdLayers.push(layer.id);
@@ -152,11 +172,23 @@ export const useEditorStore = defineStore('capcut-editor', {
       this.selection.order = createdLayers;
       this.selection.primary = createdLayers[0] || null;
       this.updatePlaybackDurationFromLayers();
+      console.log('EDITOR STORE - hydrateFromCues (2/3) layers created', {
+        createdCount: createdLayers.length,
+        primary: this.selection.primary,
+        trackId: baseTrack.id,
+      });
+      console.log('EDITOR STORE - hydrateFromCues (3/3) playback', {
+        duration: this.playback.duration,
+      });
     },
     syncLayersFromCues(cues: SubtitleCue[]) {
       const track = this.ensureTrack();
-      const existingLayers = track.layerIds.map((id: string) => this.layers[id]).filter(Boolean) as TextLayer[];
-      const byCueText = new Map(existingLayers.map((layer: TextLayer) => [layer.text, layer]));
+      const existingLayers = track.layerIds
+        .map((id: string) => this.layers[id])
+        .filter(Boolean) as TextLayer[];
+      const byCueText = new Map(
+        existingLayers.map((layer: TextLayer) => [layer.text, layer])
+      );
       const created: string[] = [];
       cues.forEach((cue, index) => {
         const match = byCueText.get(cue.text);
@@ -179,11 +211,15 @@ export const useEditorStore = defineStore('capcut-editor', {
         }
       });
       // Remove layers that no longer have cues
-      const toRemove = track.layerIds.filter((id: string) => !created.includes(id));
+      const toRemove = track.layerIds.filter(
+        (id: string) => !created.includes(id)
+      );
       toRemove.forEach((id: string) => {
         delete this.layers[id];
       });
-      track.layerIds = track.layerIds.filter((id: string) => created.includes(id));
+      track.layerIds = track.layerIds.filter((id: string) =>
+        created.includes(id)
+      );
       this.selection.order = created;
       this.selection.primary = created[0] || null;
       this.updatePlaybackDurationFromLayers();
@@ -197,7 +233,9 @@ export const useEditorStore = defineStore('capcut-editor', {
         const previousTrack = this.tracks[layer.trackId];
         const nextTrack = this.tracks[payload.trackId];
         if (previousTrack) {
-          previousTrack.layerIds = previousTrack.layerIds.filter((id: string) => id !== layer.id);
+          previousTrack.layerIds = previousTrack.layerIds.filter(
+            (id: string) => id !== layer.id
+          );
         }
         if (nextTrack) {
           nextTrack.layerIds.push(layer.id);
@@ -210,7 +248,9 @@ export const useEditorStore = defineStore('capcut-editor', {
       if (!currentLayer) return;
       const sourceTrack = this.tracks[currentLayer.trackId];
       if (!sourceTrack) return;
-      sourceTrack.layerIds = sourceTrack.layerIds.filter((id: string) => id !== layerId);
+      sourceTrack.layerIds = sourceTrack.layerIds.filter(
+        (id: string) => id !== layerId
+      );
       const destinationTrackId = trackId || currentLayer.trackId;
       const destinationTrack = this.tracks[destinationTrackId];
       if (!destinationTrack) return;
@@ -220,7 +260,10 @@ export const useEditorStore = defineStore('capcut-editor', {
     reorderTrack(trackId: string, targetIndex: number) {
       const currentIndex = this.trackOrder.indexOf(trackId);
       if (currentIndex === -1) return;
-      const clampedIndex = Math.max(0, Math.min(targetIndex, this.trackOrder.length - 1));
+      const clampedIndex = Math.max(
+        0,
+        Math.min(targetIndex, this.trackOrder.length - 1)
+      );
       if (currentIndex === clampedIndex) return;
       this.trackOrder = this.trackOrder.filter(id => id !== trackId);
       this.trackOrder.splice(clampedIndex, 0, trackId);

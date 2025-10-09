@@ -1,6 +1,14 @@
 <template>
-  <div class="subtitle-track" :data-track-id="track.id" :data-track-order="track.order">
-    <div class="track-header" :style="{ borderColor: track.color }" @pointerdown="onTrackHeaderPointerDown">
+  <div
+    class="subtitle-track"
+    :data-track-id="track.id"
+    :data-track-order="track.order"
+  >
+    <div
+      class="track-header"
+      :style="{ borderColor: track.color }"
+      @pointerdown="onTrackHeaderPointerDown"
+    >
       <span class="name">{{ track.name }}</span>
       <span class="meta">{{ track.layerIds.length }} layers</span>
     </div>
@@ -14,9 +22,19 @@
         :style="getClipStyle(layers[layerId])"
         @pointerdown="onClipPointerDown($event, layers[layerId])"
       >
-        <div class="handle start" @pointerdown.stop="onHandlePointerDown($event, layers[layerId], 'trim-start')"></div>
+        <div
+          class="handle start"
+          @pointerdown.stop="
+            onHandlePointerDown($event, layers[layerId], 'trim-start')
+          "
+        ></div>
         <span class="clip-name">{{ layers[layerId].name }}</span>
-        <div class="handle end" @pointerdown.stop="onHandlePointerDown($event, layers[layerId], 'trim-end')"></div>
+        <div
+          class="handle end"
+          @pointerdown.stop="
+            onHandlePointerDown($event, layers[layerId], 'trim-end')
+          "
+        ></div>
       </div>
     </div>
   </div>
@@ -91,11 +109,13 @@ export default defineComponent({
       originalStart: 0,
       originalEnd: 0,
     });
-    const trackDrag = ref<{ active: boolean; trackId: string; startY: number }>({
-      active: false,
-      trackId: '',
-      startY: 0,
-    });
+    const trackDrag = ref<{ active: boolean; trackId: string; startY: number }>(
+      {
+        active: false,
+        trackId: '',
+        startY: 0,
+      }
+    );
 
     function toPixels(seconds: number) {
       return seconds * props.pixelsPerSecond;
@@ -113,11 +133,17 @@ export default defineComponent({
       return {
         left: `${left}px`,
         width: `${width}px`,
-        borderColor: layer.templateId ? 'rgba(0, 173, 255, 0.6)' : 'rgba(255,255,255,0.15)',
+        borderColor: layer.templateId
+          ? 'rgba(0, 173, 255, 0.6)'
+          : 'rgba(255,255,255,0.15)',
       };
     }
 
-    function captureDragState(event: PointerEvent, layer: TextLayer, mode: DragState['mode']) {
+    function captureDragState(
+      event: PointerEvent,
+      layer: TextLayer,
+      mode: DragState['mode']
+    ) {
       dragState.value = {
         active: true,
         mode,
@@ -138,7 +164,11 @@ export default defineComponent({
       captureDragState(event, layer, 'move');
     }
 
-    function onHandlePointerDown(event: PointerEvent, layer: TextLayer, mode: DragState['mode']) {
+    function onHandlePointerDown(
+      event: PointerEvent,
+      layer: TextLayer,
+      mode: DragState['mode']
+    ) {
       event.preventDefault();
       emit('select-layer', layer.id);
       captureDragState(event, layer, mode);
@@ -149,7 +179,8 @@ export default defineComponent({
       if (!lane) return 0;
       const rect = lane.getBoundingClientRect();
       const x = event.clientX - rect.left + props.scrollLeft;
-      const dx = x - (dragState.value.pointerStartX - rect.left + props.scrollLeft);
+      const dx =
+        x - (dragState.value.pointerStartX - rect.left + props.scrollLeft);
       return dx / props.pixelsPerSecond;
     }
 
@@ -161,13 +192,36 @@ export default defineComponent({
       let newEnd = dragState.value.originalEnd;
 
       if (dragState.value.mode === 'move') {
-        newStart = roundToGrid(clamp(dragState.value.originalStart + delta, 0, props.duration - minDuration));
-        const layerDuration = dragState.value.originalEnd - dragState.value.originalStart;
-        newEnd = clamp(newStart + layerDuration, newStart + minDuration, props.duration);
+        newStart = roundToGrid(
+          clamp(
+            dragState.value.originalStart + delta,
+            0,
+            props.duration - minDuration
+          )
+        );
+        const layerDuration =
+          dragState.value.originalEnd - dragState.value.originalStart;
+        newEnd = clamp(
+          newStart + layerDuration,
+          newStart + minDuration,
+          props.duration
+        );
       } else if (dragState.value.mode === 'trim-start') {
-        newStart = roundToGrid(clamp(dragState.value.originalStart + delta, 0, dragState.value.originalEnd - minDuration));
+        newStart = roundToGrid(
+          clamp(
+            dragState.value.originalStart + delta,
+            0,
+            dragState.value.originalEnd - minDuration
+          )
+        );
       } else if (dragState.value.mode === 'trim-end') {
-        newEnd = roundToGrid(clamp(dragState.value.originalEnd + delta, dragState.value.originalStart + minDuration, props.duration));
+        newEnd = roundToGrid(
+          clamp(
+            dragState.value.originalEnd + delta,
+            dragState.value.originalStart + minDuration,
+            props.duration
+          )
+        );
       }
 
       dragState.value.startTime = newStart;
@@ -186,12 +240,14 @@ export default defineComponent({
       if (event && dragState.value.layerId && dragState.value.mode === 'move') {
         const layer = props.layers[dragState.value.layerId];
         if (layer) {
-          const trackElements = Array.from(document.querySelectorAll('.subtitle-track')) as HTMLElement[];
+          const trackElements = Array.from(
+            document.querySelectorAll('.subtitle-track')
+          ) as HTMLElement[];
           const target = trackElements.find(el => {
             const rect = el.getBoundingClientRect();
             return event.clientY >= rect.top && event.clientY <= rect.bottom;
           });
-            const targetTrackId = target?.dataset.trackId;
+          const targetTrackId = target?.dataset.trackId;
           if (targetTrackId && targetTrackId !== layer.trackId) {
             emit('reorder-layer', {
               layerId: layer.id,
@@ -202,15 +258,22 @@ export default defineComponent({
         }
       }
       if (event && trackDrag.value.active) {
-        const trackElements = Array.from(document.querySelectorAll('.subtitle-track')) as HTMLElement[];
+        const trackElements = Array.from(
+          document.querySelectorAll('.subtitle-track')
+        ) as HTMLElement[];
         const target = trackElements.find(el => {
           const rect = el.getBoundingClientRect();
           return event.clientY >= rect.top && event.clientY <= rect.bottom;
         });
         const targetTrackId = target?.dataset.trackId;
         if (targetTrackId && targetTrackId !== trackDrag.value.trackId) {
-          const targetIndex = trackElements.findIndex(el => el.dataset.trackId === targetTrackId);
-          emit('reorder-track', { trackId: trackDrag.value.trackId, targetIndex });
+          const targetIndex = trackElements.findIndex(
+            el => el.dataset.trackId === targetTrackId
+          );
+          emit('reorder-track', {
+            trackId: trackDrag.value.trackId,
+            targetIndex,
+          });
         }
       }
       trackDrag.value.active = false;
@@ -220,7 +283,11 @@ export default defineComponent({
       // Start track drag only if clicking header area (left column) without a layer clip
       const target = event.target as HTMLElement;
       if (target.closest('.track-header')) {
-        trackDrag.value = { active: true, trackId: props.track.id, startY: event.clientY };
+        trackDrag.value = {
+          active: true,
+          trackId: props.track.id,
+          startY: event.clientY,
+        };
         window.addEventListener('pointerup', onPointerUp, { once: true });
       }
     }
@@ -284,7 +351,11 @@ export default defineComponent({
   position: absolute;
   top: 14px;
   height: 36px;
-  background: linear-gradient(135deg, rgba(0, 173, 255, 0.35), rgba(0, 173, 255, 0.15));
+  background: linear-gradient(
+    135deg,
+    rgba(0, 173, 255, 0.35),
+    rgba(0, 173, 255, 0.15)
+  );
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.2);
   display: flex;
@@ -297,7 +368,11 @@ export default defineComponent({
 }
 
 .clip.active {
-  background: linear-gradient(135deg, rgba(0, 173, 255, 0.6), rgba(0, 173, 255, 0.35));
+  background: linear-gradient(
+    135deg,
+    rgba(0, 173, 255, 0.6),
+    rgba(0, 173, 255, 0.35)
+  );
   border-color: rgba(0, 173, 255, 0.8);
 }
 
@@ -339,5 +414,3 @@ export default defineComponent({
   text-overflow: ellipsis;
 }
 </style>
-
-
